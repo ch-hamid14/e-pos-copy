@@ -1,0 +1,36 @@
+import { IRequest } from '../../../common'
+import { purchaseService } from '../../services'
+import { auditFromListQuery, auditFromRequest } from '../shared/audit'
+
+class PurchaseController {
+  async list(_: Electron.IpcMainInvokeEvent, req: IRequest) {
+    return purchaseService.list(
+      req.query?.companyId as string,
+      req.query?.branchId as string,
+      auditFromListQuery(req),
+      {
+        supplierId: req.query?.supplierId as string,
+        search: req.query?.search as string,
+        fromDate: req.query?.fromDate as string,
+        toDate: req.query?.toDate as string,
+        sortField: req.query?.sortField as string,
+        sortOrder: req.query?.sortOrder as string
+      }
+    )
+  }
+
+  async create(_: Electron.IpcMainInvokeEvent, req: IRequest) {
+    return purchaseService.create(
+      req.body?.companyId as string,
+      req.body?.branchId as string,
+      auditFromRequest(req),
+      req.body?.payload as any
+    )
+  }
+
+  async get(_: Electron.IpcMainInvokeEvent, req: IRequest) {
+    return purchaseService.get(req.params?.id as string)
+  }
+}
+
+export const purchaseController = new PurchaseController()

@@ -1,0 +1,18 @@
+export enum Roles {
+  SUPER_ADMIN = 'super_admin',
+  COMPANY_OWNER = 'company_owner',
+  BRANCH_ADMIN = 'branch_admin',
+  STAFF = 'staff',
+  SYSTEM_ADMIN = 'system_admin',
+  ANY = 'any'
+}
+
+export enum Permissions {
+  SALES = 'sales',
+  INVENTORY = 'inventory',
+  REPORTS = 'reports',
+  CUSTOMERS = 'customers',
+  FINANCE = 'finance',
+  ADMINISTRATION = 'administration',
+  SYSTEM = 'system'
+}

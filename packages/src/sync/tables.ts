@@ -1,0 +1,53 @@
+/** Tables replicated between POS clients and the company authority database. */
+export const SYNC_TABLES = [
+  'company_profile',
+  'branches',
+  'permissions',
+  'roles',
+  'role_permissions',
+  'user_profiles',
+  'user_roles',
+  'colors',
+  'suppliers',
+  'categories',
+  'products',
+  'purchases',
+  'product_items',
+  'inventory_movements',
+  'customers',
+  'ledger_entries',
+  'sales',
+  'sale_lines',
+  'payments',
+  'expense_categories',
+  'expenses'
+] as const
+
+export type SyncTable = (typeof SYNC_TABLES)[number]
+
+/** Columns present on every auditable business row */
+export const AUDIT_COLUMNS = ['created_by', 'updated_by', 'deleted_by'] as const
+
+export const TABLE_AUDIT_COLUMNS: Record<SyncTable, readonly string[]> = {
+  company_profile: AUDIT_COLUMNS,
+  branches: AUDIT_COLUMNS,
+  permissions: ['created_by', 'updated_by'],
+  roles: AUDIT_COLUMNS,
+  role_permissions: ['created_by', 'updated_by'],
+  user_profiles: AUDIT_COLUMNS,
+  user_roles: ['created_by', 'updated_by'],
+  colors: AUDIT_COLUMNS,
+  suppliers: AUDIT_COLUMNS,
+  categories: AUDIT_COLUMNS,
+  products: AUDIT_COLUMNS,
+  purchases: [...AUDIT_COLUMNS, 'device_id'],
+  product_items: AUDIT_COLUMNS,
+  inventory_movements: ['created_by', 'updated_by'],
+  customers: AUDIT_COLUMNS,
+  ledger_entries: ['created_by', 'updated_by'],
+  sales: [...AUDIT_COLUMNS, 'device_id'],
+  sale_lines: ['created_by', 'updated_by'],
+  payments: ['created_by', 'updated_by'],
+  expense_categories: AUDIT_COLUMNS,
+  expenses: [...AUDIT_COLUMNS, 'device_id']
+}

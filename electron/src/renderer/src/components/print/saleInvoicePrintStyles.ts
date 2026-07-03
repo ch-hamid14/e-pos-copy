@@ -1,0 +1,197 @@
+/** Styles embedded in the hidden PDF render window (kept in sync with sale-invoice.scss). */
+export const SALE_INVOICE_PRINT_CSS = `
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #fff;
+  }
+
+  .sale-invoice-page {
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0 auto;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 11pt;
+    color: #000;
+    background: #fff;
+  }
+
+  .sale-invoice-letterhead-space {
+    height: 72mm;
+    min-height: 72mm;
+  }
+
+  .sale-invoice-sheet {
+    border: 1px solid #000;
+    margin: 0 10mm 10mm;
+    padding: 4mm 5mm 8mm;
+  }
+
+  .sale-invoice-meta {
+    margin-bottom: 4mm;
+  }
+
+  .sale-invoice-meta-row {
+    display: flex;
+    gap: 4mm;
+    margin-bottom: 2.5mm;
+  }
+
+  .sale-invoice-meta-row--split {
+    justify-content: space-between;
+  }
+
+  .sale-invoice-field-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 2mm;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .sale-invoice-field-row--right {
+    justify-content: flex-end;
+  }
+
+  .sale-invoice-label {
+    white-space: nowrap;
+    font-size: 10.5pt;
+  }
+
+  .sale-invoice-value {
+    flex: 1;
+    min-width: 24mm;
+    border-bottom: 1px solid #000;
+    min-height: 5mm;
+    padding: 0 1mm 0.5mm;
+    font-size: 10.5pt;
+  }
+
+  .sale-invoice-field-row--right .sale-invoice-value {
+    flex: 0 1 42mm;
+  }
+
+  .sale-invoice-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    margin-top: 2mm;
+  }
+
+  .sale-invoice-table th,
+  .sale-invoice-table td {
+    border: 1px solid #000;
+    vertical-align: top;
+    padding: 2mm;
+  }
+
+  .sale-invoice-table th {
+    font-weight: 700;
+    text-align: center;
+    font-size: 10.5pt;
+  }
+
+  .col-sr {
+    width: 12%;
+    text-align: center;
+  }
+
+  .col-particulars {
+    width: 54%;
+  }
+
+  .col-qty {
+    width: 14%;
+    text-align: center;
+    vertical-align: middle !important;
+    font-size: 11pt;
+  }
+
+  .col-amount {
+    width: 20%;
+    text-align: center;
+    vertical-align: middle !important;
+    font-size: 11pt;
+  }
+
+  .sale-invoice-particulars {
+    position: relative;
+    min-height: 34mm;
+  }
+
+  .sale-invoice-particulars-title {
+    font-size: 18pt;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    margin-bottom: 2mm;
+  }
+
+  .sale-invoice-particulars-breakdown {
+    float: right;
+    width: 48%;
+    font-size: 9.5pt;
+    line-height: 1.55;
+  }
+
+  .sale-invoice-breakdown-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 2mm;
+  }
+
+  .sale-invoice-particulars-desc {
+    clear: both;
+    padding-top: 10mm;
+    font-size: 10.5pt;
+  }
+
+  .sale-invoice-total-label {
+    text-align: center;
+    font-weight: 700;
+    font-size: 11pt;
+  }
+
+  .sale-invoice-total-amount {
+    font-weight: 700;
+  }
+
+  .sale-invoice-amount-words {
+    display: flex;
+    align-items: flex-end;
+    gap: 2mm;
+    margin-top: 4mm;
+  }
+
+  .sale-invoice-amount-words-value {
+    flex: 1;
+    border-bottom: 1px solid #000;
+    min-height: 5mm;
+    padding: 0 1mm 0.5mm;
+    font-size: 10.5pt;
+  }
+
+  .sale-invoice-signatures {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 14mm;
+    padding: 0 4mm;
+  }
+
+  .sale-invoice-signature-block {
+    width: 38%;
+    text-align: center;
+    font-size: 10.5pt;
+  }
+
+  .sale-invoice-signature-block--right {
+    margin-left: auto;
+  }
+
+  .sale-invoice-signature-line {
+    border-bottom: 1px solid #000;
+    height: 10mm;
+    margin-bottom: 2mm;
+  }
+`

@@ -1,0 +1,196 @@
+import dayjs from 'dayjs'
+import { amountInWords } from '@/renderer/utils/amountInWords'
+import { formatInvoiceAmount, formatInvoicePrice } from '@/renderer/utils/invoiceFormat'
+
+export type SaleInvoiceLine = {
+  serialNumber: string
+  motorNumber?: string
+  productName?: string
+  categoryName?: string
+  productDescription?: string
+  colorName?: string
+  salePrice: number
+  taxPercent: number
+  taxAmount: number
+  whtAmount: number
+  lineTotal: number
+}
+
+export type SaleInvoiceData = {
+  billNo: string | number
+  saleDate: string
+  customerName?: string
+  customerAddress?: string
+  customerCnic?: string
+  customerPhone?: string
+  motorNumber?: string
+  chassisNumber?: string
+  model?: string
+  colour?: string
+  lines: SaleInvoiceLine[]
+  netTotal: number
+  companyName: string
+}
+
+type FieldRowProps = {
+  label: string
+  value?: string
+  className?: string
+}
+
+function FieldRow({ label, value, className }: FieldRowProps) {
+  return (
+    <div className={`sale-invoice-field-row ${className || ''}`}>
+      <span className="sale-invoice-label">{label}</span>
+      <span className="sale-invoice-value">{value || ''}</span>
+    </div>
+  )
+}
+
+function joinUnique(values: (string | undefined)[]) {
+  return [...new Set(values.filter(Boolean))].join(', ')
+}
+
+export function mapSaleDetailToInvoice(detail: any, companyName: string): SaleInvoiceData | null {
+  if (!detail?.sale) return null
+  const sale = detail.sale
+  const lines: SaleInvoiceLine[] = (detail.lines || []).map((line: any) => ({
+    serialNumber: line.serialNumber,
+    motorNumber: line.motorNumber,
+    productName: line.productName,
+    categoryName: line.categoryName,
+    productDescription: line.productDescription,
+    colorName: line.colorName,
+    salePrice: Number(line.salePrice ?? 0),
+    taxPercent: Number(line.taxPercent ?? 0),
+    taxAmount: Number(line.taxAmount ?? 0),
+    whtAmount: Number(line.whtAmount ?? 0),
+    lineTotal: Number(line.lineTotal ?? 0)
+  }))
+
+  return {
+    billNo: sale.billNo ?? '—',
+    saleDate: sale.saleDate,
+    customerName: sale.customer?.name,
+    customerAddress: sale.customer?.address,
+    customerCnic: sale.customer?.cnic,
+    customerPhone: sale.customer?.phone,
+    motorNumber: joinUnique(lines.map((l) => l.motorNumber)),
+    chassisNumber: joinUnique(lines.map((l) => l.serialNumber)),
+    model: joinUnique(lines.map((l) => l.productName)),
+    colour: joinUnique(lines.map((l) => l.colorName)),
+    lines,
+    netTotal: Number(sale.netTotal ?? 0),
+    companyName
+  }
+}
+
+export function SaleInvoice({ data }: { data: SaleInvoiceData }) {
+  const totalQty = data.lines.length
+  const dated = dayjs(data.saleDate).format('DD-MMM-YYYY')
+
+  return (
+    <div className="sale-invoice-page">
+      <div className="sale-invoice-letterhead-space" aria-hidden="true" />
+
+      <div className="sale-invoice-sheet">
+        <div className="sale-invoice-meta">
+          <div className="sale-invoice-meta-row sale-invoice-meta-row--split">
+            <FieldRow label="Bill No." value={String(data.billNo)} />
+            <FieldRow label="Dated" value={dated} className="sale-invoice-field-row--right" />
+          </div>
+          <FieldRow label="Customer Name" value={data.customerName} />
+          <FieldRow label="Address" value={data.customerAddress} />
+          <div className="sale-invoice-meta-row sale-invoice-meta-row--split">
+            <FieldRow label="CNIC No." value={data.customerCnic} />
+            <FieldRow label="Contact No." value={data.customerPhone} className="sale-invoice-field-row--right" />
+          </div>
+          <div className="sale-invoice-meta-row sale-invoice-meta-row--split">
+            <FieldRow label="Motor No." value={data.motorNumber} />
+            <FieldRow label="Chassis No." value={data.chassisNumber} className="sale-invoice-field-row--right" />
+          </div>
+          <div className="sale-invoice-meta-row sale-invoice-meta-row--split">
+            <FieldRow label="Model" value={data.model} />
+            <FieldRow label="Colour" value={data.colour} className="sale-invoice-field-row--right" />
+          </div>
+        </div>
+
+        <table className="sale-invoice-table">
+          <thead>
+            <tr>
+              <th className="col-sr">Sr. No.</th>
+              <th className="col-particulars">Particulars</th>
+              <th className="col-qty">Quantity</th>
+              <th className="col-amount">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.lines.map((line, index) => {
+              const title = [line.categoryName, line.productName].filter(Boolean).join(' ')
+              const description = line.productDescription || line.categoryName || line.productName || ''
+              const taxLabel =
+                line.taxPercent % 1 === 0
+                  ? `Sale Tax S.T @ ${line.taxPercent}%`
+                  : `Sale Tax S.T @ ${line.taxPercent}%`
+
+              return (
+                <tr key={`${line.serialNumber}-${index}`}>
+                  <td className="col-sr">{String(index + 1).padStart(2, '0')}</td>
+                  <td className="col-particulars">
+                    <div className="sale-invoice-particulars">
+                      <div className="sale-invoice-particulars-title">{title}</div>
+                      <div className="sale-invoice-particulars-breakdown">
+                        <div className="sale-invoice-breakdown-row">
+                          <span>Ex. S.T. Price</span>
+                          <span>{formatInvoicePrice(line.salePrice)}</span>
+                        </div>
+                        <div className="sale-invoice-breakdown-row">
+                          <span>{taxLabel}</span>
+                          <span>{formatInvoicePrice(line.taxAmount)}</span>
+                        </div>
+                        <div className="sale-invoice-breakdown-row">
+                          <span>Tax u/s 236 G/H</span>
+                          <span>{formatInvoicePrice(line.whtAmount)}</span>
+                        </div>
+                      </div>
+                      <div className="sale-invoice-particulars-desc">{description}</div>
+                    </div>
+                  </td>
+                  <td className="col-qty">01</td>
+                  <td className="col-amount">{formatInvoiceAmount(line.lineTotal)}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colSpan={2} className="sale-invoice-total-label">
+                Total
+              </td>
+              <td className="col-qty">{String(totalQty).padStart(2, '0')}</td>
+              <td className="col-amount sale-invoice-total-amount">
+                {formatInvoiceAmount(data.netTotal)}
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+
+        <div className="sale-invoice-amount-words">
+          <span className="sale-invoice-label">Amount in Word</span>
+          <span className="sale-invoice-amount-words-value">{amountInWords(data.netTotal)}</span>
+        </div>
+
+        <div className="sale-invoice-signatures">
+          <div className="sale-invoice-signature-block">
+            <div className="sale-invoice-signature-line" />
+            <span>Customer Signature</span>
+          </div>
+          <div className="sale-invoice-signature-block sale-invoice-signature-block--right">
+            <div className="sale-invoice-signature-line" />
+            <span>{data.companyName}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

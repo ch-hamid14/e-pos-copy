@@ -1,0 +1,273 @@
+.thermal-receipt-print-root {
+  display: none;
+}
+
+.thermal-receipt {
+  width: 80mm;
+  max-width: 80mm;
+  margin: 0 auto;
+  padding: 3mm 4mm 6mm;
+  box-sizing: border-box;
+  font-family: 'Segoe UI', Arial, Helvetica, sans-serif;
+  font-size: 9pt;
+  line-height: 1.35;
+  color: #111;
+  background: #fff;
+}
+
+.thermal-receipt__accent {
+  height: 3px;
+  margin: 0 -4mm 3mm;
+  background: linear-gradient(90deg, #111 0%, #444 50%, #111 100%);
+}
+
+.thermal-header {
+  text-align: center;
+  margin-bottom: 2mm;
+}
+
+.thermal-header__brand {
+  font-size: 13pt;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  line-height: 1.2;
+}
+
+.thermal-header__badge {
+  display: inline-block;
+  margin-top: 2mm;
+  padding: 1mm 3mm;
+  border: 1.5px solid #111;
+  border-radius: 2px;
+  font-size: 7.5pt;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+}
+
+.thermal-divider {
+  border-top: 1px dashed #888;
+  margin: 2.5mm 0;
+}
+
+.thermal-divider--heavy {
+  border-top: 2px solid #111;
+  border-style: solid;
+}
+
+.thermal-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 2mm;
+  margin-bottom: 1mm;
+  font-size: 8.5pt;
+}
+
+.thermal-row--bold {
+  font-weight: 700;
+  font-size: 9pt;
+}
+
+.thermal-row span:first-child {
+  color: #444;
+  flex-shrink: 0;
+}
+
+.thermal-row span:last-child {
+  text-align: right;
+  word-break: break-word;
+}
+
+.thermal-meta__address {
+  margin-top: 1mm;
+  font-size: 8pt;
+  color: #333;
+  line-height: 1.4;
+}
+
+.thermal-items__title {
+  font-size: 7.5pt;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: #555;
+  margin-bottom: 2mm;
+}
+
+.thermal-item {
+  margin-bottom: 3mm;
+  padding-bottom: 2.5mm;
+  border-bottom: 1px dotted #ccc;
+}
+
+.thermal-item:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.thermal-item__head {
+  display: grid;
+  grid-template-columns: 7mm 1fr auto;
+  gap: 1.5mm;
+  align-items: start;
+  margin-bottom: 1mm;
+}
+
+.thermal-item__index {
+  font-weight: 700;
+  font-size: 8pt;
+  color: #666;
+}
+
+.thermal-item__name {
+  font-weight: 700;
+  font-size: 9pt;
+  line-height: 1.25;
+}
+
+.thermal-item__total {
+  font-weight: 800;
+  font-size: 9pt;
+  white-space: nowrap;
+}
+
+.thermal-item__detail,
+.thermal-item__breakdown {
+  display: flex;
+  justify-content: space-between;
+  gap: 2mm;
+  font-size: 7.5pt;
+  color: #555;
+  padding-left: 8.5mm;
+  margin-top: 0.5mm;
+}
+
+.thermal-item__breakdown span:last-child {
+  font-weight: 600;
+  color: #222;
+}
+
+.thermal-summary {
+  margin-bottom: 2mm;
+}
+
+.thermal-grand-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 2mm 0 3mm;
+  padding: 2.5mm 3mm;
+  background: #111;
+  color: #fff;
+  font-weight: 800;
+  font-size: 11pt;
+  letter-spacing: 0.3px;
+}
+
+.thermal-payments {
+  margin-bottom: 2mm;
+}
+
+.thermal-due {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 1.5mm;
+  padding: 2mm 2.5mm;
+  border: 1.5px solid #111;
+  font-weight: 800;
+  font-size: 9.5pt;
+}
+
+.thermal-words {
+  margin: 2mm 0;
+}
+
+.thermal-words__label {
+  font-size: 7pt;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #666;
+  text-transform: uppercase;
+  margin-bottom: 1mm;
+}
+
+.thermal-words__value {
+  font-size: 8pt;
+  font-style: italic;
+  line-height: 1.4;
+}
+
+.thermal-footer {
+  text-align: center;
+  margin-top: 2mm;
+}
+
+.thermal-footer__thanks {
+  margin: 2mm 0 1mm;
+  font-size: 9.5pt;
+  font-weight: 700;
+}
+
+.thermal-footer__note,
+.thermal-footer__printed {
+  margin: 0.5mm 0;
+  font-size: 7pt;
+  color: #666;
+}
+
+.thermal-footer__bar {
+  height: 8mm;
+  margin-top: 3mm;
+  background: repeating-linear-gradient(
+    90deg,
+    #111 0,
+    #111 2px,
+    transparent 2px,
+    transparent 4px
+  );
+  opacity: 0.15;
+}
+
+@media print {
+  body.print-format-thermal {
+    @page {
+      size: 80mm auto;
+      margin: 0;
+    }
+
+    html,
+    body {
+      width: 80mm;
+      height: auto;
+      overflow: visible !important;
+      background: #fff !important;
+    }
+
+    body * {
+      visibility: hidden;
+    }
+
+    .thermal-receipt-print-root,
+    .thermal-receipt-print-root * {
+      visibility: visible;
+    }
+
+    .thermal-receipt-print-root {
+      display: block !important;
+      position: fixed;
+      inset: 0;
+      z-index: 99999;
+      background: #fff;
+    }
+
+    .sale-invoice-print-root {
+      display: none !important;
+    }
+
+    .thermal-receipt {
+      width: 80mm;
+      margin: 0;
+      padding: 2mm 3mm 4mm;
+    }
+  }
+}

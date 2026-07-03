@@ -1,0 +1,89 @@
+import { ipcMain } from 'electron'
+import { Channels } from '../../common'
+import { catchIpcHandler } from './handler'
+import {
+  authController,
+  colorController,
+  supplierController,
+  categoryController,
+  productController,
+  purchaseController,
+  inventoryController,
+  customerController,
+  saleController,
+  expenseController,
+  dashboardController,
+  reportController,
+  branchController,
+  printController,
+  syncController
+} from '../controllers'
+
+ipcMain.handle(`POST:${Channels.AUTH}`, catchIpcHandler(authController.login))
+ipcMain.handle(`POST:${Channels.AUTH}:continue`, catchIpcHandler(authController.continueSession))
+ipcMain.handle(`POST:${Channels.AUTH}:refresh`, catchIpcHandler(authController.refreshSession))
+ipcMain.handle(`GET:${Channels.AUTH}:online`, catchIpcHandler(authController.checkOnline))
+ipcMain.handle(`POST:${Channels.AUTH}:otp`, catchIpcHandler(authController.sendOtp))
+ipcMain.handle(`POST:${Channels.AUTH}:logout`, catchIpcHandler(authController.logout))
+
+ipcMain.handle(`GET:${Channels.COLORS}`, catchIpcHandler(colorController.list))
+ipcMain.handle(`POST:${Channels.COLORS}`, catchIpcHandler(colorController.create))
+ipcMain.handle(`PUT:${Channels.COLORS}`, catchIpcHandler(colorController.update))
+ipcMain.handle(`DELETE:${Channels.COLORS}`, catchIpcHandler(colorController.remove))
+
+ipcMain.handle(`GET:${Channels.SUPPLIERS}`, catchIpcHandler(supplierController.list))
+ipcMain.handle(`POST:${Channels.SUPPLIERS}`, catchIpcHandler(supplierController.create))
+ipcMain.handle(`PUT:${Channels.SUPPLIERS}`, catchIpcHandler(supplierController.update))
+ipcMain.handle(`DELETE:${Channels.SUPPLIERS}`, catchIpcHandler(supplierController.remove))
+
+ipcMain.handle(`GET:${Channels.CATEGORIES}`, catchIpcHandler(categoryController.list))
+ipcMain.handle(`POST:${Channels.CATEGORIES}`, catchIpcHandler(categoryController.create))
+ipcMain.handle(`PUT:${Channels.CATEGORIES}`, catchIpcHandler(categoryController.update))
+ipcMain.handle(`DELETE:${Channels.CATEGORIES}`, catchIpcHandler(categoryController.remove))
+
+ipcMain.handle(`GET:${Channels.PRODUCTS}`, catchIpcHandler(productController.list))
+ipcMain.handle(`POST:${Channels.PRODUCTS}`, catchIpcHandler(productController.create))
+ipcMain.handle(`PUT:${Channels.PRODUCTS}`, catchIpcHandler(productController.update))
+ipcMain.handle(`DELETE:${Channels.PRODUCTS}`, catchIpcHandler(productController.remove))
+
+ipcMain.handle(`GET:${Channels.PURCHASES}`, catchIpcHandler(purchaseController.list))
+ipcMain.handle(`POST:${Channels.PURCHASES}`, catchIpcHandler(purchaseController.create))
+ipcMain.handle(`GET:${Channels.PURCHASES}:detail`, catchIpcHandler(purchaseController.get))
+
+ipcMain.handle(`GET:${Channels.PRODUCT_ITEMS}`, catchIpcHandler(inventoryController.list))
+ipcMain.handle(`GET:${Channels.INVENTORY}:search`, catchIpcHandler(inventoryController.search))
+ipcMain.handle(`GET:${Channels.INVENTORY}:detail`, catchIpcHandler(inventoryController.detail))
+ipcMain.handle(`POST:${Channels.INVENTORY}:adjust`, catchIpcHandler(inventoryController.adjust))
+ipcMain.handle(`POST:${Channels.TRANSFERS}`, catchIpcHandler(inventoryController.transfer))
+
+ipcMain.handle(`POST:${Channels.SALES}`, catchIpcHandler(saleController.create))
+ipcMain.handle(`POST:${Channels.SALES}:payment`, catchIpcHandler(saleController.recordPayment))
+ipcMain.handle(`GET:${Channels.SALES}`, catchIpcHandler(saleController.list))
+ipcMain.handle(`GET:${Channels.SALES}:detail`, catchIpcHandler(saleController.get))
+ipcMain.handle(`GET:${Channels.SALES}:due`, catchIpcHandler(saleController.listDue))
+
+ipcMain.handle(`GET:${Channels.CUSTOMERS}`, catchIpcHandler(customerController.list))
+ipcMain.handle(`POST:${Channels.CUSTOMERS}`, catchIpcHandler(customerController.create))
+ipcMain.handle(`PUT:${Channels.CUSTOMERS}`, catchIpcHandler(customerController.update))
+ipcMain.handle(`DELETE:${Channels.CUSTOMERS}`, catchIpcHandler(customerController.remove))
+ipcMain.handle(`GET:${Channels.CUSTOMERS}:ledger`, catchIpcHandler(customerController.ledger))
+
+ipcMain.handle(`GET:${Channels.EXPENSES}`, catchIpcHandler(expenseController.list))
+ipcMain.handle(`POST:${Channels.EXPENSES}`, catchIpcHandler(expenseController.create))
+ipcMain.handle(`DELETE:${Channels.EXPENSES}`, catchIpcHandler(expenseController.remove))
+ipcMain.handle(`GET:${Channels.EXPENSES}:categories`, catchIpcHandler(expenseController.categories))
+ipcMain.handle(`POST:${Channels.EXPENSES}:categories`, catchIpcHandler(expenseController.createCategory))
+ipcMain.handle(`PUT:${Channels.EXPENSES}:categories`, catchIpcHandler(expenseController.updateCategory))
+ipcMain.handle(`DELETE:${Channels.EXPENSES}:categories`, catchIpcHandler(expenseController.removeCategory))
+
+ipcMain.handle(`GET:${Channels.DASHBOARD}`, catchIpcHandler(dashboardController.metrics))
+ipcMain.handle(`GET:${Channels.BRANCHES}`, catchIpcHandler(branchController.list))
+ipcMain.handle(`GET:${Channels.REPORTS}:sales`, catchIpcHandler(reportController.sales))
+ipcMain.handle(`GET:${Channels.REPORTS}:purchases`, catchIpcHandler(reportController.purchases))
+ipcMain.handle(`GET:${Channels.REPORTS}:customers`, catchIpcHandler(reportController.customers))
+ipcMain.handle(`GET:${Channels.REPORTS}:customers:detail`, catchIpcHandler(reportController.customerDetail))
+ipcMain.handle(`POST:${Channels.PRINT}:sale-invoice`, catchIpcHandler(printController.downloadSaleInvoice))
+ipcMain.handle(`POST:${Channels.PRINT}:thermal-receipt`, catchIpcHandler(printController.downloadThermalReceipt))
+
+ipcMain.handle(`GET:${Channels.SYNC}:status`, catchIpcHandler(syncController.status))
+ipcMain.handle(`POST:${Channels.SYNC}`, catchIpcHandler(syncController.syncNow))

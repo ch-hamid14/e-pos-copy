@@ -1,0 +1,11 @@
+{
+    "name": "@madix/sync",
+    "version": "1.0.0",
+    "private": true,
+    "main": "index.js",
+    "types": "index.d.ts",
+    "peerDependencies": {
+        "knex": ">=3.0.0",
+        "pg": ">=8.0.0"
+    }
+}

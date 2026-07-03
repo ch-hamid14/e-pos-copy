@@ -1,0 +1,28 @@
+{
+  "name": "@madix/database",
+  "version": "1.0.0",
+  "private": true,
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "files": [
+    "dist",
+    "package.json"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepare": "npm run build",
+    "migrate:control": "knex migrate:latest --knexfile knexfile.control.ts",
+    "migrate:control:rollback": "knex migrate:rollback --knexfile knexfile.control.ts",
+    "migrate:company": "npm run build && knex migrate:latest --knexfile knexfile.company.ts"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^16.4.5",
+    "knex": "^3.1.0",
+    "pg": "^8.12.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.8",
+    "typescript": "^5.5.2"
+  }
+}
