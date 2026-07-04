@@ -105,14 +105,14 @@ const AppLayout = () => {
         <div className="app-sider-brand">
           {!collapsed ? (
             <>
-              <div className="app-sider-logo">M</div>
+              <div className="app-sider-logo">V</div>
               <div className="app-sider-brand-text">
-                <Text strong className="app-sider-title">Madix E-POS</Text>
+                <Text strong className="app-sider-title">VOLT POS</Text>
                 {branchName && <Text className="app-sider-branch">{branchName}</Text>}
               </div>
             </>
           ) : (
-            <div className="app-sider-logo app-sider-logo--collapsed">M</div>
+            <div className="app-sider-logo app-sider-logo--collapsed">V</div>
           )}
         </div>
 
@@ -146,7 +146,7 @@ const AppLayout = () => {
               onClick={() => setCollapsed(!collapsed)}
             />
             <div className="app-header-titles">
-              <Text type="secondary" className="app-header-eyebrow">Madix E-POS</Text>
+              <Text type="secondary" className="app-header-eyebrow">VOLT POS</Text>
               <Text strong className="app-header-page">{currentTitle}</Text>
             </div>
           </div>

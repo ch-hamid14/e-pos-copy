@@ -38,7 +38,7 @@ function createWindow(): void {
 }
 
 app.whenReady().then(async () => {
-  electronApp.setAppUserModelId('com.madix.epos')
+  electronApp.setAppUserModelId('com.madix.volt-pos')
   try {
     await initDatabase()
   } catch (err) {

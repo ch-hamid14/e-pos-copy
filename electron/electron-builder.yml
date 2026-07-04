@@ -1,5 +1,5 @@
-appId: com.madix-pos.app
-productName: madix-pos-app
+appId: com.madix.volt-pos
+productName: VOLT POS
 directories:
   buildResources: build
 files:
@@ -13,7 +13,7 @@ asarUnpack:
   - resources/**
   - node_modules/@madix/database/dist/migrations/**
 win:
-  executableName: madix-pos-app
+  executableName: VOLT POS
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}

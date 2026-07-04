@@ -170,7 +170,7 @@ export const Login = () => {
 
   return (
     <>
-      <h2>Madix E-POS</h2>
+      <h2>VOLT POS</h2>
       <p>Serialized inventory POS</p>
 
       {!online && offlineContinueFailed && (
