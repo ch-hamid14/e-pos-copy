@@ -84,8 +84,8 @@ export const Menus: IMenu[] = [
     permissions: [Permissions.REPORTS],
     icon: React.createElement(IoStatsChart, iconProps),
     children: [
-      { key: App_Routes.SALES_REPORTS, label: 'Sale Reports', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
-      { key: App_Routes.PURCHASE_REPORTS, label: 'Purchase Reports', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
+      // { key: App_Routes.SALES_REPORTS, label: 'Sale Reports', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
+      // { key: App_Routes.PURCHASE_REPORTS, label: 'Purchase Reports', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
       { key: App_Routes.CUSTOMER_REPORTS, label: 'Customer Reports', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] }
     ]
   }

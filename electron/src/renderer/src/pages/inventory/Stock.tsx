@@ -7,7 +7,8 @@ import {
   categoryAPI,
   colorAPI,
   inventoryAPI,
-  productAPI
+  productAPI,
+  supplierAPI
 } from '@/renderer/services'
 import { useSession } from '@/renderer/hooks/useSession'
 import { formatRs, PageHeader } from '../shared/page-ui'
@@ -29,16 +30,19 @@ export const Stock = () => {
   const [productId, setProductId] = useState<string>()
   const [categoryId, setCategoryId] = useState<string>()
   const [colorId, setColorId] = useState<string>()
+  const [supplierId, setSupplierId] = useState<string>()
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null)
   const [products, setProducts] = useState<any[]>([])
   const [categories, setCategories] = useState<any[]>([])
   const [colors, setColors] = useState<any[]>([])
+  const [suppliers, setSuppliers] = useState<any[]>([])
 
   useEffect(() => {
     if (!companyId) return
     productAPI.list(companyId).then(setProducts)
     categoryAPI.list(companyId).then(setCategories)
     colorAPI.list(companyId).then(setColors)
+    supplierAPI.list(companyId).then(setSuppliers)
   }, [companyId])
 
   const load = () => {
@@ -51,6 +55,7 @@ export const Stock = () => {
         productId,
         categoryId,
         colorId,
+        supplierId,
         fromDate: dateRange?.[0]?.format('YYYY-MM-DD'),
         toDate: dateRange?.[1]?.format('YYYY-MM-DD'),
         page,
@@ -65,11 +70,12 @@ export const Stock = () => {
 
   useEffect(() => {
     load()
-  }, [companyId, branchId, status, search, productId, categoryId, colorId, dateRange, page, pageSize])
+  }, [companyId, branchId, status, search, productId, categoryId, colorId, supplierId, dateRange, page, pageSize])
 
   const productOptions = useMemo(() => products.map((p) => ({ value: p.id, label: p.name })), [products])
   const categoryOptions = useMemo(() => categories.map((c) => ({ value: c.id, label: c.name })), [categories])
   const colorOptions = useMemo(() => colors.map((c) => ({ value: c.id, label: c.name })), [colors])
+  const supplierOptions = useMemo(() => suppliers.map((s) => ({ value: s.id, label: s.name })), [suppliers])
 
   return (
     <div>
@@ -115,6 +121,14 @@ export const Stock = () => {
             value={colorId}
             onChange={(v) => { setPage(1); setColorId(v) }}
           />
+          <Select
+            allowClear
+            placeholder="Supplier"
+            style={{ width: 180 }}
+            options={supplierOptions}
+            value={supplierId}
+            onChange={(v) => { setPage(1); setSupplierId(v) }}
+          />
           <RangePicker
             value={dateRange}
             onChange={(v) => { setPage(1); setDateRange(v as [dayjs.Dayjs, dayjs.Dayjs] | null) }}
@@ -125,6 +139,7 @@ export const Stock = () => {
             setProductId(undefined)
             setCategoryId(undefined)
             setColorId(undefined)
+            setSupplierId(undefined)
             setDateRange(null)
             setPage(1)
           }}>
@@ -158,6 +173,7 @@ export const Stock = () => {
             { title: 'Product', render: (_, r) => r.product?.name || '—' },
             { title: 'Category', render: (_, r) => r.category?.name || '—' },
             { title: 'Color', render: (_, r) => r.color?.name || '—' },
+            { title: 'Supplier', render: (_, r) => r.purchase?.supplier?.name || '—' },
             {
               title: 'Status',
               dataIndex: 'status',

@@ -11,6 +11,7 @@ class InventoryController {
       productId: q.productId as string,
       categoryId: q.categoryId as string,
       colorId: q.colorId as string,
+      supplierId: q.supplierId as string,
       fromDate: q.fromDate as string,
       toDate: q.toDate as string,
       page: q.page ? Number(q.page) : undefined,

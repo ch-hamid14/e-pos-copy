@@ -17,6 +17,7 @@ export type StockFilters = {
   productId?: string
   categoryId?: string
   colorId?: string
+  supplierId?: string
   fromDate?: string
   toDate?: string
   page?: number
@@ -35,6 +36,7 @@ class InventoryService {
     if (filters?.productId) q.where({ 'pi.product_id': filters.productId })
     if (filters?.categoryId) q.where({ 'pi.category_id': filters.categoryId })
     if (filters?.colorId) q.where({ 'pi.color_id': filters.colorId })
+    if (filters?.supplierId) q.where({ 'pu.supplier_id': filters.supplierId })
     if (filters?.fromDate) q.where('pi.purchased_at', '>=', new Date(filters.fromDate))
     if (filters?.toDate) {
       const to = new Date(filters.toDate)
@@ -57,6 +59,8 @@ class InventoryService {
       .leftJoin('products as pr', 'pi.product_id', 'pr.id')
       .leftJoin('categories as c', 'pi.category_id', 'c.id')
       .leftJoin('colors as co', 'pi.color_id', 'co.id')
+      .leftJoin('purchases as pu', 'pi.purchase_id', 'pu.id')
+      .leftJoin('suppliers as s', 'pu.supplier_id', 's.id')
 
     this.applyFilters(base, companyId, branchId, filters)
 
@@ -64,7 +68,7 @@ class InventoryService {
     const total = Number(countResult[0]?.count || 0)
 
     const rows = await base
-      .select('pi.*', 'pr.name as product_name', 'c.name as category_name', 'co.name as color_name')
+      .select('pi.*', 'pr.name as product_name', 'c.name as category_name', 'co.name as color_name', 's.name as supplier_name')
       .orderBy('pi.purchased_at', 'desc')
       .orderBy('pi.created_at', 'desc')
       .limit(pageSize)
