@@ -31,10 +31,11 @@ $header-height: 60px;
 .app-sider-brand {
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: center;
   padding: 20px 16px 16px;
   flex-shrink: 0;
   min-height: 72px;
+  width: 100%;
 }
 
 .app-sider-logo-full {
@@ -42,6 +43,7 @@ $header-height: 60px;
   height: 34px;
   width: auto;
   max-width: 100%;
+  margin: 0 auto;
 }
 
 .app-sider-mark {
@@ -55,6 +57,10 @@ $header-height: 60px;
 .app-sider-brand-text {
   display: flex;
   flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  width: 100%;
   min-width: 0;
   gap: 4px;
 }
@@ -63,7 +69,8 @@ $header-height: 60px;
   color: #94a3b8 !important;
   font-size: 12px !important;
   line-height: 1.3 !important;
-  margin-top: 2px;
+  text-align: center;
+  width: 100%;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
