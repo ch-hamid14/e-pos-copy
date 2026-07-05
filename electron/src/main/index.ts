@@ -4,8 +4,7 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { initDatabase } from './db'
 import './router'
-
-const isLinux = process.platform === 'linux'
+import icon from '../../resources/icon.png?asset'
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -13,7 +12,7 @@ function createWindow(): void {
     height: 900,
     show: false,
     autoHideMenuBar: true,
-    ...(isLinux ? {} : {}),
+    icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       partition: "persist:madix-epos",
@@ -39,6 +38,9 @@ function createWindow(): void {
 
 app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.madix.volt-pos')
+  if (process.platform === 'darwin') {
+    app.dock?.setIcon(icon)
+  }
   try {
     await initDatabase()
   } catch (err) {

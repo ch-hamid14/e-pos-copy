@@ -7,6 +7,8 @@ import { GoChevronDown } from 'react-icons/go'
 import { RiMenuFoldLine, RiMenuUnfoldLine } from 'react-icons/ri'
 import './app-layout.scss'
 import { useSession } from '@/renderer/hooks/useSession'
+import logoFull from '@/renderer/assets/logo-full-light.png'
+import logoMark from '@/renderer/assets/logo-mark.png'
 
 const { Sider, Content, Header } = Layout
 const { Text } = Typography
@@ -104,15 +106,12 @@ const AppLayout = () => {
       >
         <div className="app-sider-brand">
           {!collapsed ? (
-            <>
-              <div className="app-sider-logo">V</div>
-              <div className="app-sider-brand-text">
-                <Text strong className="app-sider-title">VOLT POS</Text>
-                {branchName && <Text className="app-sider-branch">{branchName}</Text>}
-              </div>
-            </>
+            <div className="app-sider-brand-text">
+              <img className="app-sider-logo-full" src={logoFull} alt="VOLT POS" />
+              {branchName && <Text className="app-sider-branch">{branchName}</Text>}
+            </div>
           ) : (
-            <div className="app-sider-logo app-sider-logo--collapsed">V</div>
+            <img className="app-sider-mark" src={logoMark} alt="VOLT POS" />
           )}
         </div>
 

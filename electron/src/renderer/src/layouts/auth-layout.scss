@@ -14,6 +14,19 @@
     width: 420px;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
 
+    .auth-logo-container {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .auth-logo {
+      display: block;
+      height: 52px;
+      width: auto;
+      margin: 0 0 6px -4px;
+    }
+
     h2 {
       margin: 0 0 8px;
       color: #0f172a;
@@ -22,6 +35,10 @@
     p {
       color: #64748b;
       margin-bottom: 24px;
+    }
+
+    .auth-subtitle {
+      margin-top: 0;
     }
   }
 }

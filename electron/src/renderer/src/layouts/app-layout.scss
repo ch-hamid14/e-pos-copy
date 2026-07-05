@@ -37,35 +37,26 @@ $header-height: 60px;
   min-height: 72px;
 }
 
-.app-sider-logo {
+.app-sider-logo-full {
+  display: block;
+  height: 34px;
+  width: auto;
+  max-width: 100%;
+}
+
+.app-sider-mark {
+  display: block;
   width: 40px;
   height: 40px;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-  color: #fff;
-  font-weight: 700;
-  font-size: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.35);
-
-  &--collapsed {
-    margin: 0 auto;
-  }
+  object-fit: contain;
+  margin: 0 auto;
 }
 
 .app-sider-brand-text {
   display: flex;
   flex-direction: column;
   min-width: 0;
-}
-
-.app-sider-title {
-  color: #f8fafc !important;
-  font-size: 15px !important;
-  line-height: 1.2 !important;
+  gap: 4px;
 }
 
 .app-sider-branch {
