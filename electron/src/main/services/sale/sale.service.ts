@@ -36,6 +36,7 @@ export type CreateSalePayload = {
   paidAmount?: number
   paymentMethod?: string
   dueReminderDate?: string
+  notes?: string
   lines: SaleLineInput[]
 }
 
@@ -308,6 +309,7 @@ class SaleService {
           paid_amount: paidAmount,
           due_amount: dueAmount,
           due_reminder_date: dueReminderDate,
+          notes: payload.notes?.trim() || null,
           status: SaleStatus.COMPLETED,
           created_at: new Date(),
           updated_at: new Date()

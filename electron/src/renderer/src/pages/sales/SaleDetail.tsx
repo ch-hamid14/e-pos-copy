@@ -195,6 +195,10 @@ export const SaleDetail = () => {
         />
       </Card>
 
+      <Card title="Notes" bordered={false} className="shadow-sm mb-4">
+        <Text type={sale.notes ? undefined : 'secondary'}>{sale.notes || '—'}</Text>
+      </Card>
+
       {(detail.payments?.length ?? 0) > 0 && (
         <Card title="Payments" bordered={false} className="shadow-sm">
           <Table

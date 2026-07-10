@@ -146,6 +146,7 @@ export type ISale = {
   paidAmount: number
   dueAmount: number
   dueReminderDate?: string
+  notes?: string
   status: string
   createdAt: string
 }

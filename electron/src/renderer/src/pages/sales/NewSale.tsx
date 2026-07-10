@@ -232,6 +232,7 @@ export const NewSale = () => {
         discount,
         paidAmount: paid,
         paymentMethod: header.paymentMethod,
+        notes: header.notes?.trim() || undefined,
         dueReminderDate: due > 0 ? header.dueReminderDate.format('YYYY-MM-DD') : undefined,
         lines: lines.map((l) => ({
           productItemId: l.productItemId,
@@ -441,6 +442,9 @@ export const NewSale = () => {
                   { value: 'card', label: 'Card' }
                 ]}
               />
+            </Form.Item>
+            <Form.Item name="notes" label="Notes" className="md:col-span-2 lg:col-span-4">
+              <Input placeholder="Optional notes" />
             </Form.Item>
           </div>
         </Form>

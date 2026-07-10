@@ -27,6 +27,7 @@ export type SaleInvoiceData = {
   chassisNumber?: string
   model?: string
   colour?: string
+  notes?: string
   lines: SaleInvoiceLine[]
   netTotal: number
   companyName: string
@@ -87,6 +88,7 @@ export function mapSaleDetailToInvoice(detail: any, companyName: string): SaleIn
     chassisNumber: joinUnique(lines.map((l) => l.serialNumber)),
     model: joinUnique(lines.map((l) => l.productName)),
     colour: joinUnique(lines.map((l) => l.colorName)),
+    notes: sale.notes || undefined,
     lines,
     netTotal,
     companyName
@@ -121,6 +123,7 @@ export function SaleInvoice({ data }: { data: SaleInvoiceData }) {
             <FieldRow label="Model" value={data.model} />
             <FieldRow label="Colour" value={data.colour} className="sale-invoice-field-row--right" />
           </div>
+          <FieldRow label="Notes" value={data.notes} />
         </div>
 
         <table className="sale-invoice-table">
