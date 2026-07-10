@@ -1,6 +1,6 @@
 import dayjs from 'dayjs'
 import { amountInWords } from '@/renderer/utils/amountInWords'
-import { formatInvoiceAmount, formatInvoicePrice } from '@/renderer/utils/invoiceFormat'
+import { formatInvoiceAmount, formatInvoicePrice, roundInvoiceAmount } from '@/renderer/utils/invoiceFormat'
 
 export type SaleInvoiceLine = {
   serialNumber: string
@@ -54,19 +54,27 @@ function joinUnique(values: (string | undefined)[]) {
 export function mapSaleDetailToInvoice(detail: any, companyName: string): SaleInvoiceData | null {
   if (!detail?.sale) return null
   const sale = detail.sale
-  const lines: SaleInvoiceLine[] = (detail.lines || []).map((line: any) => ({
-    serialNumber: line.serialNumber,
-    motorNumber: line.motorNumber,
-    productName: line.productName,
-    categoryName: line.categoryName,
-    productDescription: line.productDescription,
-    colorName: line.colorName,
-    salePrice: Number(line.salePrice ?? 0),
-    taxPercent: Number(line.taxPercent ?? 0),
-    taxAmount: Number(line.taxAmount ?? 0),
-    whtAmount: Number(line.whtAmount ?? 0),
-    lineTotal: Number(line.lineTotal ?? 0)
-  }))
+  const lines: SaleInvoiceLine[] = (detail.lines || []).map((line: any) => {
+    const salePrice = roundInvoiceAmount(line.salePrice ?? 0)
+    const taxAmount = roundInvoiceAmount(line.taxAmount ?? 0)
+    const whtAmount = roundInvoiceAmount(line.whtAmount ?? 0)
+
+    return {
+      serialNumber: line.serialNumber,
+      motorNumber: line.motorNumber,
+      productName: line.productName,
+      categoryName: line.categoryName,
+      productDescription: line.productDescription,
+      colorName: line.colorName,
+      salePrice,
+      taxPercent: Number(line.taxPercent ?? 0),
+      taxAmount,
+      whtAmount,
+      lineTotal: roundInvoiceAmount(salePrice + taxAmount + whtAmount)
+    }
+  })
+
+  const netTotal = lines.reduce((sum, line) => sum + line.lineTotal, 0)
 
   return {
     billNo: sale.billNo ?? '—',
@@ -80,7 +88,7 @@ export function mapSaleDetailToInvoice(detail: any, companyName: string): SaleIn
     model: joinUnique(lines.map((l) => l.productName)),
     colour: joinUnique(lines.map((l) => l.colorName)),
     lines,
-    netTotal: Number(sale.netTotal ?? 0),
+    netTotal,
     companyName
   }
 }

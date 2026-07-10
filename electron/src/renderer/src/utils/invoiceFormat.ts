@@ -1,5 +1,9 @@
+export function roundInvoiceAmount(value: number): number {
+  return Math.round(Number(value) || 0)
+}
+
 export function formatIndianNumber(value: number): string {
-  const n = Math.round(Number(value) || 0)
+  const n = roundInvoiceAmount(value)
   const s = String(n)
   if (s.length <= 3) return s
   const lastThree = s.slice(-3)
