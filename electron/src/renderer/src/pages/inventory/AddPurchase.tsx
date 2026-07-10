@@ -180,7 +180,7 @@ export const AddPurchase = () => {
       <Card title="Add unit" bordered={false} className="shadow-sm mb-4">
         <Form form={lineForm} layout="vertical" initialValues={{ warrantyActive: false }}>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
-            <Form.Item name="serialNumber" label="Serial Number" rules={[{ required: true, whitespace: true }]}>
+            <Form.Item name="serialNumber" label="Chassis Number" rules={[{ required: true, whitespace: true }]}>
               <Input placeholder="Serial number" />
             </Form.Item>
             <Form.Item name="motorNumber" label="Motor Number">

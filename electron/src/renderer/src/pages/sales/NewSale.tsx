@@ -297,7 +297,7 @@ export const NewSale = () => {
       <Card title="Add unit" bordered={false} className="shadow-sm mb-4">
         <Form form={lineForm} layout="vertical" initialValues={{ taxPercent: 0, whtPercent: 0, warrantyActive: false }}>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-            <Form.Item name="serialSearch" label="Serial Number">
+            <Form.Item name="serialSearch" label="Chassis Number">
               <Select
                 showSearch
                 filterOption={false}
