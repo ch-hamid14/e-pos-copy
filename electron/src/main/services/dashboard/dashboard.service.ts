@@ -1,5 +1,13 @@
+import type { Knex } from 'knex'
 import { ProductItemStatus } from '@madix/database'
 import { getDb } from '../../db'
+
+export type DashboardFilters = {
+  from?: string
+  to?: string
+  supplierId?: string
+  productId?: string
+}
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100
@@ -46,36 +54,106 @@ function fillDailyTrend(
   return rows
 }
 
+function hasItemFilters(filters?: DashboardFilters): boolean {
+  return !!(filters?.supplierId || filters?.productId)
+}
+
+function applySaleLineItemFilters(q: Knex.QueryBuilder, filters?: DashboardFilters): Knex.QueryBuilder {
+  if (filters?.productId) q.where({ 'pi.product_id': filters.productId })
+  if (filters?.supplierId) {
+    q.leftJoin('purchases as pu_sl', 'pu_sl.id', 'pi.purchase_id')
+    q.where({ 'pu_sl.supplier_id': filters.supplierId })
+  }
+  return q
+}
+
+function applyProductItemFilters(q: Knex.QueryBuilder, filters?: DashboardFilters): Knex.QueryBuilder {
+  if (filters?.productId) q.where({ 'pi.product_id': filters.productId })
+  if (filters?.supplierId) {
+    q.leftJoin('purchases as pu_pi', 'pu_pi.id', 'pi.purchase_id')
+    q.where({ 'pu_pi.supplier_id': filters.supplierId })
+  }
+  return q
+}
+
 class DashboardService {
-  async getAnalytics(companyId: string, branchId: string, from?: string, to?: string): Promise<unknown> {
+  async getAnalytics(companyId: string, branchId: string, filters?: DashboardFilters): Promise<unknown> {
     const db = getDb()
-    const { from: fromDate, to: toDate } = parseDateRange(from, to)
+    const { from: fromDate, to: toDate } = parseDateRange(filters?.from, filters?.to)
 
-    const salesRows = await db('sales')
-      .where({ company_id: companyId, branch_id: branchId })
-      .where('sale_date', '>=', fromDate)
-      .where('sale_date', '<=', toDate)
-      .whereNull('deleted_at')
+    let salesRevenue = 0
+    let collectedAmount = 0
+    let dueAmount = 0
+    let discountTotal = 0
+    let salesCount = 0
+    let cogs = 0
+    let unitsSold = 0
 
-    const salesRevenue = round2(salesRows.reduce((sum, row) => sum + Number(row.net_total), 0))
-    const collectedAmount = round2(salesRows.reduce((sum, row) => sum + Number(row.paid_amount), 0))
-    const dueAmount = round2(salesRows.reduce((sum, row) => sum + Number(row.due_amount), 0))
-    const discountTotal = round2(salesRows.reduce((sum, row) => sum + Number(row.discount), 0))
-    const salesCount = salesRows.length
+    if (hasItemFilters(filters)) {
+      const lineRows = await applySaleLineItemFilters(
+        db('sale_lines as sl')
+          .join('sales as s', 's.id', 'sl.sale_id')
+          .join('product_items as pi', 'pi.id', 'sl.product_item_id')
+          .where({ 's.company_id': companyId, 's.branch_id': branchId })
+          .where('s.sale_date', '>=', fromDate)
+          .where('s.sale_date', '<=', toDate)
+          .whereNull('s.deleted_at')
+          .select(
+            'sl.line_total',
+            'sl.id as line_id',
+            's.id as sale_id',
+            's.net_total',
+            's.paid_amount',
+            's.due_amount',
+            's.discount',
+            'pi.purchase_price'
+          ),
+        filters
+      )
 
-    const cogsRow = await db('sale_lines as sl')
-      .join('sales as s', 's.id', 'sl.sale_id')
-      .join('product_items as pi', 'pi.id', 'sl.product_item_id')
-      .where({ 's.company_id': companyId, 's.branch_id': branchId })
-      .where('s.sale_date', '>=', fromDate)
-      .where('s.sale_date', '<=', toDate)
-      .whereNull('s.deleted_at')
-      .sum({ cogs: db.raw('pi.purchase_price') })
-      .count({ unitsSold: 'sl.id' })
-      .first()
+      const saleIds = new Set<string>()
+      for (const row of lineRows) {
+        const lineTotal = Number(row.line_total)
+        const netTotal = Number(row.net_total)
+        const ratio = netTotal > 0 ? lineTotal / netTotal : 0
 
-    const cogs = round2(Number(cogsRow?.cogs || 0))
-    const unitsSold = Number(cogsRow?.unitsSold || 0)
+        salesRevenue = round2(salesRevenue + lineTotal)
+        collectedAmount = round2(collectedAmount + Number(row.paid_amount) * ratio)
+        dueAmount = round2(dueAmount + Number(row.due_amount) * ratio)
+        discountTotal = round2(discountTotal + Number(row.discount) * ratio)
+        cogs = round2(cogs + Number(row.purchase_price))
+        unitsSold += 1
+        saleIds.add(row.sale_id as string)
+      }
+
+      salesCount = saleIds.size
+    } else {
+      const salesRows = await db('sales')
+        .where({ company_id: companyId, branch_id: branchId })
+        .where('sale_date', '>=', fromDate)
+        .where('sale_date', '<=', toDate)
+        .whereNull('deleted_at')
+
+      salesRevenue = round2(salesRows.reduce((sum, row) => sum + Number(row.net_total), 0))
+      collectedAmount = round2(salesRows.reduce((sum, row) => sum + Number(row.paid_amount), 0))
+      dueAmount = round2(salesRows.reduce((sum, row) => sum + Number(row.due_amount), 0))
+      discountTotal = round2(salesRows.reduce((sum, row) => sum + Number(row.discount), 0))
+      salesCount = salesRows.length
+
+      const cogsRow = await db('sale_lines as sl')
+        .join('sales as s', 's.id', 'sl.sale_id')
+        .join('product_items as pi', 'pi.id', 'sl.product_item_id')
+        .where({ 's.company_id': companyId, 's.branch_id': branchId })
+        .where('s.sale_date', '>=', fromDate)
+        .where('s.sale_date', '<=', toDate)
+        .whereNull('s.deleted_at')
+        .sum({ cogs: db.raw('pi.purchase_price') })
+        .count({ unitsSold: 'sl.id' })
+        .first()
+
+      cogs = round2(Number(cogsRow?.cogs || 0))
+      unitsSold = Number(cogsRow?.unitsSold || 0)
+    }
     const grossProfit = round2(salesRevenue - cogs)
 
     const expenseRows = await db('expenses as e')
@@ -89,24 +167,48 @@ class DashboardService {
     const expenses = round2(expenseRows.reduce((sum, row) => sum + Number(row.amount), 0))
     const netProfit = round2(grossProfit - expenses)
 
-    const purchaseItems = await db('product_items')
-      .where({ company_id: companyId, branch_id: branchId })
-      .where('purchased_at', '>=', fromDate)
-      .where('purchased_at', '<=', toDate)
-      .whereNull('deleted_at')
+    const purchaseItems = await applyProductItemFilters(
+      db('product_items as pi')
+        .where({ 'pi.company_id': companyId, 'pi.branch_id': branchId })
+        .where('pi.purchased_at', '>=', fromDate)
+        .where('pi.purchased_at', '<=', toDate)
+        .whereNull('pi.deleted_at')
+        .select('pi.purchase_price'),
+      filters
+    )
 
     const purchaseValue = round2(purchaseItems.reduce((sum, item) => sum + Number(item.purchase_price), 0))
     const purchaseCount = purchaseItems.length
 
-    const purchaseRecords = await db('purchases')
-      .where({ company_id: companyId, branch_id: branchId })
-      .where('purchase_date', '>=', fromDate)
-      .where('purchase_date', '<=', toDate)
-      .whereNull('deleted_at')
+    let purchaseRecordsQ = db('purchases as p')
+      .where({ 'p.company_id': companyId, 'p.branch_id': branchId })
+      .where('p.purchase_date', '>=', fromDate)
+      .where('p.purchase_date', '<=', toDate)
+      .whereNull('p.deleted_at')
 
-    const inStock = await db('product_items')
-      .where({ company_id: companyId, current_branch_id: branchId, status: ProductItemStatus.IN_STOCK })
-      .whereNull('deleted_at')
+    if (filters?.supplierId) purchaseRecordsQ = purchaseRecordsQ.where({ 'p.supplier_id': filters.supplierId })
+    if (filters?.productId) {
+      purchaseRecordsQ = purchaseRecordsQ.whereExists(
+        db('product_items as pi_p')
+          .whereRaw('pi_p.purchase_id = p.id')
+          .where({ 'pi_p.product_id': filters.productId })
+          .whereNull('pi_p.deleted_at')
+      )
+    }
+
+    const purchaseRecords = await purchaseRecordsQ
+
+    const inStock = await applyProductItemFilters(
+      db('product_items as pi')
+        .where({
+          'pi.company_id': companyId,
+          'pi.current_branch_id': branchId,
+          'pi.status': ProductItemStatus.IN_STOCK
+        })
+        .whereNull('pi.deleted_at')
+        .select('pi.purchase_price'),
+      filters
+    )
 
     const inventoryValue = round2(inStock.reduce((sum, item) => sum + Number(item.purchase_price), 0))
 
@@ -121,23 +223,43 @@ class DashboardService {
     }
     outstandingBalance = round2(outstandingBalance)
 
-    const dailySales = await db('sales')
-      .where({ company_id: companyId, branch_id: branchId })
-      .where('sale_date', '>=', fromDate)
-      .where('sale_date', '<=', toDate)
-      .whereNull('deleted_at')
-      .select(db.raw('DATE(sale_date) as day'))
-      .sum('net_total as total')
-      .groupByRaw('DATE(sale_date)')
+    let dailySales
+    if (hasItemFilters(filters)) {
+      dailySales = await applySaleLineItemFilters(
+        db('sale_lines as sl')
+          .join('sales as s', 's.id', 'sl.sale_id')
+          .join('product_items as pi', 'pi.id', 'sl.product_item_id')
+          .where({ 's.company_id': companyId, 's.branch_id': branchId })
+          .where('s.sale_date', '>=', fromDate)
+          .where('s.sale_date', '<=', toDate)
+          .whereNull('s.deleted_at')
+          .select(db.raw('DATE(s.sale_date) as day'))
+          .sum('sl.line_total as total')
+          .groupByRaw('DATE(s.sale_date)'),
+        filters
+      )
+    } else {
+      dailySales = await db('sales')
+        .where({ company_id: companyId, branch_id: branchId })
+        .where('sale_date', '>=', fromDate)
+        .where('sale_date', '<=', toDate)
+        .whereNull('deleted_at')
+        .select(db.raw('DATE(sale_date) as day'))
+        .sum('net_total as total')
+        .groupByRaw('DATE(sale_date)')
+    }
 
-    const dailyPurchases = await db('product_items')
-      .where({ company_id: companyId, branch_id: branchId })
-      .where('purchased_at', '>=', fromDate)
-      .where('purchased_at', '<=', toDate)
-      .whereNull('deleted_at')
-      .select(db.raw('DATE(purchased_at) as day'))
-      .sum('purchase_price as total')
-      .groupByRaw('DATE(purchased_at)')
+    const dailyPurchases = await applyProductItemFilters(
+      db('product_items as pi')
+        .where({ 'pi.company_id': companyId, 'pi.branch_id': branchId })
+        .where('pi.purchased_at', '>=', fromDate)
+        .where('pi.purchased_at', '<=', toDate)
+        .whereNull('pi.deleted_at')
+        .select(db.raw('DATE(pi.purchased_at) as day'))
+        .sum('pi.purchase_price as total')
+        .groupByRaw('DATE(pi.purchased_at)'),
+      filters
+    )
 
     const dailyExpenses = await db('expenses')
       .where({ company_id: companyId, branch_id: branchId })
@@ -168,19 +290,23 @@ class DashboardService {
 
     const trend = fillDailyTrend(fromDate, toDate, salesByDay, purchasesByDay, expensesByDay)
 
-    const topProductsRaw = await db('sale_lines as sl')
-      .join('sales as s', 's.id', 'sl.sale_id')
-      .where({ 's.company_id': companyId, 's.branch_id': branchId })
-      .where('s.sale_date', '>=', fromDate)
-      .where('s.sale_date', '<=', toDate)
-      .whereNull('s.deleted_at')
-      .whereNotNull('sl.product_name')
-      .select('sl.product_name')
-      .count('* as units')
-      .sum('sl.line_total as revenue')
-      .groupBy('sl.product_name')
-      .orderBy('revenue', 'desc')
-      .limit(5)
+    const topProductsRaw = await applySaleLineItemFilters(
+      db('sale_lines as sl')
+        .join('sales as s', 's.id', 'sl.sale_id')
+        .join('product_items as pi', 'pi.id', 'sl.product_item_id')
+        .where({ 's.company_id': companyId, 's.branch_id': branchId })
+        .where('s.sale_date', '>=', fromDate)
+        .where('s.sale_date', '<=', toDate)
+        .whereNull('s.deleted_at')
+        .whereNotNull('sl.product_name')
+        .select('sl.product_name')
+        .count('* as units')
+        .sum('sl.line_total as revenue')
+        .groupBy('sl.product_name')
+        .orderBy('revenue', 'desc')
+        .limit(5),
+      filters
+    )
 
     const expenseCategoryMap = new Map<string, number>()
     for (const row of expenseRows) {
@@ -240,7 +366,7 @@ class DashboardService {
 
   /** @deprecated Use getAnalytics — kept for compatibility */
   async getMetrics(companyId: string, branchId: string): Promise<unknown> {
-    const data = (await this.getAnalytics(companyId, branchId)) as Record<string, unknown>
+    const data = (await this.getAnalytics(companyId, branchId, {})) as Record<string, unknown>
     const kpis = data.kpis as Record<string, number>
     const profitLoss = data.profitLoss as Record<string, number>
     return {

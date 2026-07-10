@@ -2,8 +2,26 @@
   min-width: 0;
 
   .dashboard-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
     width: 100%;
     min-width: 0;
+
+    &-left,
+    &-right {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+    }
+
+    &-right {
+      justify-content: flex-end;
+      margin-left: auto;
+    }
 
     .ant-picker-range {
       width: 100%;

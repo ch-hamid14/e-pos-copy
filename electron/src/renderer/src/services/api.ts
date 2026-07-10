@@ -153,7 +153,11 @@ export const expenseAPI = {
 }
 
 export const dashboardAPI = {
-  analytics: (companyId: string, branchId: string, filters?: { from?: string; to?: string }) =>
+  analytics: (
+    companyId: string,
+    branchId: string,
+    filters?: { from?: string; to?: string; supplierId?: string; productId?: string }
+  ) =>
     ipcCall(`GET:${Channels.DASHBOARD}`, { query: { companyId, branchId, ...filters } })
 }
 

@@ -4,12 +4,12 @@ import { dashboardService } from '../../services'
 class DashboardController {
   async metrics(_: Electron.IpcMainInvokeEvent, req: IRequest) {
     const q = req.query || {}
-    return dashboardService.getAnalytics(
-      q.companyId as string,
-      q.branchId as string,
-      q.from as string,
-      q.to as string
-    )
+    return dashboardService.getAnalytics(q.companyId as string, q.branchId as string, {
+      from: q.from as string,
+      to: q.to as string,
+      supplierId: q.supplierId as string,
+      productId: q.productId as string
+    })
   }
 }
 

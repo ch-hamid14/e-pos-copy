@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Card, DatePicker, Typography } from 'antd'
+import { Button, Card, DatePicker, Select, Typography } from 'antd'
 import type { TimeRangePickerProps } from 'antd'
 import dayjs from 'dayjs'
 import {
@@ -21,7 +21,7 @@ import { FaCartShopping, FaSackDollar, FaWarehouse } from 'react-icons/fa6'
 import { GiReceiveMoney } from 'react-icons/gi'
 import { IoStatsChart, IoTrendingDown, IoTrendingUp } from 'react-icons/io5'
 import { MdOutlineInventory2 } from 'react-icons/md'
-import { dashboardAPI } from '@/renderer/services'
+import { dashboardAPI, productAPI, supplierAPI } from '@/renderer/services'
 import { useSession } from '@/renderer/hooks/useSession'
 import { formatCompact, formatCompactAxis, formatCompactRs, formatRs, PageHeader } from '../shared/page-ui'
 import './dashboard.scss'
@@ -145,6 +145,10 @@ export const Dashboard = () => {
   const { companyId, branchId, user, branchName } = useSession()
   const [loading, setLoading] = useState(false)
   const [data, setData] = useState<DashboardData | null>(null)
+  const [suppliers, setSuppliers] = useState<any[]>([])
+  const [products, setProducts] = useState<any[]>([])
+  const [supplierId, setSupplierId] = useState<string>()
+  const [productId, setProductId] = useState<string>()
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs]>([
     dayjs().startOf('month'),
     dayjs().endOf('day')
@@ -155,20 +159,35 @@ export const Dashboard = () => {
   const to = dateRange[1].format('YYYY-MM-DD')
 
   useEffect(() => {
+    if (!companyId) return
+    supplierAPI.list(companyId).then(setSuppliers)
+    productAPI.list(companyId).then(setProducts)
+  }, [companyId])
+
+  useEffect(() => {
     if (!companyId || !branchId) return
 
     const requestId = ++requestIdRef.current
     setLoading(true)
 
     dashboardAPI
-      .analytics(companyId, branchId, { from, to })
+      .analytics(companyId, branchId, { from, to, supplierId, productId })
       .then((res) => {
         if (requestId === requestIdRef.current) setData(res as DashboardData)
       })
       .finally(() => {
         if (requestId === requestIdRef.current) setLoading(false)
       })
-  }, [companyId, branchId, from, to])
+  }, [companyId, branchId, from, to, supplierId, productId])
+
+  const supplierOptions = useMemo(
+    () => suppliers.map((s) => ({ value: s.id, label: s.name })),
+    [suppliers]
+  )
+  const productOptions = useMemo(
+    () => products.map((p) => ({ value: p.id, label: p.name })),
+    [products]
+  )
 
   const kpis = data?.kpis || {}
   const pl = data?.profitLoss
@@ -202,14 +221,47 @@ export const Dashboard = () => {
         subtitle={branchName ? `${branchName} analytics overview` : 'Branch analytics overview'}
         extra={
           <div className="dashboard-toolbar">
-            <RangePicker
-              value={dateRange}
-              presets={rangePresets}
-              allowClear={false}
-              onChange={(v) => {
-                if (v?.[0] && v?.[1]) setDateRange([v[0].startOf('day'), v[1].endOf('day')])
-              }}
-            />
+            <div className="dashboard-toolbar-left">
+              <RangePicker
+                value={dateRange}
+                presets={rangePresets}
+                allowClear={false}
+                onChange={(v) => {
+                  if (v?.[0] && v?.[1]) setDateRange([v[0].startOf('day'), v[1].endOf('day')])
+                }}
+              />
+            </div>
+            <div className="dashboard-toolbar-right">
+              <Select
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                placeholder="Supplier"
+                style={{ width: 180 }}
+                options={supplierOptions}
+                value={supplierId}
+                onChange={setSupplierId}
+              />
+              <Select
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                placeholder="Product"
+                style={{ width: 180 }}
+                options={productOptions}
+                value={productId}
+                onChange={setProductId}
+              />
+              <Button
+                onClick={() => {
+                  setSupplierId(undefined)
+                  setProductId(undefined)
+                  setDateRange([dayjs().startOf('month'), dayjs().endOf('day')])
+                }}
+              >
+                Reset
+              </Button>
+            </div>
           </div>
         }
       />
