@@ -12,7 +12,6 @@ export type ThermalReceiptData = {
   customerAddress?: string
   lines: SaleInvoiceLine[]
   subtotal: number
-  discount: number
   totalTax: number
   totalWht: number
   netTotal: number
@@ -63,7 +62,6 @@ export function mapSaleDetailToThermalReceipt(detail: any, companyName: string):
       lineTotal: Number(line.lineTotal ?? 0)
     })),
     subtotal: Number(sale.subtotal ?? 0),
-    discount: Number(sale.discount ?? 0),
     totalTax: Number(sale.totalTax ?? 0),
     totalWht: Number(sale.totalWht ?? 0),
     netTotal: Number(sale.netTotal ?? 0),
@@ -157,7 +155,6 @@ export function ThermalReceipt({ data }: { data: ThermalReceiptData }) {
         <Row label="Subtotal" value={fmt(data.subtotal)} />
         {data.totalTax > 0 && <Row label="Sales Tax" value={fmt(data.totalTax)} />}
         {data.totalWht > 0 && <Row label="WHT" value={fmt(data.totalWht)} />}
-        {data.discount > 0 && <Row label="Discount" value={`− ${fmt(data.discount)}`} />}
       </section>
 
       <div className="thermal-grand-total">
