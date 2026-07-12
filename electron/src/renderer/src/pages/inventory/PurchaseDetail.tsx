@@ -55,6 +55,8 @@ export const PurchaseDetail = () => {
   }
 
   const purchase = detail.purchase
+  console.log('purchase', purchase);
+  console.log('detail', detail);
 
   return (
     <div>

@@ -10,13 +10,13 @@ function masterDataAPI(channel: Channels) {
     create: (
       companyId: string,
       audit: SessionAudit,
-      data: { name: string; phone?: string; address?: string }
+      data: { name: string; phone?: string; address?: string; discount?: number; discountType?: string }
     ) => ipcCall(`POST:${channel}`, { body: auditBody(audit, { companyId, data }) }),
     update: (
       id: string,
       companyId: string,
       audit: SessionAudit,
-      data: { name?: string; phone?: string; address?: string }
+      data: { name?: string; phone?: string; address?: string; discount?: number; discountType?: string }
     ) =>
       ipcCall(`PUT:${channel}`, { params: { id }, body: auditBody(audit, { companyId, ...data }) }),
     remove: (id: string, companyId: string, audit: SessionAudit) =>

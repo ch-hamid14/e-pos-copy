@@ -1,8 +1,13 @@
 import { useEffect, useState } from 'react'
-import { Button, Card, Form, Input, Modal, Popconfirm, Space, Statistic, Table, Typography, message } from 'antd'
+import { Button, Card, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, Statistic, Table, Typography, message } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 import { supplierAPI } from '@/renderer/services'
 import { useSession } from '@/renderer/hooks/useSession'
+import {
+  SUPPLIER_DISCOUNT_TYPE_OPTIONS,
+  formatSupplierDiscount,
+  type SupplierDiscountType
+} from '@/renderer/utils/supplierDiscount'
 import { PageHeader } from '../shared/page-ui'
 
 const { Text } = Typography
@@ -15,6 +20,7 @@ export const Suppliers = () => {
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
   const [form] = Form.useForm()
+  const discountType = Form.useWatch('discountType', form) as SupplierDiscountType | undefined
 
   const load = () => supplierAPI.list(companyId, search || undefined).then(setData)
 
@@ -33,12 +39,20 @@ export const Suppliers = () => {
     form.setFieldsValue({
       name: record.name,
       phone: record.phone,
-      address: record.address
+      address: record.address,
+      discount: Number(record.discount || 0),
+      discountType: record.discountType === 'percent' ? 'percent' : 'pkr'
     })
     setOpen(true)
   }
 
-  const handleSubmit = async (values: { name: string; phone?: string; address?: string }) => {
+  const handleSubmit = async (values: {
+    name: string
+    phone?: string
+    address?: string
+    discount?: number
+    discountType?: SupplierDiscountType
+  }) => {
     setLoading(true)
     try {
       if (editing) {
@@ -97,6 +111,15 @@ export const Suppliers = () => {
           columns={[
             { title: 'Name', dataIndex: 'name', render: (v) => <Text strong>{v}</Text> },
             { title: 'Phone', dataIndex: 'phone', render: (v) => v || '—' },
+            {
+              title: 'Discount',
+              align: 'right' as const,
+              render: (_, record) =>
+                formatSupplierDiscount(
+                  Number(record.discount || 0),
+                  record.discountType === 'percent' ? 'percent' : 'pkr'
+                )
+            },
             { title: 'Address', dataIndex: 'address', ellipsis: true, render: (v) => v || '—' },
             {
               title: 'Actions',
@@ -122,13 +145,40 @@ export const Suppliers = () => {
         destroyOnClose
         width={440}
       >
-        <Form form={form} layout="vertical" onFinish={handleSubmit}>
+        <Form
+          form={form}
+          layout="vertical"
+          onFinish={handleSubmit}
+          initialValues={{ discount: 0, discountType: 'pkr' }}
+        >
           <Form.Item name="name" label="Name" rules={[{ required: true, whitespace: true }]}>
             <Input placeholder="Supplier name" autoFocus />
           </Form.Item>
           <Form.Item name="phone" label="Phone">
             <Input placeholder="Phone number" />
           </Form.Item>
+          <div className="grid grid-cols-2 gap-3">
+            <Form.Item name="discountType" label="Discount Type">
+              <Select options={[...SUPPLIER_DISCOUNT_TYPE_OPTIONS]} />
+            </Form.Item>
+            <Form.Item
+              name="discount"
+              label={discountType === 'percent' ? 'Discount %' : 'Discount (PKR)'}
+              rules={[
+                { type: 'number', min: 0, message: 'Discount cannot be negative' },
+                ...(discountType === 'percent'
+                  ? [{ type: 'number' as const, max: 100, message: 'Discount must be between 0 and 100' }]
+                  : [])
+              ]}
+            >
+              <InputNumber
+                className="w-full"
+                min={0}
+                max={discountType === 'percent' ? 100 : undefined}
+                style={{ width: '100%' }}
+              />
+            </Form.Item>
+          </div>
           <Form.Item name="address" label="Address">
             <Input.TextArea rows={2} placeholder="Address" />
           </Form.Item>

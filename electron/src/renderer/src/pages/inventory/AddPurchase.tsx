@@ -22,6 +22,12 @@ import {
   supplierAPI
 } from '@/renderer/services'
 import { useSession } from '@/renderer/hooks/useSession'
+import {
+  applySupplierDiscount,
+  formatSupplierDiscount,
+  round2,
+  type SupplierDiscountType
+} from '@/renderer/utils/supplierDiscount'
 import { formatRs, PageHeader } from '../shared/page-ui'
 
 const { Text } = Typography
@@ -35,6 +41,7 @@ type PurchaseLine = {
   categoryName: string
   colorId?: string
   colorName?: string
+  listPrice: number
   purchasePrice: number
   warrantyActive: boolean
   warrantyExpiryDate?: string
@@ -62,6 +69,31 @@ export const AddPurchase = () => {
 
   const productMap = useMemo(() => new Map(products.map((p) => [p.id, p])), [products])
   const colorMap = useMemo(() => new Map(colors.map((c) => [c.id, c])), [colors])
+  const supplierMap = useMemo(() => new Map(suppliers.map((s) => [s.id, s])), [suppliers])
+
+  const selectedSupplierId = Form.useWatch('supplierId', headerForm)
+  const selectedSupplier = selectedSupplierId ? supplierMap.get(selectedSupplierId) : undefined
+  const supplierDiscount = Number(selectedSupplier?.discount || 0)
+  const supplierDiscountType: SupplierDiscountType =
+    selectedSupplier?.discountType === 'percent' ? 'percent' : 'pkr'
+  const hasSupplierDiscount = supplierDiscount > 0
+  const enteredListPrice = Number(Form.useWatch('purchasePrice', lineForm) || 0)
+  const previewNetPrice = applySupplierDiscount(
+    enteredListPrice,
+    supplierDiscount,
+    supplierDiscountType
+  )
+
+  const recalcLines = (supplier?: { discount?: number; discountType?: string }) => {
+    const discount = Number(supplier?.discount || 0)
+    const type: SupplierDiscountType = supplier?.discountType === 'percent' ? 'percent' : 'pkr'
+    setLines((prev) =>
+      prev.map((line) => ({
+        ...line,
+        purchasePrice: applySupplierDiscount(line.listPrice, discount, type)
+      }))
+    )
+  }
 
   const productOptions = products.map((p) => ({
     value: p.id,
@@ -74,6 +106,10 @@ export const AddPurchase = () => {
   const categoryPreview = selectedProductId
     ? productMap.get(selectedProductId)?.category?.name || '—'
     : '—'
+
+  const handleSupplierChange = (supplierId: string) => {
+    recalcLines(supplierMap.get(supplierId))
+  }
 
   const addLine = async () => {
     try {
@@ -93,6 +129,7 @@ export const AddPurchase = () => {
       }
 
       const color = values.colorId ? colorMap.get(values.colorId) : undefined
+      const listPrice = Number(values.purchasePrice || 0)
       setLines((prev) => [
         ...prev,
         {
@@ -104,7 +141,8 @@ export const AddPurchase = () => {
           categoryName: product.category?.name || '—',
           colorId: values.colorId,
           colorName: color?.name,
-          purchasePrice: Number(values.purchasePrice || 0),
+          listPrice,
+          purchasePrice: applySupplierDiscount(listPrice, supplierDiscount, supplierDiscountType),
           warrantyActive: Boolean(values.warrantyActive),
           warrantyExpiryDate: values.warrantyActive
             ? values.warrantyExpiryDate.format('YYYY-MM-DD')
@@ -119,7 +157,9 @@ export const AddPurchase = () => {
 
   const removeLine = (key: string) => setLines((prev) => prev.filter((l) => l.key !== key))
 
-  const totalValue = lines.reduce((sum, l) => sum + l.purchasePrice, 0)
+  const grossTotal = lines.reduce((sum, l) => sum + l.listPrice, 0)
+  const netTotal = lines.reduce((sum, l) => sum + l.purchasePrice, 0)
+  const discountAmount = round2(grossTotal - netTotal)
 
   const handleSubmit = async () => {
     if (!lines.length) {
@@ -165,12 +205,22 @@ export const AddPurchase = () => {
         <Form form={headerForm} layout="vertical">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Form.Item name="supplierId" label="Supplier" rules={[{ required: true, message: 'Select supplier' }]}>
-              <Select placeholder="Select supplier" options={supplierOptions} />
+              <Select placeholder="Select supplier" options={supplierOptions} onChange={handleSupplierChange} />
             </Form.Item>
             <Form.Item name="purchaseDate" label="Purchase Date" rules={[{ required: true }]}>
               <DatePicker className="w-full" style={{ width: '100%' }} />
             </Form.Item>
-            <Form.Item name="notes" label="Notes">
+            <Form.Item label="Supplier Discount">
+              <Input
+                value={
+                  selectedSupplierId
+                    ? formatSupplierDiscount(supplierDiscount, supplierDiscountType)
+                    : '—'
+                }
+                disabled
+              />
+            </Form.Item>
+            <Form.Item name="notes" label="Notes" className="md:col-span-3">
               <Input placeholder="Optional notes" />
             </Form.Item>
           </div>
@@ -195,9 +245,14 @@ export const AddPurchase = () => {
             <Form.Item name="colorId" label="Color">
               <Select allowClear placeholder="Select color" options={colorOptions} />
             </Form.Item>
-            <Form.Item name="purchasePrice" label="Purchase Price" rules={[{ required: true }]}>
+            <Form.Item name="purchasePrice" label="List Price" rules={[{ required: true }]}>
               <InputNumber className="w-full" min={0} style={{ width: '100%' }} />
             </Form.Item>
+            {hasSupplierDiscount && (
+              <Form.Item label="Net Price">
+                <Input value={formatRs(previewNetPrice)} disabled />
+              </Form.Item>
+            )}
             <Form.Item name="warrantyActive" label="Warranty Active" valuePropName="checked">
               <Switch />
             </Form.Item>
@@ -225,7 +280,29 @@ export const AddPurchase = () => {
             { title: 'Product', dataIndex: 'productName' },
             { title: 'Category', dataIndex: 'categoryName' },
             { title: 'Color', dataIndex: 'colorName', render: (v) => v || '—' },
-            { title: 'Purchase Price', dataIndex: 'purchasePrice', align: 'right' as const, render: formatRs },
+            ...(hasSupplierDiscount
+              ? [
+                  {
+                    title: 'List Price',
+                    dataIndex: 'listPrice',
+                    align: 'right' as const,
+                    render: formatRs
+                  },
+                  {
+                    title: 'Net Price',
+                    dataIndex: 'purchasePrice',
+                    align: 'right' as const,
+                    render: formatRs
+                  }
+                ]
+              : [
+                  {
+                    title: 'Purchase Price',
+                    dataIndex: 'purchasePrice',
+                    align: 'right' as const,
+                    render: formatRs
+                  }
+                ]),
             {
               title: 'Warranty',
               render: (_, r) =>
@@ -240,8 +317,22 @@ export const AddPurchase = () => {
             }
           ]}
         />
-        <div className="flex justify-between items-center mt-4 pt-4 border-t border-slate-100">
-          <Text strong>{lines.length} unit(s) · Total {formatRs(totalValue)}</Text>
+        <div className="flex flex-wrap justify-between items-center gap-3 mt-4 pt-4 border-t border-slate-100">
+          <div className="space-y-1">
+            <Text strong>
+              {lines.length} unit(s)
+              {hasSupplierDiscount ? (
+                <>
+                  {' '}
+                  · Gross {formatRs(grossTotal)} · Discount (
+                  {formatSupplierDiscount(supplierDiscount, supplierDiscountType)}) − {formatRs(discountAmount)} · Net{' '}
+                  {formatRs(netTotal)}
+                </>
+              ) : (
+                <> · Total {formatRs(netTotal)}</>
+              )}
+            </Text>
+          </div>
           <Space>
             <Button onClick={() => setLines([])} disabled={!lines.length}>Clear</Button>
             <Button type="primary" loading={loading} onClick={handleSubmit} disabled={!lines.length}>

@@ -67,12 +67,16 @@ export type IColor = {
   updatedAt: string
 }
 
+export type SupplierDiscountType = 'pkr' | 'percent'
+
 export type ISupplier = {
   id: string
   companyId: string
   name: string
   phone?: string
   address?: string
+  discount?: number
+  discountType?: SupplierDiscountType
   createdAt: string
   updatedAt: string
 }

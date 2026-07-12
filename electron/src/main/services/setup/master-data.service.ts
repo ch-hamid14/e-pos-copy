@@ -24,7 +24,7 @@ export function createMasterDataService(table: MasterTable) {
     async create(
       companyId: string,
       ctx: AuditContext,
-      data: { name: string; phone?: string; address?: string }
+      data: { name: string; phone?: string; address?: string; discount?: number; discountType?: string }
     ): Promise<unknown> {
       return withTransaction(async (transaction) => {
         const [row] = await getDb()(table)
@@ -33,7 +33,14 @@ export function createMasterDataService(table: MasterTable) {
             id: generateId(),
             company_id: companyId,
             name: data.name,
-            ...(table === 'suppliers' ? { phone: data.phone || '', address: data.address || '' } : {}),
+            ...(table === 'suppliers'
+              ? {
+                  phone: data.phone || '',
+                  address: data.address || '',
+                  discount: Number(data.discount || 0),
+                  discount_type: data.discountType === 'percent' ? 'percent' : 'pkr'
+                }
+              : {}),
             created_at: new Date(),
             updated_at: new Date()
           }))
@@ -47,7 +54,7 @@ export function createMasterDataService(table: MasterTable) {
       id: string,
       _companyId: string,
       ctx: AuditContext,
-      data: { name?: string; phone?: string; address?: string }
+      data: { name?: string; phone?: string; address?: string; discount?: number; discountType?: string }
     ): Promise<unknown> {
       return withTransaction(async (transaction) => {
         const row = await getDb()(table).where({ id }).whereNull('deleted_at').first()
@@ -59,7 +66,12 @@ export function createMasterDataService(table: MasterTable) {
           .update(withAuditUpdate(ctx, {
             ...(data.name !== undefined && { name: data.name }),
             ...(table === 'suppliers' && data.phone !== undefined && { phone: data.phone }),
-            ...(table === 'suppliers' && data.address !== undefined && { address: data.address })
+            ...(table === 'suppliers' && data.address !== undefined && { address: data.address }),
+            ...(table === 'suppliers' && data.discount !== undefined && { discount: Number(data.discount) }),
+            ...(table === 'suppliers' &&
+              data.discountType !== undefined && {
+                discount_type: data.discountType === 'percent' ? 'percent' : 'pkr'
+              })
           }))
           .returning('*')
 
