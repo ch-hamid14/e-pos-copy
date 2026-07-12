@@ -245,7 +245,7 @@ export const AddPurchase = () => {
             <Form.Item name="colorId" label="Color">
               <Select allowClear placeholder="Select color" options={colorOptions} />
             </Form.Item>
-            <Form.Item name="purchasePrice" label="List Price" rules={[{ required: true }]}>
+            <Form.Item name="purchasePrice" label="Retail price" rules={[{ required: true }]}>
               <InputNumber className="w-full" min={0} style={{ width: '100%' }} />
             </Form.Item>
             {hasSupplierDiscount && (
@@ -283,7 +283,7 @@ export const AddPurchase = () => {
             ...(hasSupplierDiscount
               ? [
                   {
-                    title: 'List Price',
+                    title: 'Retail Price',
                     dataIndex: 'listPrice',
                     align: 'right' as const,
                     render: formatRs
