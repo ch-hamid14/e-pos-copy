@@ -34,13 +34,6 @@ export const Menus: IMenu[] = [
     ]
   },
   {
-    key: App_Routes.CUSTOMERS,
-    label: 'Customers',
-    roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN, Roles.STAFF],
-    permissions: [Permissions.CUSTOMERS],
-    icon: React.createElement(IoPeopleOutline, iconProps)
-  },
-  {
     key: 'inventory',
     label: 'Inventory',
     roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN],
@@ -53,6 +46,13 @@ export const Menus: IMenu[] = [
       // { key: App_Routes.TRANSFERS, label: 'Transfer', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
       // { key: App_Routes.ADJUSTMENTS, label: 'Adjustment', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] }
     ]
+  },
+  {
+    key: App_Routes.CUSTOMERS,
+    label: 'Customers',
+    roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN, Roles.STAFF],
+    permissions: [Permissions.CUSTOMERS],
+    icon: React.createElement(IoPeopleOutline, iconProps)
   },
   {
     key: 'sales',
