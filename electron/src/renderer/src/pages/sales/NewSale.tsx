@@ -301,7 +301,7 @@ export const NewSale = () => {
               <Select
                 showSearch
                 filterOption={false}
-                placeholder="Search serial…"
+                placeholder="Search chassis number"
                 onSearch={searchSerial}
                 notFoundContent="Type to search in-stock units"
                 options={searchResults.map((r) => ({
