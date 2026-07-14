@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Button, Card, Col, Descriptions, Row, Space, Spin, Statistic, Table, Tag, Typography, message } from 'antd'
+import { Button, Card, Col, Descriptions, Row, Spin, Statistic, Table, Tag, Typography } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { App_Routes } from '@/common'
@@ -8,9 +8,8 @@ import { saleAPI } from '@/renderer/services'
 import { useSession } from '@/renderer/hooks/useSession'
 import { useSaleInvoicePrint } from '@/renderer/hooks/useSaleInvoicePrint'
 import { PrintInvoiceButton } from '@/renderer/components/print/PrintInvoiceButton'
-import { ThermalPrintButton } from '@/renderer/components/print/ThermalPrintButton'
-import { DownloadInvoiceButton } from '@/renderer/components/print/DownloadInvoiceButton'
 import { SaleInvoicePrint } from '@/renderer/components/print/SaleInvoicePrint'
+import { ThermalReceiptPrint } from '@/renderer/components/print/ThermalReceiptPrint'
 import { formatRs, PageHeader } from '../shared/page-ui'
 
 const { Text } = Typography
@@ -24,10 +23,7 @@ export const SaleDetail = () => {
     clearPrint,
     handlePrintInvoice,
     handleThermalPrint,
-    handleDownloadInvoice,
     printDetail,
-    downloading,
-    downloadingThermal,
     hasPrintDetail
   } = useSaleInvoicePrint(branchName || 'Company')
 
@@ -41,30 +37,6 @@ export const SaleDetail = () => {
 
   const detail = printDetail
   const loading = Boolean(id && !detail?.sale)
-
-  const onDownloadInvoice = async () => {
-    try {
-      const result = await handleDownloadInvoice()
-      if (result?.saved && result.filePath) {
-        const fileName = result.filePath.split(/[/\\]/).pop()
-        message.success(`Invoice downloaded to Downloads (${fileName})`)
-      }
-    } catch (err: any) {
-      message.error(err.message || 'Failed to download invoice')
-    }
-  }
-
-  const onDownloadThermal = async () => {
-    try {
-      const result = await handleThermalPrint()
-      if (result?.saved && result.filePath) {
-        const fileName = result.filePath.split(/[/\\]/).pop()
-        message.success(`Thermal receipt downloaded to Downloads (${fileName})`)
-      }
-    } catch (err: any) {
-      message.error(err.message || 'Failed to download thermal receipt')
-    }
-  }
 
   if (loading) {
     return (
@@ -107,19 +79,11 @@ export const SaleDetail = () => {
         title={`Sale #${sale.billNo ?? '—'}`}
         subtitle={dayjs(sale.saleDate).format('DD MMM YYYY')}
         extra={
-          <Space wrap>
-            <ThermalPrintButton
-              onDownload={onDownloadThermal}
-              disabled={!hasPrintDetail}
-              loading={downloadingThermal}
-            />
-            <PrintInvoiceButton onPrint={handlePrintInvoice} disabled={!hasPrintDetail} />
-            <DownloadInvoiceButton
-              onDownload={onDownloadInvoice}
-              disabled={!hasPrintDetail}
-              loading={downloading}
-            />
-          </Space>
+          <PrintInvoiceButton
+            onThermal={handleThermalPrint}
+            onA4Print={handlePrintInvoice}
+            disabled={!hasPrintDetail}
+          />
         }
       />
 
@@ -219,7 +183,10 @@ export const SaleDetail = () => {
       )}
 
       {printDetail?.sale && (
-        <SaleInvoicePrint detail={printDetail} companyName={branchName || 'Company'} />
+        <>
+          <SaleInvoicePrint detail={printDetail} companyName={branchName || 'Company'} />
+          <ThermalReceiptPrint detail={printDetail} companyName={branchName || 'Company'} />
+        </>
       )}
     </div>
   )
