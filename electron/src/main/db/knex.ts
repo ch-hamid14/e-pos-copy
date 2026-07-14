@@ -1,8 +1,8 @@
 import type { Knex } from 'knex'
 import knex from 'knex'
-import { companyMigrationsDir } from '@madix/database'
+import { companyMigrationsDir, createDatabase, dropDatabase } from '@madix/database'
 import { loadDatabaseConfig, type DatabaseConfig } from './config'
-import { startSyncAfterAuth } from '../services'
+import { startSyncAfterAuth, stopSync } from '../services'
 import { appState } from '../state/app-state'
 
 let db: Knex | null = null
@@ -65,6 +65,27 @@ export async function closeDatabase(): Promise<void> {
     db = null
   }
   dbReady = false
+}
+
+/** Drop and recreate the local company database, then re-run migrations. */
+export async function resetLocalCompanyDatabase(): Promise<void> {
+  const config = loadDatabaseConfig()
+  appState.clearSession()
+  await stopSync()
+  await closeDatabase()
+
+  const adminConfig = {
+    host: config.host,
+    port: config.port,
+    user: config.user,
+    password: config.password,
+    database: 'postgres' as const,
+    ssl: config.ssl
+  }
+
+  await dropDatabase(adminConfig, config.database)
+  await createDatabase(adminConfig, config.database)
+  await initDatabase()
 }
 
 export async function withTransaction<T>(fn: (trx: Knex.Transaction) => Promise<T>): Promise<T> {

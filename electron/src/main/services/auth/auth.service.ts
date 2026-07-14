@@ -1,11 +1,11 @@
 import jwt from 'jsonwebtoken'
-import { getDb } from '../../db'
+import { getDb, resetLocalCompanyDatabase } from '../../db'
 import { IUser } from '../../../common/types'
 import { appState } from '../../state/app-state'
 import { getClientDeviceId } from '../device'
 import { apiFetch, checkServerOnline, JWT_SECRET } from '../http'
 import { cacheBootstrapData } from './initial-sync.service'
-import { startSyncAfterAuth } from '../sync'
+import { startSyncAfterAuth, stopSync } from '../sync'
 
 export type OtpPurpose = 'email_verify' | 'device_reset'
 
@@ -17,9 +17,33 @@ export type LoginResult = {
   offlineAllowedUntil?: string
 }
 
+export type CompanyMismatchResult = {
+  status: 'company_mismatch'
+  localCompanyId: string
+  localCompanyName: string
+  incomingCompanyId: string
+  incomingCompanyName: string
+  message: string
+}
+
+export type CompanySwitchBlockedResult = {
+  status: 'company_switch_blocked'
+  localCompanyId: string
+  localCompanyName: string
+  pendingChanges: number
+  message: string
+}
+
 export type LoginResponse =
-  | { status: 'success' } & LoginResult
+  | ({ status: 'success' } & LoginResult)
   | { status: 'otp_required'; otpPurpose: OtpPurpose; message: string }
+  | CompanyMismatchResult
+  | CompanySwitchBlockedResult
+
+type CompanyGate =
+  | { status: 'ok' }
+  | CompanyMismatchResult
+  | CompanySwitchBlockedResult
 
 class AuthService {
   async checkOnline(): Promise<boolean> {
@@ -72,7 +96,7 @@ class AuthService {
 
       return { valid: true, payload }
     } catch (err: any) {
-      console.log(err);
+      console.log(err)
       return { valid: false }
     }
   }
@@ -81,7 +105,8 @@ class AuthService {
     email: string,
     password: string,
     otp?: string,
-    otpPurpose?: OtpPurpose
+    otpPurpose?: OtpPurpose,
+    confirmCompanySwitch = false
   ): Promise<LoginResponse> {
     const clientDeviceId = getClientDeviceId()
     const res = await apiFetch<any>('/auth/login', {
@@ -99,6 +124,31 @@ class AuthService {
         }
       }
       throw new Error(res.error || 'Login failed')
+    }
+
+    const incomingCompanyId = (res.data.user.companyId as string) || ''
+    const incomingCompanyName = (res.data.companyName as string) || 'this company'
+    const gate = await this.evaluateCompanyGate(incomingCompanyId, incomingCompanyName)
+
+    if (gate.status === 'company_switch_blocked') {
+      return gate
+    }
+
+    if (gate.status === 'company_mismatch') {
+      if (!confirmCompanySwitch) {
+        return gate
+      }
+      const pending = await this.countPendingLocalChanges()
+      if (pending > 0) {
+        return {
+          status: 'company_switch_blocked',
+          localCompanyId: gate.localCompanyId,
+          localCompanyName: gate.localCompanyName,
+          pendingChanges: pending,
+          message: `This POS has ${pending} unsynced change(s) for "${gate.localCompanyName}". Sync or clear them before switching companies.`
+        }
+      }
+      await this.wipeLocalDataForCompanySwitch()
     }
 
     const success = await this.handleAuthSuccess(res.data, email)
@@ -140,6 +190,8 @@ class AuthService {
       deviceId: string
       offlineAllowedUntil?: string
     }
+
+    await this.assertOfflineCompanyMatch(payload.companyId)
 
     const cached = await getDb()('user_profiles').where({ email: email.toLowerCase() }).first()
     let branchName: string | undefined
@@ -194,6 +246,18 @@ class AuthService {
     if (!res.ok) {
       throw new Error(res.error || 'Session expired. Please login again.')
     }
+
+    const incomingCompanyId = (res.data.user.companyId as string) || ''
+    const incomingCompanyName = (res.data.companyName as string) || 'this company'
+    const gate = await this.evaluateCompanyGate(incomingCompanyId, incomingCompanyName)
+    if (gate.status !== 'ok') {
+      throw new Error(
+        gate.status === 'company_switch_blocked'
+          ? gate.message
+          : `This POS is set up for "${gate.localCompanyName}". Sign in online with a password to switch companies.`
+      )
+    }
+
     return this.handleAuthSuccess(res.data, email)
   }
 
@@ -212,6 +276,80 @@ class AuthService {
     const res = await apiFetch<any>('/auth/bootstrap', { method: 'GET', token })
     if (!res.ok) throw new Error(res.error || 'Failed to download data')
     await cacheBootstrapData(res.data)
+  }
+
+  private async countPendingLocalChanges(): Promise<number> {
+    try {
+      const state = await getDb()('sync_state').first()
+      const since = Number(state?.last_pushed_sno) || 0
+      const row = await getDb()('sync_queue').where('sno', '>', since).count('* as count').first()
+      return Number(row?.count ?? 0)
+    } catch {
+      return 0
+    }
+  }
+
+  private async evaluateCompanyGate(
+    incomingCompanyId: string,
+    incomingCompanyName: string
+  ): Promise<CompanyGate> {
+    if (!incomingCompanyId) return { status: 'ok' }
+
+    let profile: { id: string; name?: string } | undefined
+    try {
+      profile = await getDb()('company_profile').whereNull('deleted_at').first()
+    } catch {
+      return { status: 'ok' }
+    }
+
+    if (!profile?.id) return { status: 'ok' }
+    if (profile.id === incomingCompanyId) return { status: 'ok' }
+
+    const localCompanyName = (profile.name as string) || 'another company'
+    const pending = await this.countPendingLocalChanges()
+    if (pending > 0) {
+      return {
+        status: 'company_switch_blocked',
+        localCompanyId: profile.id,
+        localCompanyName,
+        pendingChanges: pending,
+        message: `This POS has ${pending} unsynced change(s) for "${localCompanyName}". Sync them before switching to "${incomingCompanyName}".`
+      }
+    }
+
+    return {
+      status: 'company_mismatch',
+      localCompanyId: profile.id,
+      localCompanyName,
+      incomingCompanyId,
+      incomingCompanyName,
+      message: `This POS is set up for "${localCompanyName}". Signing in as "${incomingCompanyName}" requires wiping all local data on this device.`
+    }
+  }
+
+  private async assertOfflineCompanyMatch(sessionCompanyId: string | null): Promise<void> {
+    if (!sessionCompanyId) return
+
+    let profile: { id: string; name?: string } | undefined
+    try {
+      profile = await getDb()('company_profile').whereNull('deleted_at').first()
+    } catch {
+      return
+    }
+
+    if (!profile?.id) return
+    if (profile.id === sessionCompanyId) return
+
+    const localName = (profile.name as string) || 'another company'
+    throw new Error(
+      `This POS is set up for "${localName}". Company switch is not allowed offline. Connect to the internet and sign in to wipe and switch.`
+    )
+  }
+
+  private async wipeLocalDataForCompanySwitch(): Promise<void> {
+    await stopSync()
+    appState.clearSession()
+    await resetLocalCompanyDatabase()
   }
 
   private async handleAuthSuccess(data: any, email: string): Promise<LoginResult> {

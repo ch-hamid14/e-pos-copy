@@ -4,13 +4,20 @@ import { authService, stopSync } from '../../services'
 
 class AuthController {
   async login(_: Electron.IpcMainInvokeEvent, req: IRequest) {
-    const { email, password, otp, otpPurpose } = req.body as {
+    const { email, password, otp, otpPurpose, confirmCompanySwitch } = req.body as {
       email: string
       password: string
       otp?: string
       otpPurpose?: string
+      confirmCompanySwitch?: boolean
     }
-    return authService.login(email, password, otp, otpPurpose as any)
+    return authService.login(
+      email,
+      password,
+      otp,
+      otpPurpose as any,
+      Boolean(confirmCompanySwitch)
+    )
   }
 
   async continueSession(_: Electron.IpcMainInvokeEvent, req: IRequest) {

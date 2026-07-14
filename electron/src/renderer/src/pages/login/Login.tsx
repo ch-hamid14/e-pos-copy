@@ -1,12 +1,25 @@
 import { useState, useEffect, useRef } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { useNavigate } from 'react-router-dom'
-import { Alert, Button, Form, Input, message } from 'antd'
+import { Alert, Button, Form, Input, Typography, message } from 'antd'
 import { RequiredRule, App_Routes } from '@/common'
 import { authAPI } from '@/renderer/services'
 import { appActions, sessionActions, IRootState } from '@/renderer/redux'
 
 type OtpPurpose = 'email_verify' | 'device_reset'
+
+type CompanyMismatch = {
+  status: 'company_mismatch'
+  localCompanyId: string
+  localCompanyName: string
+  incomingCompanyId: string
+  incomingCompanyName: string
+  message: string
+  email: string
+  password: string
+  otp?: string
+  otpPurpose?: OtpPurpose
+}
 
 export const Login = () => {
   const dispatch = useDispatch()
@@ -19,6 +32,8 @@ export const Login = () => {
   const [offlineContinueFailed, setOfflineContinueFailed] = useState(false)
   const [otpStep, setOtpStep] = useState<{ purpose: OtpPurpose; email: string; password: string } | null>(null)
   const [otpCode, setOtpCode] = useState('')
+  const [companyMismatch, setCompanyMismatch] = useState<CompanyMismatch | null>(null)
+  const [wipeConfirm, setWipeConfirm] = useState('')
   const bootstrapStarted = useRef(false)
 
   const { token, cachedEmail } = useSelector((s: IRootState) => s.app)
@@ -62,10 +77,8 @@ export const Login = () => {
         }
 
         const result: any = await authAPI.continueSession(cachedEmail!, token!)
-        console.log('result', result)
         enterApp(result)
       } catch (err: unknown) {
-        console.log('err', err)
         const { online: isOnline } = await authAPI.checkOnline().catch(() => ({ online: false }))
         setOnline(isOnline)
         if (isOnline) {
@@ -83,15 +96,39 @@ export const Login = () => {
     bootstrap()
   }, [token, cachedEmail])
 
+  const handleGateStatuses = (
+    result: any,
+    credentials: { email: string; password: string; otp?: string; otpPurpose?: OtpPurpose }
+  ): boolean => {
+    if (result.status === 'otp_required') {
+      setOtpStep({ purpose: result.otpPurpose, email: credentials.email, password: credentials.password })
+      setCompanyMismatch(null)
+      message.info(result.message)
+      return true
+    }
+    if (result.status === 'company_switch_blocked') {
+      message.error(result.message)
+      return true
+    }
+    if (result.status === 'company_mismatch') {
+      setCompanyMismatch({
+        ...result,
+        email: credentials.email,
+        password: credentials.password,
+        otp: credentials.otp,
+        otpPurpose: credentials.otpPurpose
+      })
+      setWipeConfirm('')
+      return true
+    }
+    return false
+  }
+
   const handleLogin = async (values: { email: string; password: string }) => {
     setLoading(true)
     try {
       const result: any = await authAPI.login(values.email, values.password)
-      if (result.status === 'otp_required') {
-        setOtpStep({ purpose: result.otpPurpose, email: values.email, password: values.password })
-        message.info(result.message)
-        return
-      }
+      if (handleGateStatuses(result, values)) return
       enterApp(result)
     } catch (err: any) {
       message.error(err.message || 'Login failed')
@@ -99,22 +136,68 @@ export const Login = () => {
       setLoading(false)
     }
   }
-  
 
   const handleOtpSubmit = async () => {
     if (!otpStep || !otpCode) return
     setLoading(true)
     try {
       const result: any = await authAPI.login(otpStep.email, otpStep.password, otpCode, otpStep.purpose)
-      if (result.status === 'otp_required') {
-        message.error(result.message || 'Invalid OTP')
-        return
-      }
+      if (handleGateStatuses(result, {
+        email: otpStep.email,
+        password: otpStep.password,
+        otp: otpCode,
+        otpPurpose: otpStep.purpose
+      })) return
       setOtpStep(null)
       setOtpCode('')
       enterApp(result)
     } catch (err: any) {
       message.error(err.message || 'OTP verification failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const wipeConfirmValid =
+    wipeConfirm.trim().toUpperCase() === 'WIPE' ||
+    (companyMismatch != null &&
+      wipeConfirm.trim().toLowerCase() === companyMismatch.localCompanyName.trim().toLowerCase())
+
+  const handleWipeAndSwitch = async () => {
+    if (!companyMismatch || !wipeConfirmValid) return
+    setLoading(true)
+    try {
+      const result: any = await authAPI.login(
+        companyMismatch.email,
+        companyMismatch.password,
+        companyMismatch.otp,
+        companyMismatch.otpPurpose,
+        true
+      )
+      if (result.status === 'company_switch_blocked') {
+        message.error(result.message)
+        return
+      }
+      if (result.status === 'company_mismatch') {
+        message.error(result.message || 'Could not switch company')
+        return
+      }
+      if (result.status === 'otp_required') {
+        setCompanyMismatch(null)
+        setOtpStep({
+          purpose: result.otpPurpose,
+          email: companyMismatch.email,
+          password: companyMismatch.password
+        })
+        message.info(result.message)
+        return
+      }
+      setCompanyMismatch(null)
+      setOtpStep(null)
+      setOtpCode('')
+      enterApp(result)
+    } catch (err: any) {
+      message.error(err.message || 'Failed to wipe and switch company')
     } finally {
       setLoading(false)
     }
@@ -141,6 +224,62 @@ export const Login = () => {
     bootstrapping ||
     !online ||
     (hasCachedAuth && online && !refreshFailed)
+
+  if (companyMismatch) {
+    return (
+      <>
+        <h2>Company mismatch</h2>
+        <Alert
+          type="error"
+          showIcon
+          className="mb-4"
+          message={companyMismatch.message}
+          description={
+            <Typography.Paragraph className="mb-0 mt-2">
+              Wiping removes all local sales, stock, and offline queue data for{' '}
+              <strong>{companyMismatch.localCompanyName}</strong> on this device. There is no backup.
+              You will then sync data for <strong>{companyMismatch.incomingCompanyName}</strong>.
+            </Typography.Paragraph>
+          }
+        />
+        <Form layout="vertical">
+          <Form.Item
+            label={`Type WIPE or "${companyMismatch.localCompanyName}" to confirm`}
+            required
+          >
+            <Input
+              size="large"
+              value={wipeConfirm}
+              onChange={(e) => setWipeConfirm(e.target.value)}
+              placeholder="WIPE"
+              autoFocus
+            />
+          </Form.Item>
+          <Button
+            type="primary"
+            danger
+            block
+            size="large"
+            loading={loading}
+            disabled={!wipeConfirmValid}
+            onClick={handleWipeAndSwitch}
+          >
+            Wipe this POS and switch to {companyMismatch.incomingCompanyName}
+          </Button>
+          <Button
+            type="link"
+            block
+            onClick={() => {
+              setCompanyMismatch(null)
+              setWipeConfirm('')
+            }}
+          >
+            Cancel
+          </Button>
+        </Form>
+      </>
+    )
+  }
 
   if (otpStep) {
     return (

@@ -3,6 +3,7 @@ export {
   isDatabaseReady,
   initDatabase,
   closeDatabase,
+  resetLocalCompanyDatabase,
   withTransaction,
   createKnexInstance
 } from './knex'
