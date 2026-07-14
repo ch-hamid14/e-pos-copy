@@ -150,10 +150,10 @@ export type SyncConflict = {
   table: string
   entityId: string
   message: string | null
-  error: unknown
+  error?: unknown
   winner: string
-  loserPayload: Record<string, unknown> | null
-  current: Record<string, unknown> | null
+  loserPayload?: Record<string, unknown> | null
+  current?: Record<string, unknown> | null
   createdAt: string
 }
 
@@ -166,7 +166,7 @@ export type SyncQueueItem = {
   hlc: string
   originClientId: string
   createdAt: string
-  payload: unknown
+  payload?: unknown
 }
 
 export type DataBrowseResult = {

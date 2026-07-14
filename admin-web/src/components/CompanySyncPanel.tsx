@@ -8,6 +8,7 @@ import {
   deleteSyncQueueItem,
   dismissConflict,
   dismissConflicts,
+  getConflictDetail,
   listConflicts,
   listSyncQueue
 } from '../api/admin'
@@ -15,38 +16,76 @@ import type { SyncConflict, SyncQueueItem } from '../types'
 
 type Props = { companyId: string; token: string }
 
+const PAGE_SIZE = 25
+
 export default function CompanySyncPanel({ companyId, token }: Props) {
   const [conflicts, setConflicts] = useState<SyncConflict[]>([])
   const [conflictTotal, setConflictTotal] = useState(0)
+  const [conflictPage, setConflictPage] = useState(1)
   const [queue, setQueue] = useState<SyncQueueItem[]>([])
   const [queueTotal, setQueueTotal] = useState(0)
-  const [loading, setLoading] = useState(false)
+  const [queuePage, setQueuePage] = useState(1)
+  const [conflictsLoading, setConflictsLoading] = useState(false)
+  const [queueLoading, setQueueLoading] = useState(false)
   const [inspect, setInspect] = useState<SyncConflict | null>(null)
+  const [inspectLoading, setInspectLoading] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [tab, setTab] = useState('conflicts')
 
-  const load = async () => {
-    setLoading(true)
+  const loadConflicts = async (page = conflictPage) => {
+    setConflictsLoading(true)
     try {
-      const [c, q] = await Promise.all([
-        listConflicts(token, companyId),
-        listSyncQueue(token, companyId)
-      ])
+      const c = await listConflicts(token, companyId, { page, pageSize: PAGE_SIZE })
       setConflicts(c.conflicts)
       setConflictTotal(c.total)
-      setQueue(q.items)
-      setQueueTotal(q.total)
+      setConflictPage(c.page)
       setSelectedIds([])
     } catch (err: any) {
       message.error(err.message)
     } finally {
-      setLoading(false)
+      setConflictsLoading(false)
     }
   }
 
+  const loadQueue = async (page = queuePage) => {
+    setQueueLoading(true)
+    try {
+      const q = await listSyncQueue(token, companyId, { page, pageSize: PAGE_SIZE })
+      setQueue(q.items)
+      setQueueTotal(q.total)
+      setQueuePage(q.page)
+    } catch (err: any) {
+      message.error(err.message)
+    } finally {
+      setQueueLoading(false)
+    }
+  }
+
+  const refreshActive = async () => {
+    if (tab === 'queue') await loadQueue()
+    else await loadConflicts()
+  }
+
   useEffect(() => {
-    load()
+    loadConflicts(1)
   }, [token, companyId])
+
+  useEffect(() => {
+    if (tab === 'queue') loadQueue(queuePage)
+  }, [tab])
+
+  const openInspect = async (row: SyncConflict) => {
+    setInspectLoading(true)
+    setInspect(row)
+    try {
+      setInspect(await getConflictDetail(token, companyId, row.id))
+    } catch (err: any) {
+      message.error(err.message)
+    } finally {
+      setInspectLoading(false)
+    }
+  }
 
   const selectedCount = selectedIds.length
 
@@ -63,7 +102,7 @@ export default function CompanySyncPanel({ companyId, token }: Props) {
                 try {
                   await bootstrapSync(token, companyId)
                   message.success('Bootstrap finished')
-                  load()
+                  await refreshActive()
                 } catch (err: any) {
                   message.error(err.message)
                 } finally {
@@ -73,7 +112,7 @@ export default function CompanySyncPanel({ companyId, token }: Props) {
             >
               Bootstrap sync
             </Button>
-            <Button onClick={load}>Refresh</Button>
+            <Button onClick={() => void refreshActive()}>Refresh</Button>
           </Space>
         </div>
         <div className="madix-panel__body">
@@ -85,12 +124,14 @@ export default function CompanySyncPanel({ companyId, token }: Props) {
             description="Each row is a record of a losing write. The winner is already in the database. Dismiss clears the log. Apply loser overrides the current row with the rejected payload."
           />
           <Typography.Text type="secondary">
-            {conflictTotal} conflicts · {queueTotal} queue items
+            {conflictTotal} conflicts · {queueTotal || '—'} queue items
           </Typography.Text>
         </div>
       </div>
 
       <Tabs
+        activeKey={tab}
+        onChange={setTab}
         items={[
           {
             key: 'conflicts',
@@ -114,7 +155,7 @@ export default function CompanySyncPanel({ companyId, token }: Props) {
                             try {
                               const res = await dismissConflicts(token, companyId, selectedIds)
                               message.success(`Dismissed ${res.dismissed}`)
-                              load()
+                              loadConflicts(conflictPage)
                             } catch (err: any) {
                               message.error(err.message)
                             } finally {
@@ -142,7 +183,7 @@ export default function CompanySyncPanel({ companyId, token }: Props) {
                               message.success(
                                 `Applied ${res.applied}${res.failed.length ? `, ${res.failed.length} failed` : ''}`
                               )
-                              load()
+                              loadConflicts(conflictPage)
                             } catch (err: any) {
                               message.error(err.message)
                             } finally {
@@ -168,7 +209,7 @@ export default function CompanySyncPanel({ companyId, token }: Props) {
                             try {
                               const res = await dismissConflicts(token, companyId)
                               message.success(`Dismissed ${res.dismissed}`)
-                              load()
+                              loadConflicts(1)
                             } catch (err: any) {
                               message.error(err.message)
                             } finally {
@@ -183,13 +224,22 @@ export default function CompanySyncPanel({ companyId, token }: Props) {
                   </Space>
                 </div>
                 <Table
-                  loading={loading}
+                  loading={conflictsLoading}
                   rowKey="id"
                   dataSource={conflicts}
-                  pagination={false}
                   rowSelection={{
                     selectedRowKeys: selectedIds,
                     onChange: (keys) => setSelectedIds(keys as string[])
+                  }}
+                  pagination={{
+                    current: conflictPage,
+                    pageSize: PAGE_SIZE,
+                    total: conflictTotal,
+                    showSizeChanger: false,
+                    onChange: (p) => {
+                      setConflictPage(p)
+                      loadConflicts(p)
+                    }
                   }}
                   columns={[
                     { title: 'Table', dataIndex: 'table', width: 140 },
@@ -211,7 +261,7 @@ export default function CompanySyncPanel({ companyId, token }: Props) {
                       width: 260,
                       render: (_, row) => (
                         <Space size={4}>
-                          <Button size="small" onClick={() => setInspect(row)}>
+                          <Button size="small" onClick={() => openInspect(row)}>
                             Inspect
                           </Button>
                           <Button
@@ -225,7 +275,7 @@ export default function CompanySyncPanel({ companyId, token }: Props) {
                                   try {
                                     await applyConflictLoser(token, companyId, row.id)
                                     message.success('Loser applied')
-                                    load()
+                                    loadConflicts(conflictPage)
                                   } catch (err: any) {
                                     message.error(err.message)
                                   } finally {
@@ -245,7 +295,7 @@ export default function CompanySyncPanel({ companyId, token }: Props) {
                               try {
                                 await dismissConflict(token, companyId, row.id)
                                 message.success('Dismissed')
-                                load()
+                                loadConflicts(conflictPage)
                               } catch (err: any) {
                                 message.error(err.message)
                               } finally {
@@ -265,7 +315,7 @@ export default function CompanySyncPanel({ companyId, token }: Props) {
           },
           {
             key: 'queue',
-            label: `Queue (${queueTotal})`,
+            label: `Queue${queueTotal ? ` (${queueTotal})` : ''}`,
             children: (
               <div className="madix-panel">
                 <div className="madix-panel__head">
@@ -279,7 +329,7 @@ export default function CompanySyncPanel({ companyId, token }: Props) {
                         onOk: async () => {
                           await clearSyncQueue(token, companyId)
                           message.success('Queue cleared')
-                          load()
+                          loadQueue(1)
                         }
                       })
                     }
@@ -288,10 +338,19 @@ export default function CompanySyncPanel({ companyId, token }: Props) {
                   </Button>
                 </div>
                 <Table
-                  loading={loading}
+                  loading={queueLoading}
                   rowKey="id"
                   dataSource={queue}
-                  pagination={false}
+                  pagination={{
+                    current: queuePage,
+                    pageSize: PAGE_SIZE,
+                    total: queueTotal,
+                    showSizeChanger: false,
+                    onChange: (p) => {
+                      setQueuePage(p)
+                      loadQueue(p)
+                    }
+                  }}
                   columns={[
                     { title: 'SNO', dataIndex: 'sno', width: 80 },
                     { title: 'Table', dataIndex: 'table', width: 140 },
@@ -313,7 +372,7 @@ export default function CompanySyncPanel({ companyId, token }: Props) {
                           onClick={async () => {
                             await deleteSyncQueueItem(token, companyId, row.id)
                             message.success('Removed')
-                            load()
+                            loadQueue(queuePage)
                           }}
                         >
                           Remove
@@ -340,13 +399,17 @@ export default function CompanySyncPanel({ companyId, token }: Props) {
             <div>
               <Typography.Text strong>Current row (winner already applied)</Typography.Text>
               <pre style={{ fontSize: 11, maxHeight: 360, overflow: 'auto', background: '#f4f7fa', padding: 12 }}>
-                {JSON.stringify(inspect.current, null, 2) || 'null'}
+                {inspectLoading
+                  ? 'Loading…'
+                  : JSON.stringify(inspect.current, null, 2) || 'null'}
               </pre>
             </div>
             <div>
               <Typography.Text strong>Loser payload (rejected)</Typography.Text>
               <pre style={{ fontSize: 11, maxHeight: 360, overflow: 'auto', background: '#f4f7fa', padding: 12 }}>
-                {JSON.stringify(inspect.loserPayload, null, 2) || 'null'}
+                {inspectLoading
+                  ? 'Loading…'
+                  : JSON.stringify(inspect.loserPayload, null, 2) || 'null'}
               </pre>
             </div>
           </div>

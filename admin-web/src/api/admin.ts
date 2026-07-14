@@ -170,11 +170,25 @@ export function restoreSnapshot(token: string, companyId: string, filename: stri
   })
 }
 
-export function listConflicts(token: string, companyId: string) {
-  return api<{ conflicts: SyncConflict[]; total: number }>(
-    `/admin/companies/${companyId}/conflicts`,
-    { token }
-  )
+export function listConflicts(
+  token: string,
+  companyId: string,
+  params?: { page?: number; pageSize?: number }
+) {
+  const q = new URLSearchParams()
+  if (params?.page) q.set('page', String(params.page))
+  if (params?.pageSize) q.set('pageSize', String(params.pageSize))
+  const suffix = q.toString() ? `?${q}` : ''
+  return api<{
+    conflicts: SyncConflict[]
+    total: number
+    page: number
+    pageSize: number
+  }>(`/admin/companies/${companyId}/conflicts${suffix}`, { token })
+}
+
+export function getConflictDetail(token: string, companyId: string, conflictId: string) {
+  return api<SyncConflict>(`/admin/companies/${companyId}/conflicts/${conflictId}`, { token })
 }
 
 export function dismissConflict(token: string, companyId: string, conflictId: string) {
@@ -210,11 +224,21 @@ export function applyConflictLosers(token: string, companyId: string, ids: strin
   )
 }
 
-export function listSyncQueue(token: string, companyId: string) {
-  return api<{ items: SyncQueueItem[]; total: number }>(
-    `/admin/companies/${companyId}/sync-queue`,
-    { token }
-  )
+export function listSyncQueue(
+  token: string,
+  companyId: string,
+  params?: { page?: number; pageSize?: number }
+) {
+  const q = new URLSearchParams()
+  if (params?.page) q.set('page', String(params.page))
+  if (params?.pageSize) q.set('pageSize', String(params.pageSize))
+  const suffix = q.toString() ? `?${q}` : ''
+  return api<{
+    items: SyncQueueItem[]
+    total: number
+    page: number
+    pageSize: number
+  }>(`/admin/companies/${companyId}/sync-queue${suffix}`, { token })
 }
 
 export function deleteSyncQueueItem(token: string, companyId: string, itemId: string) {

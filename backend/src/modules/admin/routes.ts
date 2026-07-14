@@ -36,6 +36,7 @@ import {
 } from './data'
 import {
   listConflicts,
+  getConflictDetail,
   dismissConflict,
   dismissConflicts,
   applyConflictLoser,
@@ -306,7 +307,20 @@ export function adminRouter(db: Knex): Router {
   // Sync / conflicts
   router.get('/companies/:id/conflicts', async (req, res) => {
     try {
-      res.json(await listConflicts(req.params.id, Number(req.query.limit) || 50))
+      res.json(
+        await listConflicts(req.params.id, {
+          page: Number(req.query.page) || 1,
+          pageSize: Number(req.query.pageSize) || 25
+        })
+      )
+    } catch (err: any) {
+      res.status(400).json({ error: err.message })
+    }
+  })
+
+  router.get('/companies/:id/conflicts/:conflictId', async (req, res) => {
+    try {
+      res.json(await getConflictDetail(req.params.id, req.params.conflictId))
     } catch (err: any) {
       res.status(400).json({ error: err.message })
     }
@@ -377,7 +391,12 @@ export function adminRouter(db: Knex): Router {
 
   router.get('/companies/:id/sync-queue', async (req, res) => {
     try {
-      res.json(await listSyncQueue(req.params.id, Number(req.query.limit) || 50))
+      res.json(
+        await listSyncQueue(req.params.id, {
+          page: Number(req.query.page) || 1,
+          pageSize: Number(req.query.pageSize) || 25
+        })
+      )
     } catch (err: any) {
       res.status(400).json({ error: err.message })
     }
