@@ -1,5 +1,5 @@
 export { authService, cacheBootstrapData } from './auth'
-export type { OtpPurpose, LoginResult, LoginResponse } from './auth'
+export type { OtpPurpose, LoginResult, LoginResponse, EnsureOnlineResult } from './auth'
 export { colorService, supplierService, categoryService } from './setup'
 export { productService } from './product'
 export { purchaseService } from './purchase'

@@ -191,6 +191,31 @@ $header-height: 60px;
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+  min-width: 0;
+}
+
+.app-reauth-banner {
+  max-width: min(440px, 46vw);
+  min-width: 0;
+
+  .ant-alert {
+    padding: 4px 10px;
+    border-radius: 8px;
+  }
+
+  .ant-alert-message {
+    margin-bottom: 0;
+  }
+}
+
+.app-reauth-msg {
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.app-reauth-timer {
+  font-variant-numeric: tabular-nums;
+  margin-left: 4px;
 }
 
 .app-collapse-btn {

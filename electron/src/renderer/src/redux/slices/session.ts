@@ -1,11 +1,18 @@
-import { createSlice } from '@reduxjs/toolkit'
+import { createSlice, PayloadAction } from '@reduxjs/toolkit'
+
+type ReauthGrace = {
+  deadline: number
+  reason: string
+}
 
 type SessionState = {
   active: boolean
+  reauthGrace: ReauthGrace | null
 }
 
 const initialState: SessionState = {
-  active: false
+  active: false,
+  reauthGrace: null
 }
 
 const sessionSlice = createSlice({
@@ -17,6 +24,10 @@ const sessionSlice = createSlice({
     },
     deactivate: (state) => {
       state.active = false
+      state.reauthGrace = null
+    },
+    setReauthGrace: (state, action: PayloadAction<ReauthGrace | null>) => {
+      state.reauthGrace = action.payload
     }
   }
 })

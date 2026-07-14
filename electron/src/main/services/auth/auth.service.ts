@@ -6,6 +6,7 @@ import {
   wipeActiveLocalCompanyDatabase
 } from '../../db'
 import { IUser } from '../../../common/types'
+import { REAUTH_GRACE_MS, RECONNECT_POLL_MS } from '../../../common/constants/config'
 import { appState } from '../../state/app-state'
 import { getClientDeviceId, rotateClientDeviceId, rotateSyncNodeId } from '../device'
 import { apiFetch, checkServerOnline } from '../http'
@@ -15,7 +16,8 @@ import {
   loadOfflineSession,
   saveOfflineSession
 } from './offline-session'
-import { startSyncAfterAuth, stopSync } from '../sync'
+import { broadcastConnectivity } from './connectivity'
+import { startSyncAfterAuth, stopSync, syncService } from '../sync'
 
 /** Tech factory-reset PIN (not shown in UI). */
 const TECH_RESET_PIN = '54321'
@@ -53,11 +55,149 @@ export type LoginResponse =
   | CompanyMismatchResult
   | CompanySwitchBlockedResult
 
+export type EnsureOnlineResult =
+  | { status: 'idle' }
+  | { status: 'offline' }
+  | { status: 'reconnected' }
+  | { status: 'reauth_required'; deadline: number; reason: string }
+  | { status: 'session_ended'; reason: string }
+
 type CompanyGate = { status: 'ok' } | CompanyMismatchResult
 
 class AuthService {
+  private reconnectTimer: ReturnType<typeof setInterval> | null = null
+  private lastKnownOnline: boolean | null = null
+  private reauthGraceDeadline: number | null = null
+  private reauthReason: string | null = null
+  private ensureInFlight: Promise<EnsureOnlineResult> | null = null
+
   async checkOnline(): Promise<boolean> {
     return checkServerOnline()
+  }
+
+  startReconnectMonitor(): void {
+    if (this.reconnectTimer) return
+    void this.tickReconnect()
+    this.reconnectTimer = setInterval(() => void this.tickReconnect(), RECONNECT_POLL_MS)
+  }
+
+  stopReconnectMonitor(): void {
+    if (this.reconnectTimer) {
+      clearInterval(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
+    this.lastKnownOnline = null
+  }
+
+  private async tickReconnect(): Promise<void> {
+    const online = await checkServerOnline()
+    const was = this.lastKnownOnline
+    this.lastKnownOnline = online
+
+    if (!online) {
+      if (was === true) broadcastConnectivity({ status: 'offline' })
+      return
+    }
+
+    if (this.reauthGraceDeadline != null) {
+      if (Date.now() >= this.reauthGraceDeadline) {
+        await this.endSessionAfterGrace('Grace period ended. Sign in to continue syncing.')
+      }
+      return
+    }
+
+    const hasSession = Boolean(appState.getSession() || loadOfflineSession())
+    if (!hasSession) return
+
+    const cameOnline = was === false
+    const needsSyncAuth = !syncService.isRunning()
+    if (cameOnline || needsSyncAuth) {
+      await this.ensureOnlineSession()
+    }
+  }
+
+  /**
+   * When connectivity returns: refresh JWT, then start sync.
+   * On refresh failure: block sync and start 5-minute local-work grace.
+   */
+  async ensureOnlineSession(): Promise<EnsureOnlineResult> {
+    if (this.ensureInFlight) return this.ensureInFlight
+    this.ensureInFlight = this.doEnsureOnlineSession().finally(() => {
+      this.ensureInFlight = null
+    })
+    return this.ensureInFlight
+  }
+
+  private async doEnsureOnlineSession(): Promise<EnsureOnlineResult> {
+    if (!(await checkServerOnline())) {
+      broadcastConnectivity({ status: 'offline' })
+      return { status: 'offline' }
+    }
+
+    if (this.reauthGraceDeadline != null) {
+      if (Date.now() >= this.reauthGraceDeadline) {
+        return this.endSessionAfterGrace('Grace period ended. Sign in to continue syncing.')
+      }
+      return {
+        status: 'reauth_required',
+        deadline: this.reauthGraceDeadline,
+        reason: this.reauthReason || 'Internet is back. Sign in to sync.'
+      }
+    }
+
+    const live = appState.getSession()
+    const sealed = loadOfflineSession()
+    const token = live?.token || sealed?.token
+    const email = live?.user.email || sealed?.email
+    if (!token || !email) return { status: 'idle' }
+
+    try {
+      await this.refreshSession(token, email)
+      this.clearReauthGrace()
+      broadcastConnectivity({ status: 'reconnected' })
+      return { status: 'reconnected' }
+    } catch {
+      await stopSync()
+      if (this.reauthGraceDeadline == null) {
+        this.reauthGraceDeadline = Date.now() + REAUTH_GRACE_MS
+        this.reauthReason = 'Internet is back. Sign in to sync.'
+      }
+      const deadline = this.reauthGraceDeadline
+      const reason = this.reauthReason || 'Internet is back. Sign in to sync.'
+      broadcastConnectivity({
+        status: 'reauth_required',
+        deadline,
+        reason
+      })
+      return {
+        status: 'reauth_required',
+        deadline,
+        reason
+      }
+    }
+  }
+
+  getReauthGrace(): { deadline: number; reason: string } | null {
+    if (this.reauthGraceDeadline == null) return null
+    return {
+      deadline: this.reauthGraceDeadline,
+      reason: this.reauthReason || 'Internet is back. Sign in to sync.'
+    }
+  }
+
+  private clearReauthGrace(): void {
+    this.reauthGraceDeadline = null
+    this.reauthReason = null
+  }
+
+  private async endSessionAfterGrace(reason: string): Promise<EnsureOnlineResult> {
+    this.clearReauthGrace()
+    this.stopReconnectMonitor()
+    await stopSync()
+    appState.clearSession()
+    clearOfflineSession()
+    broadcastConnectivity({ status: 'session_ended', reason })
+    return { status: 'session_ended', reason }
   }
 
   async login(
@@ -205,6 +345,7 @@ class AuthService {
       offlineAllowedUntil: session.offlineAllowedUntil
     }
     appState.setSession(result)
+    this.startReconnectMonitor()
     return result
   }
 
@@ -251,6 +392,8 @@ class AuthService {
   }
 
   async logout(): Promise<void> {
+    this.stopReconnectMonitor()
+    this.clearReauthGrace()
     await stopSync()
     appState.clearSession()
     clearOfflineSession()
@@ -362,6 +505,8 @@ class AuthService {
 
     appState.clearSession()
     clearOfflineSession()
+    this.stopReconnectMonitor()
+    this.clearReauthGrace()
     await wipeActiveLocalCompanyDatabase()
     rotateClientDeviceId()
     rotateSyncNodeId()
@@ -403,6 +548,8 @@ class AuthService {
 
     appState.clearSession()
     clearOfflineSession()
+    this.stopReconnectMonitor()
+    this.clearReauthGrace()
     await wipeActiveLocalCompanyDatabase()
     rotateClientDeviceId()
     rotateSyncNodeId()
@@ -478,6 +625,8 @@ class AuthService {
     })
 
     appState.setSession(result)
+    this.clearReauthGrace()
+    this.startReconnectMonitor()
     return result
   }
 }

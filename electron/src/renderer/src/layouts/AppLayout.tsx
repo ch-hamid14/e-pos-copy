@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { Avatar, Button, Dropdown, Layout, Menu, MenuProps, Tag, Typography, theme } from 'antd'
+import { Alert, Avatar, Button, Dropdown, Layout, Menu, MenuProps, Tag, Typography, theme } from 'antd'
 import { App_Routes, Menus } from '@/common'
 import { AiOutlineLogout } from 'react-icons/ai'
 import { GoChevronDown } from 'react-icons/go'
 import { RiMenuFoldLine, RiMenuUnfoldLine } from 'react-icons/ri'
 import './app-layout.scss'
 import { useSession } from '@/renderer/hooks/useSession'
+import { useConnectivityGuard } from '@/renderer/hooks/useConnectivityGuard'
 import logoFull from '@/renderer/assets/logo-full-light.png'
 import logoMark from '@/renderer/assets/logo-mark.png'
 
@@ -46,6 +47,7 @@ const AppLayout = () => {
   const location = useLocation()
   const { token: themeToken } = theme.useToken()
   const { user, branchName } = useSession()
+  const { reauthGrace, remainLabel, signInNow } = useConnectivityGuard()
   const [collapsed, setCollapsed] = useState(false)
   const [openKeys, setOpenKeys] = useState<string[]>([])
 
@@ -154,6 +156,28 @@ const AppLayout = () => {
           </div>
 
           <div className="app-header-right">
+            {reauthGrace && (
+              <div className="app-reauth-banner">
+                <Alert
+                  type="warning"
+                  showIcon
+                  banner
+                  message={
+                    <span className="app-reauth-msg">
+                      {reauthGrace.reason}
+                      {remainLabel ? (
+                        <strong className="app-reauth-timer"> {remainLabel}</strong>
+                      ) : null}
+                    </span>
+                  }
+                  action={
+                    <Button size="small" type="primary" onClick={signInNow}>
+                      Sign in now
+                    </Button>
+                  }
+                />
+              </div>
+            )}
             {branchName && (
               <Tag bordered={false} className="app-branch-tag">{branchName}</Tag>
             )}

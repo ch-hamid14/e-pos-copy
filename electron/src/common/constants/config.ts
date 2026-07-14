@@ -15,3 +15,12 @@ export const LOCAL_PG = {
   password: '12345',
   ssl: false
 } as const
+
+/** After failed refresh when back online — local work grace before forced logout. */
+export const REAUTH_GRACE_MS = 5 * 60 * 1000
+
+/** How often to poll health for offline → online transitions. */
+export const RECONNECT_POLL_MS = 30_000
+
+/** IPC event pushed from main → renderer for connectivity / reauth. */
+export const AUTH_CONNECTIVITY_EVENT = 'auth:connectivity'

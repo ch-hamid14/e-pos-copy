@@ -128,6 +128,10 @@ class SyncService {
     return { ...this.status }
   }
 
+  isRunning(): boolean {
+    return Boolean(this.intervalId)
+  }
+
   private async refreshPendingCount(): Promise<void> {
     try {
       const state = await this.client?.getState()

@@ -35,6 +35,14 @@ class AuthController {
     return { online: await authService.checkOnline() }
   }
 
+  async ensureOnline(_: Electron.IpcMainInvokeEvent, _req: IRequest) {
+    return authService.ensureOnlineSession()
+  }
+
+  async reauthGrace(_: Electron.IpcMainInvokeEvent, _req: IRequest) {
+    return { grace: authService.getReauthGrace() }
+  }
+
   async sendOtp(_: Electron.IpcMainInvokeEvent, req: IRequest) {
     const { email, purpose } = req.body as { email: string; purpose: string }
     await authService.sendOtp(email, purpose as any)
