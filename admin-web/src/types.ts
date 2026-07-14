@@ -67,6 +67,8 @@ export type CompanyDetail = {
 
 export type Overview = {
   companiesCount: number
+  activeCompaniesCount: number
+  inactiveCompaniesCount: number
   usersCount: number
   branchesCount: number
   companies: Company[]

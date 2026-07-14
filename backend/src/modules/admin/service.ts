@@ -59,9 +59,13 @@ export async function getOverview(controlDb: Knex) {
     .orderBy('created_at', 'desc')
 
   const branchesCount = companies.reduce((sum, c) => sum + Number(c.branch_count || 0), 0)
+  const activeCompaniesCount = companies.filter((c) => c.status === 'active').length
+  const inactiveCompaniesCount = companies.filter((c) => c.status === 'inactive').length
 
   return {
     companiesCount: Number(companiesCount),
+    activeCompaniesCount,
+    inactiveCompaniesCount,
     usersCount: Number(usersCount),
     branchesCount,
     companies: companies.map(mapCompany)

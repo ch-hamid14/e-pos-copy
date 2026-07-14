@@ -1,8 +1,14 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+import {
+  ArrowLeftOutlined,
+  BranchesOutlined,
+  SafetyCertificateOutlined,
+  TeamOutlined,
+  ToolOutlined
+} from '@ant-design/icons'
 import {
   Button,
-  Card,
   Checkbox,
   Form,
   Input,
@@ -19,12 +25,21 @@ import {
   createRole,
   createUser,
   getCompany,
+  getCompanyOps,
   updateCompany,
   updateRole
 } from '../api/admin'
 import CompanyOpsPanel from '../components/CompanyOpsPanel'
+import StatusTag from '../components/StatusTag'
 import { useAuth } from '../context/AuthContext'
-import type { Branch, CompanyDetail, CompanyRole, CompanyUser, Permission } from '../types'
+import type {
+  Branch,
+  CompanyDetail,
+  CompanyOps,
+  CompanyRole,
+  CompanyUser,
+  Permission
+} from '../types'
 
 const USER_ROLES = [
   { value: 'company_owner', label: 'Company Owner' },
@@ -37,6 +52,8 @@ export default function CompanyDetailPage() {
   const navigate = useNavigate()
   const { token } = useAuth()
   const [detail, setDetail] = useState<CompanyDetail | null>(null)
+  const [ops, setOps] = useState<CompanyOps | null>(null)
+  const [tab, setTab] = useState('overview')
   const [branchOpen, setBranchOpen] = useState(false)
   const [userOpen, setUserOpen] = useState(false)
   const [roleOpen, setRoleOpen] = useState(false)
@@ -59,6 +76,10 @@ export default function CompanyDetailPage() {
         })
       })
       .catch((err: Error) => message.error(err.message))
+
+    getCompanyOps(token, id)
+      .then(setOps)
+      .catch(() => setOps(null))
   }
 
   useEffect(() => {
@@ -76,39 +97,203 @@ export default function CompanyDetailPage() {
     }
   }
 
-  if (!detail) return null
+  if (!detail) {
+    return (
+      <Typography.Text type="secondary">Loading company…</Typography.Text>
+    )
+  }
+
+  const company = detail.company
 
   return (
     <div>
-      <Typography.Title level={2}>{detail.company.name}</Typography.Title>
-      <Card style={{ marginBottom: 16 }}>
-        <Form form={companyForm} layout="inline" onFinish={saveCompany}>
-          <Form.Item name="name" label="Name" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="email" label="Email"><Input /></Form.Item>
-          <Form.Item name="phone" label="Phone"><Input /></Form.Item>
-          <Form.Item name="status" label="Status">
-            <Select
-              style={{ width: 120 }}
-              options={[
-                { value: 'active', label: 'Active' },
-                { value: 'inactive', label: 'Inactive' }
-              ]}
-            />
-          </Form.Item>
-          <Form.Item><Button type="primary" htmlType="submit">Save</Button></Form.Item>
-        </Form>
-      </Card>
+      <div style={{ marginBottom: 12 }}>
+        <Link to="/companies" style={{ color: '#5b6b7c', fontSize: 13 }}>
+          <ArrowLeftOutlined /> Companies
+        </Link>
+      </div>
+
+      <div className="madix-company-hero">
+        <div className="madix-company-hero__top">
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <h1>{company.name}</h1>
+              <StatusTag status={company.status} />
+            </div>
+            <div className="madix-company-hero__meta">
+              <span>{company.email || 'No email'}</span>
+              <span>{company.phone || 'No phone'}</span>
+              {company.dbName ? <span style={{ fontFamily: 'monospace' }}>{company.dbName}</span> : null}
+            </div>
+          </div>
+          <Button onClick={() => setTab('configure')} icon={<ToolOutlined />}>
+            Open configure
+          </Button>
+        </div>
+        <div className="madix-company-hero__stats">
+          <div className="madix-company-hero__stat">
+            <span>Branches</span>
+            <strong>{detail.branches.length}</strong>
+          </div>
+          <div className="madix-company-hero__stat">
+            <span>Users</span>
+            <strong>{detail.users.length}</strong>
+          </div>
+          <div className="madix-company-hero__stat">
+            <span>Roles</span>
+            <strong>{detail.roles.length}</strong>
+          </div>
+          <div className="madix-company-hero__stat">
+            <span>Migrations</span>
+            <strong style={{ fontSize: 16 }}>
+              {ops
+                ? ops.migrations.upToDate
+                  ? 'Current'
+                  : `${ops.migrations.pending.length} pending`
+                : '—'}
+            </strong>
+          </div>
+        </div>
+      </div>
 
       <Tabs
+        activeKey={tab}
+        onChange={setTab}
         items={[
           {
-            key: 'branches',
-            label: 'Branches',
+            key: 'overview',
+            label: 'Overview',
             children: (
-              <>
-                <Button type="primary" style={{ marginBottom: 12 }} onClick={() => setBranchOpen(true)}>
-                  Add Branch
-                </Button>
+              <div style={{ display: 'grid', gap: 16 }}>
+                <div className="madix-ops-grid">
+                  <div className="madix-ops-card">
+                    <h3>Schema</h3>
+                    <p className="madix-ops-card__desc">
+                      Shared company migrations vs this tenant database.
+                    </p>
+                    {ops ? (
+                      <>
+                        <div style={{ marginBottom: 12 }}>
+                          {ops.migrations.upToDate ? (
+                            <Tag color="success">Up to date</Tag>
+                          ) : (
+                            <Tag color="warning">{ops.migrations.pending.length} pending</Tag>
+                          )}
+                        </div>
+                        <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
+                          Current: {ops.migrations.current || 'none'}
+                        </Typography.Text>
+                        <Button type="link" style={{ padding: 0 }} onClick={() => setTab('configure')}>
+                          Manage migrations →
+                        </Button>
+                      </>
+                    ) : (
+                      <Typography.Text type="secondary">Unable to load ops status</Typography.Text>
+                    )}
+                  </div>
+
+                  <div className="madix-ops-card">
+                    <h3>Sync</h3>
+                    <p className="madix-ops-card__desc">Queue depth and conflict state for this tenant.</p>
+                    {ops ? (
+                      <>
+                        <div style={{ display: 'flex', gap: 16, marginBottom: 12 }}>
+                          <div>
+                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>Queue</Typography.Text>
+                            <div style={{ fontFamily: 'var(--madix-display)', fontSize: 22, fontWeight: 700 }}>
+                              {ops.sync.queueDepth}
+                            </div>
+                          </div>
+                          <div>
+                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>Conflicts</Typography.Text>
+                            <div style={{ fontFamily: 'var(--madix-display)', fontSize: 22, fontWeight: 700 }}>
+                              {ops.sync.conflictCount}
+                            </div>
+                          </div>
+                          <div>
+                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>Devices</Typography.Text>
+                            <div style={{ fontFamily: 'var(--madix-display)', fontSize: 22, fontWeight: 700 }}>
+                              {ops.devices.length}
+                            </div>
+                          </div>
+                        </div>
+                        <Button type="link" style={{ padding: 0 }} onClick={() => setTab('configure')}>
+                          Open sync tools →
+                        </Button>
+                      </>
+                    ) : (
+                      <Typography.Text type="secondary">Unable to load sync status</Typography.Text>
+                    )}
+                  </div>
+
+                  <div className="madix-ops-card">
+                    <h3>Permissions</h3>
+                    <p className="madix-ops-card__desc">Control catalog compared to company copy.</p>
+                    {ops ? (
+                      <>
+                        <div style={{ marginBottom: 12 }}>
+                          {ops.permissions.inSync ? (
+                            <Tag color="success">In sync ({ops.permissions.company})</Tag>
+                          ) : (
+                            <Tag color="warning">
+                              Control {ops.permissions.control} / Company {ops.permissions.company}
+                            </Tag>
+                          )}
+                        </div>
+                        <Button type="link" style={{ padding: 0 }} onClick={() => setTab('configure')}>
+                          Reseed permissions →
+                        </Button>
+                      </>
+                    ) : (
+                      <Typography.Text type="secondary">Unable to load permission status</Typography.Text>
+                    )}
+                  </div>
+
+                  <div className="madix-ops-card">
+                    <h3>Profile</h3>
+                    <p className="madix-ops-card__desc">Update tenant identity and access status.</p>
+                    <Form form={companyForm} layout="vertical" onFinish={saveCompany} style={{ marginTop: 4 }}>
+                      <Form.Item name="name" label="Name" rules={[{ required: true }]}>
+                        <Input />
+                      </Form.Item>
+                      <Form.Item name="email" label="Email">
+                        <Input />
+                      </Form.Item>
+                      <Form.Item name="phone" label="Phone">
+                        <Input />
+                      </Form.Item>
+                      <Form.Item name="status" label="Status">
+                        <Select
+                          options={[
+                            { value: 'active', label: 'Active' },
+                            { value: 'inactive', label: 'Inactive' }
+                          ]}
+                        />
+                      </Form.Item>
+                      <Button type="primary" htmlType="submit">
+                        Save profile
+                      </Button>
+                    </Form>
+                  </div>
+                </div>
+              </div>
+            )
+          },
+          {
+            key: 'branches',
+            label: (
+              <span>
+                <BranchesOutlined /> Branches
+              </span>
+            ),
+            children: (
+              <div className="madix-panel">
+                <div className="madix-panel__head">
+                  <h2 className="madix-panel__title">Branches</h2>
+                  <Button type="primary" onClick={() => setBranchOpen(true)}>
+                    Add branch
+                  </Button>
+                </div>
                 <Table<Branch>
                   rowKey="id"
                   dataSource={detail.branches}
@@ -119,61 +304,77 @@ export default function CompanyDetailPage() {
                       title: 'Status',
                       dataIndex: 'isActive',
                       render: (v) => (
-                        <Tag color={v ? 'green' : 'red'}>{v ? 'Active' : 'Inactive'}</Tag>
+                        <Tag color={v ? 'success' : 'default'}>{v ? 'Active' : 'Inactive'}</Tag>
                       )
                     }
                   ]}
                 />
-              </>
+              </div>
             )
           },
           {
             key: 'users',
-            label: 'Users',
+            label: (
+              <span>
+                <TeamOutlined /> Users
+              </span>
+            ),
             children: (
-              <>
-                <Button type="primary" style={{ marginBottom: 12 }} onClick={() => setUserOpen(true)}>
-                  Add User
-                </Button>
+              <div className="madix-panel">
+                <div className="madix-panel__head">
+                  <h2 className="madix-panel__title">Users</h2>
+                  <Button type="primary" onClick={() => setUserOpen(true)}>
+                    Add user
+                  </Button>
+                </div>
                 <Table<CompanyUser>
                   rowKey="id"
                   dataSource={detail.users}
                   columns={[
-                    { title: 'Name', render: (_, r) => `${r.firstName} ${r.lastName}` },
+                    {
+                      title: 'Name',
+                      render: (_, r) => `${r.firstName} ${r.lastName}`
+                    },
                     { title: 'Email', dataIndex: 'email' },
                     { title: 'Role', dataIndex: 'role' },
                     {
-                      title: 'RBAC Roles',
+                      title: 'RBAC',
                       render: (_, r) => r.roles?.map((x) => <Tag key={x.id}>{x.name}</Tag>)
                     },
                     {
-                      title: 'Email Verified',
+                      title: 'Verified',
                       dataIndex: 'emailVerified',
                       render: (v) => (
-                        <Tag color={v ? 'green' : 'orange'}>{v ? 'Yes' : 'Pending'}</Tag>
+                        <Tag color={v ? 'success' : 'warning'}>{v ? 'Verified' : 'Pending'}</Tag>
                       )
                     }
                   ]}
                 />
-              </>
+              </div>
             )
           },
           {
             key: 'roles',
-            label: 'Roles',
+            label: (
+              <span>
+                <SafetyCertificateOutlined /> Roles
+              </span>
+            ),
             children: (
-              <>
-                <Button
-                  type="primary"
-                  style={{ marginBottom: 12 }}
-                  onClick={() => {
-                    setEditRole(null)
-                    roleForm.resetFields()
-                    setRoleOpen(true)
-                  }}
-                >
-                  Add Role
-                </Button>
+              <div className="madix-panel">
+                <div className="madix-panel__head">
+                  <h2 className="madix-panel__title">Roles</h2>
+                  <Button
+                    type="primary"
+                    onClick={() => {
+                      setEditRole(null)
+                      roleForm.resetFields()
+                      setRoleOpen(true)
+                    }}
+                  >
+                    Add role
+                  </Button>
+                </div>
                 <Table<CompanyRole>
                   rowKey="id"
                   dataSource={detail.roles}
@@ -182,10 +383,12 @@ export default function CompanyDetailPage() {
                     { title: 'Description', dataIndex: 'description' },
                     {
                       title: 'Permissions',
-                      render: (_, r) => r.permissionKeys?.map((k) => <Tag key={k}>{k}</Tag>)
+                      render: (_, r) =>
+                        r.permissionKeys?.slice(0, 6).map((k) => <Tag key={k}>{k}</Tag>)
                     },
                     {
-                      title: 'Actions',
+                      title: '',
+                      width: 90,
                       render: (_, r) => (
                         <Button
                           size="small"
@@ -205,12 +408,16 @@ export default function CompanyDetailPage() {
                     }
                   ]}
                 />
-              </>
+              </div>
             )
           },
           {
-            key: 'ops',
-            label: 'Configure',
+            key: 'configure',
+            label: (
+              <span>
+                <ToolOutlined /> Configure
+              </span>
+            ),
             children:
               token && id ? (
                 <CompanyOpsPanel
@@ -218,13 +425,14 @@ export default function CompanyDetailPage() {
                   companyName={detail.company.name}
                   token={token}
                   onDeleted={() => navigate('/companies')}
+                  onChanged={load}
                 />
               ) : null
           }
         ]}
       />
 
-      <Modal title="Add Branch" open={branchOpen} onCancel={() => setBranchOpen(false)} footer={null}>
+      <Modal title="Add branch" open={branchOpen} onCancel={() => setBranchOpen(false)} footer={null}>
         <Form
           form={branchForm}
           layout="vertical"
@@ -237,7 +445,7 @@ export default function CompanyDetailPage() {
             load()
           }}
         >
-          <Form.Item name="name" label="Branch Name" rules={[{ required: true }]}>
+          <Form.Item name="name" label="Branch name" rules={[{ required: true }]}>
             <Input />
           </Form.Item>
           <Form.Item name="location" label="Location">
@@ -249,7 +457,7 @@ export default function CompanyDetailPage() {
         </Form>
       </Modal>
 
-      <Modal title="Add User" open={userOpen} onCancel={() => setUserOpen(false)} footer={null} width={520}>
+      <Modal title="Add user" open={userOpen} onCancel={() => setUserOpen(false)} footer={null} width={520}>
         <Form
           form={userForm}
           layout="vertical"
@@ -262,10 +470,10 @@ export default function CompanyDetailPage() {
             load()
           }}
         >
-          <Form.Item name="firstName" label="First Name" rules={[{ required: true }]}>
+          <Form.Item name="firstName" label="First name" rules={[{ required: true }]}>
             <Input />
           </Form.Item>
-          <Form.Item name="lastName" label="Last Name" rules={[{ required: true }]}>
+          <Form.Item name="lastName" label="Last name" rules={[{ required: true }]}>
             <Input />
           </Form.Item>
           <Form.Item name="email" label="Email" rules={[{ required: true, type: 'email' }]}>
@@ -280,17 +488,17 @@ export default function CompanyDetailPage() {
           <Form.Item name="branchId" label="Branch">
             <Select allowClear options={detail.branches.map((b) => ({ value: b.id, label: b.name }))} />
           </Form.Item>
-          <Form.Item name="roleIds" label="RBAC Roles">
+          <Form.Item name="roleIds" label="RBAC roles">
             <Select mode="multiple" options={detail.roles.map((r) => ({ value: r.id, label: r.name }))} />
           </Form.Item>
           <Button type="primary" htmlType="submit" block>
-            Create User
+            Create user
           </Button>
         </Form>
       </Modal>
 
       <Modal
-        title={editRole ? 'Edit Role' : 'Add Role'}
+        title={editRole ? 'Edit role' : 'Add role'}
         open={roleOpen}
         onCancel={() => setRoleOpen(false)}
         footer={null}
@@ -314,7 +522,7 @@ export default function CompanyDetailPage() {
             load()
           }}
         >
-          <Form.Item name="name" label="Role Name" rules={[{ required: true }]}>
+          <Form.Item name="name" label="Role name" rules={[{ required: true }]}>
             <Input />
           </Form.Item>
           <Form.Item name="description" label="Description">

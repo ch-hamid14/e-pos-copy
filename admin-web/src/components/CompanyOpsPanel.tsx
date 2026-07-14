@@ -2,11 +2,9 @@ import { useEffect, useState } from 'react'
 import {
   Alert,
   Button,
-  Card,
   Descriptions,
   Input,
   Modal,
-  Space,
   Table,
   Tag,
   Typography,
@@ -27,9 +25,16 @@ type Props = {
   companyName: string
   token: string
   onDeleted: () => void
+  onChanged?: () => void
 }
 
-export default function CompanyOpsPanel({ companyId, companyName, token, onDeleted }: Props) {
+export default function CompanyOpsPanel({
+  companyId,
+  companyName,
+  token,
+  onDeleted,
+  onChanged
+}: Props) {
   const [ops, setOps] = useState<CompanyOps | null>(null)
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
@@ -57,6 +62,7 @@ export default function CompanyOpsPanel({ companyId, companyName, token, onDelet
       await action()
       message.success(success)
       await load()
+      onChanged?.()
     } catch (err: any) {
       message.error(err.message)
     } finally {
@@ -65,99 +71,129 @@ export default function CompanyOpsPanel({ companyId, companyName, token, onDelet
   }
 
   if (!ops && loading) {
-    return <Typography.Text type="secondary">Loading ops…</Typography.Text>
+    return <Typography.Text type="secondary">Loading configure tools…</Typography.Text>
   }
   if (!ops) return null
 
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <Card title="Database" size="small" loading={loading}>
-        <Descriptions column={1} size="small">
-          <Descriptions.Item label="DB name">{ops.database.dbName}</Descriptions.Item>
-          <Descriptions.Item label="Host">
-            {ops.database.dbHost || '—'}{ops.database.dbPort ? `:${ops.database.dbPort}` : ''}
-          </Descriptions.Item>
-          <Descriptions.Item label="Migration">
-            {ops.migrations.upToDate ? (
-              <Tag color="green">Up to date</Tag>
-            ) : (
-              <Tag color="orange">{ops.migrations.pending.length} pending</Tag>
-            )}
-          </Descriptions.Item>
-          <Descriptions.Item label="Current">
-            {ops.migrations.current || '—'}
-          </Descriptions.Item>
-        </Descriptions>
-        {ops.migrations.pending.length > 0 && (
-          <Alert
-            style={{ marginTop: 12, marginBottom: 12 }}
-            type="warning"
-            showIcon
-            message="Pending migrations"
-            description={ops.migrations.pending.join(', ')}
-          />
-        )}
-        <Button
-          type="primary"
-          loading={busy === 'migrate'}
-          onClick={() =>
-            run('migrate', () => migrateCompany(token, companyId), 'Migrations applied')
-          }
-        >
-          Apply migrations
-        </Button>
-      </Card>
+    <div style={{ display: 'grid', gap: 16 }}>
+      <div className="madix-ops-grid">
+        <div className="madix-ops-card" style={{ opacity: loading ? 0.7 : 1 }}>
+          <h3>Database & migrations</h3>
+          <p className="madix-ops-card__desc">
+            Apply shared company schema migrations to this online database.
+          </p>
+          <Descriptions column={1} size="small" style={{ marginBottom: 12 }}>
+            <Descriptions.Item label="DB">{ops.database.dbName}</Descriptions.Item>
+            <Descriptions.Item label="Host">
+              {ops.database.dbHost || '—'}
+              {ops.database.dbPort ? `:${ops.database.dbPort}` : ''}
+            </Descriptions.Item>
+            <Descriptions.Item label="Status">
+              {ops.migrations.upToDate ? (
+                <Tag color="success">Up to date</Tag>
+              ) : (
+                <Tag color="warning">{ops.migrations.pending.length} pending</Tag>
+              )}
+            </Descriptions.Item>
+            <Descriptions.Item label="Current">{ops.migrations.current || '—'}</Descriptions.Item>
+          </Descriptions>
+          {ops.migrations.pending.length > 0 && (
+            <Alert
+              style={{ marginBottom: 12 }}
+              type="warning"
+              showIcon
+              message="Pending migrations"
+              description={ops.migrations.pending.join(', ')}
+            />
+          )}
+          <Button
+            type="primary"
+            loading={busy === 'migrate'}
+            onClick={() =>
+              run('migrate', () => migrateCompany(token, companyId), 'Migrations applied')
+            }
+          >
+            Apply migrations
+          </Button>
+        </div>
 
-      <Card title="Permissions" size="small" loading={loading}>
-        <Descriptions column={1} size="small">
-          <Descriptions.Item label="Control catalog">{ops.permissions.control}</Descriptions.Item>
-          <Descriptions.Item label="Company catalog">{ops.permissions.company}</Descriptions.Item>
-          <Descriptions.Item label="Status">
-            {ops.permissions.inSync ? (
-              <Tag color="green">In sync</Tag>
-            ) : (
-              <Tag color="orange">Out of sync</Tag>
-            )}
-          </Descriptions.Item>
-        </Descriptions>
-        <Button
-          style={{ marginTop: 12 }}
-          loading={busy === 'perms'}
-          onClick={() =>
-            run(
-              'perms',
-              () => reseedPermissions(token, companyId),
-              'Permissions reseeding complete'
-            )
-          }
-        >
-          Reseed permissions from control
-        </Button>
-      </Card>
+        <div className="madix-ops-card" style={{ opacity: loading ? 0.7 : 1 }}>
+          <h3>Permissions</h3>
+          <p className="madix-ops-card__desc">
+            Push the control permission catalog into this company database.
+          </p>
+          <Descriptions column={1} size="small" style={{ marginBottom: 12 }}>
+            <Descriptions.Item label="Control">{ops.permissions.control}</Descriptions.Item>
+            <Descriptions.Item label="Company">{ops.permissions.company}</Descriptions.Item>
+            <Descriptions.Item label="Status">
+              {ops.permissions.inSync ? (
+                <Tag color="success">In sync</Tag>
+              ) : (
+                <Tag color="warning">Out of sync</Tag>
+              )}
+            </Descriptions.Item>
+          </Descriptions>
+          <Button
+            loading={busy === 'perms'}
+            onClick={() =>
+              run(
+                'perms',
+                () => reseedPermissions(token, companyId),
+                'Permissions reseeding complete'
+              )
+            }
+          >
+            Reseed from control
+          </Button>
+        </div>
 
-      <Card title="Sync" size="small" loading={loading}>
-        <Descriptions column={1} size="small">
-          <Descriptions.Item label="Tables">
-            {ops.sync.tablesReady ? <Tag color="green">Ready</Tag> : <Tag>Not initialized</Tag>}
-          </Descriptions.Item>
-          <Descriptions.Item label="Queue depth">{ops.sync.queueDepth}</Descriptions.Item>
-          <Descriptions.Item label="Conflicts">{ops.sync.conflictCount}</Descriptions.Item>
-        </Descriptions>
-        <Button
-          style={{ marginTop: 12 }}
-          loading={busy === 'sync'}
-          onClick={() =>
-            run('sync', () => bootstrapSync(token, companyId), 'Sync bootstrap finished')
-          }
-        >
-          Bootstrap sync
-        </Button>
-      </Card>
+        <div className="madix-ops-card" style={{ opacity: loading ? 0.7 : 1 }}>
+          <h3>Sync</h3>
+          <p className="madix-ops-card__desc">
+            Inspect queue health and re-enqueue existing rows when needed.
+          </p>
+          <Descriptions column={1} size="small" style={{ marginBottom: 12 }}>
+            <Descriptions.Item label="Tables">
+              {ops.sync.tablesReady ? <Tag color="success">Ready</Tag> : <Tag>Not initialized</Tag>}
+            </Descriptions.Item>
+            <Descriptions.Item label="Queue depth">{ops.sync.queueDepth}</Descriptions.Item>
+            <Descriptions.Item label="Conflicts">{ops.sync.conflictCount}</Descriptions.Item>
+          </Descriptions>
+          <Button
+            loading={busy === 'sync'}
+            onClick={() =>
+              run('sync', () => bootstrapSync(token, companyId), 'Sync bootstrap finished')
+            }
+          >
+            Bootstrap sync
+          </Button>
+        </div>
 
-      <Card title="Devices" size="small" loading={loading}>
+        <div className="madix-ops-card madix-danger-zone">
+          <h3>Danger zone</h3>
+          <p className="madix-ops-card__desc">
+            Permanently delete this company, users, devices, and online database.
+          </p>
+          <Button
+            danger
+            onClick={() => {
+              setConfirmName('')
+              setDeleteOpen(true)
+            }}
+          >
+            Delete company
+          </Button>
+        </div>
+      </div>
+
+      <div className="madix-panel">
+        <div className="madix-panel__head">
+          <h2 className="madix-panel__title">Devices ({ops.devices.length})</h2>
+        </div>
         <Table
           rowKey="id"
-          size="small"
+          size="middle"
           pagination={false}
           dataSource={ops.devices}
           locale={{ emptyText: 'No devices registered' }}
@@ -171,7 +207,7 @@ export default function CompanyOpsPanel({ companyId, companyName, token, onDelet
             },
             {
               title: '',
-              width: 100,
+              width: 110,
               render: (_, row) => (
                 <Button
                   size="small"
@@ -197,16 +233,7 @@ export default function CompanyOpsPanel({ companyId, companyName, token, onDelet
             }
           ]}
         />
-      </Card>
-
-      <Card title="Danger zone" size="small">
-        <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
-          Permanently delete this company, its users, devices, and online database.
-        </Typography.Paragraph>
-        <Button danger onClick={() => { setConfirmName(''); setDeleteOpen(true) }}>
-          Delete company
-        </Button>
-      </Card>
+      </div>
 
       <Modal
         title="Delete company"
@@ -241,6 +268,6 @@ export default function CompanyOpsPanel({ companyId, companyName, token, onDelet
           placeholder={companyName}
         />
       </Modal>
-    </Space>
+    </div>
   )
 }
