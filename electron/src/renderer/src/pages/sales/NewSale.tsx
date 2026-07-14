@@ -322,7 +322,7 @@ export const NewSale = () => {
               <Input value={selectedItem?.category?.name || '—'} disabled />
             </Form.Item>
             <Form.Item name="salePrice" label="Sale Price" rules={[{ required: true }]}>
-              <InputNumber className="w-full" min={0} style={{ width: '100%' }} />
+              <InputNumber className="w-full" min={0} style={{ width: '100%' }} disabled />
             </Form.Item>
             <Form.Item name="taxPercent" label="Tax %">
               <InputNumber className="w-full" min={0} max={100} style={{ width: '100%' }} />
