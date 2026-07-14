@@ -1,4 +1,3 @@
-import jwt from 'jsonwebtoken'
 import { companyDbName } from '@madix/database'
 import {
   getDb,
@@ -9,8 +8,13 @@ import {
 import { IUser } from '../../../common/types'
 import { appState } from '../../state/app-state'
 import { getClientDeviceId, rotateClientDeviceId, rotateSyncNodeId } from '../device'
-import { apiFetch, checkServerOnline, JWT_SECRET } from '../http'
+import { apiFetch, checkServerOnline } from '../http'
 import { cacheBootstrapData, upsertSessionUserProfile } from './initial-sync.service'
+import {
+  clearOfflineSession,
+  loadOfflineSession,
+  saveOfflineSession
+} from './offline-session'
 import { startSyncAfterAuth, stopSync } from '../sync'
 
 /** Tech factory-reset PIN (not shown in UI). */
@@ -56,57 +60,6 @@ class AuthService {
     return checkServerOnline()
   }
 
-  verifyTokenOffline(token: string, email: string): {
-    valid: boolean
-    expired?: boolean
-    offlineExpired?: boolean
-    payload?: jwt.JwtPayload
-  } {
-    try {
-      const payload = jwt.verify(token, JWT_SECRET, {
-        ignoreExpiration: true
-      }) as jwt.JwtPayload & {
-        email?: string
-        tokenExpiresAt?: string
-        offlineAllowedUntil?: string
-        userId?: string
-        companyId?: string | null
-        branchId?: string | null
-        role?: string
-        permissions?: string[]
-        deviceId?: string
-      }
-
-      if (payload.email && payload.email.toLowerCase() !== email.toLowerCase()) {
-        return { valid: false }
-      }
-
-      const now = Date.now()
-
-      if (payload.offlineAllowedUntil) {
-        if (now > new Date(payload.offlineAllowedUntil).getTime()) {
-          return { valid: false, offlineExpired: true }
-        }
-        return { valid: true, payload }
-      }
-
-      const onlineExpiry = payload.tokenExpiresAt
-        ? new Date(payload.tokenExpiresAt).getTime()
-        : payload.exp
-          ? payload.exp * 1000
-          : null
-
-      if (onlineExpiry !== null && now > onlineExpiry) {
-        return { valid: false, expired: true }
-      }
-
-      return { valid: true, payload }
-    } catch (err: any) {
-      console.log(err)
-      return { valid: false }
-    }
-  }
-
   async login(
     email: string,
     password: string,
@@ -143,7 +96,6 @@ class AuthService {
         return gate
       }
 
-      // Explicit WIPE: drop this local tenant DB + rotate device (proxy / cleanup).
       await this.wipeAsFreshDevice(res.data.token as string)
 
       const freshRes = await apiFetch<any>('/auth/login', {
@@ -184,53 +136,60 @@ class AuthService {
     if (!res.ok) throw new Error(res.error || 'Failed to send OTP')
   }
 
-  async continueSession(email: string, token: string): Promise<LoginResult> {
+  /**
+   * Offline convenience unlock via OS-sealed local session (no JWT secret).
+   * Server online → must use password login. After 3 days → must login online.
+   */
+  async continueSession(email: string, _token?: string): Promise<LoginResult> {
     if (await checkServerOnline()) {
       throw new Error(
         'Server is available. Please sign in with your password for security.'
       )
     }
 
-    const verification = this.verifyTokenOffline(token, email)
-    if (!verification.valid) {
-      if (verification.offlineExpired) {
-        throw new Error('Offline session expired. Internet is required to login.')
-      }
-      if (verification.expired) {
-        throw new Error('Session expired. Internet is required to login for security purposes!')
-      }
+    const session = loadOfflineSession()
+    if (!session) {
+      throw new Error('No offline session. Please login online.')
+    }
+
+    const emailNorm = email.toLowerCase()
+    if (session.email !== emailNorm) {
       throw new Error('Invalid session. Please login again.')
     }
 
-    const payload = verification.payload as jwt.JwtPayload & {
-      userId: string
-      companyId: string | null
-      branchId: string | null
-      role: string
-      permissions: string[]
-      deviceId: string
-      offlineAllowedUntil?: string
+    if (session.clientDeviceId !== getClientDeviceId()) {
+      clearOfflineSession()
+      throw new Error('Invalid session. Please login again.')
     }
 
-    await this.assertOfflineCompanyMatch(payload.companyId)
+    if (Date.now() > new Date(session.offlineAllowedUntil).getTime()) {
+      clearOfflineSession()
+      throw new Error('Offline session expired. Internet is required to login.')
+    }
 
-    const cached = await getDb()('user_profiles').where({ email: email.toLowerCase() }).first()
+    if (!isDatabaseReady()) {
+      throw new Error('Local company database is not ready. Connect online and sign in.')
+    }
+
+    await this.assertOfflineCompanyMatch(session.companyId)
+
+    const cached = await getDb()('user_profiles').where({ email: emailNorm }).first()
     let branchName: string | undefined
-    if (payload.branchId) {
-      const branch = await getDb()('branches').where({ id: payload.branchId }).first()
+    if (session.branchId) {
+      const branch = await getDb()('branches').where({ id: session.branchId }).first()
       branchName = branch?.name as string
     }
 
     const user: IUser & { branchName?: string } = {
-      id: payload.userId,
-      companyId: payload.companyId || (cached?.company_id as string) || '',
-      branchId: payload.branchId,
-      email: email.toLowerCase(),
+      id: session.userId,
+      companyId: session.companyId || (cached?.company_id as string) || '',
+      branchId: session.branchId,
+      email: emailNorm,
       firstName: (cached?.first_name as string) || '',
       lastName: (cached?.last_name as string) || '',
-      role: payload.role as IUser['role'],
-      permissions: payload.permissions || [],
-      token,
+      role: session.role as IUser['role'],
+      permissions: session.permissions || [],
+      token: session.token,
       createdAt: cached?.created_at
         ? new Date(cached.created_at as string).toISOString()
         : new Date().toISOString(),
@@ -238,20 +197,12 @@ class AuthService {
       branchName
     }
 
-    const exp = payload.tokenExpiresAt
-      ? payload.tokenExpiresAt
-      : payload.exp
-        ? new Date(payload.exp * 1000).toISOString()
-        : new Date(Date.now() + 86400000).toISOString()
-
-    void this.resumeSync(token)
-
     const result: LoginResult = {
       user,
-      deviceId: payload.deviceId || getClientDeviceId(),
-      token,
-      tokenExpiresAt: exp,
-      offlineAllowedUntil: payload.offlineAllowedUntil
+      deviceId: session.deviceId || getClientDeviceId(),
+      token: session.token,
+      tokenExpiresAt: session.tokenExpiresAt,
+      offlineAllowedUntil: session.offlineAllowedUntil
     }
     appState.setSession(result)
     return result
@@ -299,6 +250,12 @@ class AuthService {
     await cacheBootstrapData(res.data)
   }
 
+  async logout(): Promise<void> {
+    await stopSync()
+    appState.clearSession()
+    clearOfflineSession()
+  }
+
   private async countPendingLocalChanges(): Promise<number> {
     if (!isDatabaseReady()) return 0
     try {
@@ -311,7 +268,6 @@ class AuthService {
     }
   }
 
-  /** Confirmed company DB only — refuse sign-in without dbName/companyId. */
   private resolveLocalDbName(data: {
     dbName?: string
     user?: { companyId?: string | null }
@@ -323,7 +279,6 @@ class AuthService {
     )
   }
 
-  /** Point local Postgres at the confirmed online company DB. Required before session. */
   private async prepareCompanyLocalDb(data: {
     dbName?: string
     user?: { companyId?: string | null }
@@ -349,7 +304,6 @@ class AuthService {
     if (!profile?.id) return { status: 'ok' }
     if (profile.id === incomingCompanyId) return { status: 'ok' }
 
-    // Different company_profile inside this named DB (corrupt / reused name) — proxy WIPE.
     const localCompanyName = (profile.name as string) || 'another company'
     const pending = await this.countPendingLocalChanges()
     const pendingNote =
@@ -393,7 +347,6 @@ class AuthService {
     const oldDeviceId = getClientDeviceId()
     await stopSync()
 
-    // Best-effort: local wipe must proceed even if server release fails.
     try {
       const release = await apiFetch('/auth/release-device', {
         method: 'POST',
@@ -408,15 +361,12 @@ class AuthService {
     }
 
     appState.clearSession()
+    clearOfflineSession()
     await wipeActiveLocalCompanyDatabase()
     rotateClientDeviceId()
     rotateSyncNodeId()
   }
 
-  /**
-   * Tech-only factory reset: wipe active local company DB + device/sync identity.
-   * Server release is best-effort; local wipe always proceeds.
-   */
   async factoryResetPos(input: {
     pin: string
     confirm: string
@@ -452,6 +402,7 @@ class AuthService {
     }
 
     appState.clearSession()
+    clearOfflineSession()
     await wipeActiveLocalCompanyDatabase()
     rotateClientDeviceId()
     rotateSyncNodeId()
@@ -463,13 +414,10 @@ class AuthService {
     await this.prepareCompanyLocalDb(data)
 
     const tokenExpiresAt =
-      data.tokenExpiresAt ||
-      (() => {
-        const decoded = jwt.decode(data.token) as jwt.JwtPayload
-        return decoded?.exp
-          ? new Date(decoded.exp * 1000).toISOString()
-          : new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
-      })()
+      data.tokenExpiresAt || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+    const offlineAllowedUntil =
+      data.offlineAllowedUntil ||
+      new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString()
 
     const user: IUser & { branchName?: string; companyName?: string } = {
       id: data.user.id,
@@ -489,7 +437,6 @@ class AuthService {
 
     if (data.user.companyId) {
       await this.pullInitialData(data.token, data.user.companyId)
-      // Write session user before sync triggers attach, and skip when unchanged.
       await upsertSessionUserProfile({
         id: user.id,
         companyId: user.companyId,
@@ -513,8 +460,23 @@ class AuthService {
       deviceId: data.deviceId,
       token: data.token,
       tokenExpiresAt,
-      offlineAllowedUntil: data.offlineAllowedUntil
+      offlineAllowedUntil
     }
+
+    saveOfflineSession({
+      email: user.email.toLowerCase(),
+      userId: user.id,
+      companyId: user.companyId,
+      branchId: user.branchId ?? null,
+      role: user.role,
+      permissions: user.permissions || [],
+      deviceId: data.deviceId,
+      clientDeviceId: getClientDeviceId(),
+      token: data.token,
+      tokenExpiresAt,
+      offlineAllowedUntil
+    })
+
     appState.setSession(result)
     return result
   }

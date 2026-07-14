@@ -154,7 +154,8 @@ async function issueSessionToken(
   }
 
   const tokenExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
-  const offlineAllowedUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+  /** Offline convenience window — must re-auth online after this. */
+  const offlineAllowedUntil = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString()
 
   const token = signToken({
     userId: user.id,

@@ -1,6 +1,5 @@
 import { IRequest } from '../../../common'
-import { appState } from '../../state/app-state'
-import { authService, stopSync } from '../../services'
+import { authService } from '../../services'
 
 class AuthController {
   async login(_: Electron.IpcMainInvokeEvent, req: IRequest) {
@@ -21,7 +20,7 @@ class AuthController {
   }
 
   async continueSession(_: Electron.IpcMainInvokeEvent, req: IRequest) {
-    const { email, token } = req.body as { email: string; token: string }
+    const { email, token } = req.body as { email: string; token?: string }
     const result = await authService.continueSession(email, token)
     return { status: 'success' as const, ...result }
   }
@@ -43,8 +42,7 @@ class AuthController {
   }
 
   async logout(_: Electron.IpcMainInvokeEvent, _req: IRequest) {
-    await stopSync()
-    appState.clearSession()
+    await authService.logout()
     return { success: true }
   }
 

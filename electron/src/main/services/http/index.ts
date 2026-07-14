@@ -1,1 +1,1 @@
-export { apiFetch, checkServerOnline, JWT_SECRET } from './http'
+export { apiFetch, checkServerOnline } from './http'

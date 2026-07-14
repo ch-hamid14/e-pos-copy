@@ -1,4 +1,4 @@
-import { API_BASE_URL, JWT_SECRET } from '../../../common/constants/config'
+import { API_BASE_URL } from '../../../common/constants/config'
 
 export async function apiFetch<T>(
   path: string,
@@ -28,9 +28,7 @@ export async function checkServerOnline(): Promise<boolean> {
     const base = API_BASE_URL.replace(/\/api$/, '')
     const res = await fetch(`${base}/api/health`, { method: 'GET' })
     return res.ok
-  } catch{
+  } catch {
     return false
   }
 }
-
-export { JWT_SECRET }
