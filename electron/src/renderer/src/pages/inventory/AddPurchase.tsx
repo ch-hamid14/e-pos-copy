@@ -179,6 +179,7 @@ export const AddPurchase = () => {
           productId: l.productId,
           colorId: l.colorId,
           purchasePrice: l.purchasePrice,
+          sellingPrice: l.listPrice,
           warrantyActive: l.warrantyActive,
           warrantyExpiryDate: l.warrantyExpiryDate
         }))
