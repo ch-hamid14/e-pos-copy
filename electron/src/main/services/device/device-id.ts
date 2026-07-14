@@ -21,3 +21,12 @@ export function getClientDeviceId(): string {
   fs.writeFileSync(filePath, id, 'utf8')
   return id
 }
+
+/** Delete and regenerate the local POS device identity so the next login is a new device. */
+export function rotateClientDeviceId(): string {
+  const filePath = getDeviceIdPath()
+  if (fs.existsSync(filePath)) {
+    fs.unlinkSync(filePath)
+  }
+  return getClientDeviceId()
+}

@@ -237,8 +237,7 @@ export const Login = () => {
           description={
             <Typography.Paragraph className="mb-0 mt-2">
               Wiping removes all local sales, stock, and offline queue data for{' '}
-              <strong>{companyMismatch.localCompanyName}</strong> on this device. There is no backup.
-              You will then sync data for <strong>{companyMismatch.incomingCompanyName}</strong>.
+              <strong>{companyMismatch.localCompanyName}</strong> on this device.
             </Typography.Paragraph>
           }
         />

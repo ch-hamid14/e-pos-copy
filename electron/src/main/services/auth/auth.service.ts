@@ -2,7 +2,7 @@ import jwt from 'jsonwebtoken'
 import { getDb, resetLocalCompanyDatabase } from '../../db'
 import { IUser } from '../../../common/types'
 import { appState } from '../../state/app-state'
-import { getClientDeviceId } from '../device'
+import { getClientDeviceId, rotateClientDeviceId, rotateSyncNodeId } from '../device'
 import { apiFetch, checkServerOnline, JWT_SECRET } from '../http'
 import { cacheBootstrapData } from './initial-sync.service'
 import { startSyncAfterAuth, stopSync } from '../sync'
@@ -148,7 +148,33 @@ class AuthService {
           message: `This POS has ${pending} unsynced change(s) for "${gate.localCompanyName}". Sync or clear them before switching companies.`
         }
       }
-      await this.wipeLocalDataForCompanySwitch()
+
+      await this.wipeAsFreshDevice(res.data.token as string)
+
+      const freshRes = await apiFetch<any>('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({
+          email,
+          password,
+          clientDeviceId: getClientDeviceId(),
+          otp,
+          otpPurpose
+        })
+      })
+      if (!freshRes.ok) {
+        const data = freshRes.data as any
+        if (freshRes.status === 403 && data?.requiresOtp) {
+          return {
+            status: 'otp_required',
+            otpPurpose: data.otpPurpose,
+            message: data.message || 'OTP required'
+          }
+        }
+        throw new Error(freshRes.error || 'Login failed after wipe')
+      }
+
+      const success = await this.handleAuthSuccess(freshRes.data, email)
+      return { status: 'success', ...success }
     }
 
     const success = await this.handleAuthSuccess(res.data, email)
@@ -323,7 +349,7 @@ class AuthService {
       localCompanyName,
       incomingCompanyId,
       incomingCompanyName,
-      message: `This POS is set up for "${localCompanyName}". Signing in as "${incomingCompanyName}" requires wiping all local data on this device.`
+      message: `This POS is set up for "${localCompanyName}". Signing in as "${incomingCompanyName}" requires wiping all local data and resetting this device identity.`
     }
   }
 
@@ -346,10 +372,23 @@ class AuthService {
     )
   }
 
-  private async wipeLocalDataForCompanySwitch(): Promise<void> {
+  private async wipeAsFreshDevice(token: string): Promise<void> {
+    const oldDeviceId = getClientDeviceId()
     await stopSync()
+
+    const release = await apiFetch('/auth/release-device', {
+      method: 'POST',
+      body: JSON.stringify({ clientDeviceId: oldDeviceId }),
+      token
+    })
+    if (!release.ok) {
+      throw new Error(release.error || 'Failed to release device binding on server')
+    }
+
     appState.clearSession()
     await resetLocalCompanyDatabase()
+    rotateClientDeviceId()
+    rotateSyncNodeId()
   }
 
   private async handleAuthSuccess(data: any, email: string): Promise<LoginResult> {

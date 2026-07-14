@@ -22,3 +22,12 @@ export function getSyncNodeId(): string {
   fs.writeFileSync(filePath, id, 'utf8')
   return id
 }
+
+/** Delete and regenerate sync node identity after a full local wipe. */
+export function rotateSyncNodeId(): string {
+  const filePath = getSyncNodeIdPath()
+  if (fs.existsSync(filePath)) {
+    fs.unlinkSync(filePath)
+  }
+  return getSyncNodeId()
+}

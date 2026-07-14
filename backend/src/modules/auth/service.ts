@@ -308,6 +308,34 @@ export async function sendOtp(controlDb: Knex, email: string, purpose: OtpPurpos
   await createOtp(controlDb, email, purpose)
 }
 
+/**
+ * Release this physical POS from control-plane binding so the next login can
+ * register as a fresh device. Clears all users bound to clientDeviceId and
+ * deletes the devices row(s) for that client id.
+ */
+export async function releaseDevice(
+  controlDb: Knex,
+  clientDeviceId: string,
+  authDeviceId?: string
+): Promise<{ ok: true }> {
+  if (!clientDeviceId) {
+    throw new Error('clientDeviceId is required')
+  }
+  // Only allow releasing the device on the current session token (or explicit match).
+  if (authDeviceId && authDeviceId !== clientDeviceId) {
+    throw new Error('Cannot release a different device than the authenticated session')
+  }
+
+  await controlDb.transaction(async (trx) => {
+    await trx('users')
+      .where({ bound_device_id: clientDeviceId })
+      .update({ bound_device_id: null, updated_at: new Date() })
+    await trx('devices').where({ client_device_id: clientDeviceId }).delete()
+  })
+
+  return { ok: true }
+}
+
 export async function getBootstrapData(
   controlDb: Knex,
   companyId: string,

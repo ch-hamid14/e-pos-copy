@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import type { Knex } from 'knex'
-import { loginUser, sendOtp, getBootstrapData, refreshSession } from './service'
+import { loginUser, sendOtp, getBootstrapData, refreshSession, releaseDevice } from './service'
 import type { OtpPurpose } from '../../utils/otp'
 import { requireAuth, type AuthRequest } from '../../middleware/auth'
 import { verifyTokenAllowExpired } from '../../utils/jwt'
@@ -141,6 +141,20 @@ export function authRouter(db: Knex): Router {
       res.json(data)
     } catch (err: any) {
       res.status(500).json({ error: err.message })
+    }
+  })
+
+  router.post('/release-device', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const clientDeviceId =
+        (req.body?.clientDeviceId as string | undefined) || req.auth?.deviceId
+      if (!clientDeviceId) {
+        return res.status(400).json({ error: 'clientDeviceId is required' })
+      }
+      const result = await releaseDevice(db, clientDeviceId, req.auth?.deviceId)
+      res.json(result)
+    } catch (err: any) {
+      res.status(400).json({ error: err.message })
     }
   })
 
