@@ -127,7 +127,7 @@ export const PurchaseDetail = () => {
           pagination={{ pageSize: 10, showSizeChanger: true }}
           columns={[
             { title: 'Motor No.', dataIndex: 'motorNumber', render: (v) => v || '—' },
-            { title: 'Serial', dataIndex: 'serialNumber' },
+            { title: 'Chassis Number', dataIndex: 'serialNumber' },
             { title: 'Product', render: (_: unknown, r: any) => r.product?.name || '—' },
             { title: 'Category', render: (_: unknown, r: any) => r.category?.name || '—' },
             { title: 'Color', render: (_: unknown, r: any) => r.color?.name || '—' },

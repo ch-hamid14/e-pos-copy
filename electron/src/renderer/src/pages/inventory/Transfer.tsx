@@ -86,7 +86,7 @@ export const Transfer = () => {
           }}
           pagination={{ pageSize: 10, showSizeChanger: true }}
           columns={[
-            { title: 'Serial', dataIndex: 'serialNumber', render: (v) => <Text strong>{v}</Text> },
+            { title: 'Chassis Number', dataIndex: 'serialNumber', render: (v) => <Text strong>{v}</Text> },
             { title: 'Product', render: (_, r) => r.product?.name || '—' },
             { title: 'Color', render: (_, r) => r.color?.name || '—' }
           ]}

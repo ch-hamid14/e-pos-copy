@@ -79,7 +79,7 @@ export const PurchaseList = () => {
             onChange={setSupplierId}
           />
           <Input.Search
-            placeholder="Search serial or motor number…"
+            placeholder="Search chassis or motor number…"
             allowClear
             onSearch={setSearch}
             style={{ width: 260 }}

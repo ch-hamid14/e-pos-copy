@@ -352,7 +352,7 @@ export const NewSale = () => {
           pagination={false}
           locale={{ emptyText: 'No units added yet' }}
           columns={[
-            { title: 'Serial', dataIndex: 'serialNumber', render: (v) => <Text strong>{v}</Text> },
+            { title: 'Chassis Number', dataIndex: 'serialNumber', render: (v) => <Text strong>{v}</Text> },
             { title: 'Product', dataIndex: 'productName' },
             { title: 'Category', dataIndex: 'categoryName' },
             { title: 'Color', dataIndex: 'colorName', render: (v) => v || '—' },

@@ -92,7 +92,7 @@ export const CustomerReports = () => {
             onChange={(v) => setDateRange(v as [dayjs.Dayjs, dayjs.Dayjs] | null)}
           />
           <Input.Search
-            placeholder="Search name, phone, serial or motor…"
+            placeholder="Search name, phone, chassis or motor…"
             allowClear
             onSearch={setSearch}
             style={{ width: 300 }}

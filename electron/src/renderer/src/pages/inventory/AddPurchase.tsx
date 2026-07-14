@@ -243,7 +243,7 @@ export const AddPurchase = () => {
           (l) => l.serialNumber === serial && (!editingKey || l.key !== editingKey)
         )
       ) {
-        message.error('Serial already added to this purchase')
+        message.error('Chassis number already added to this purchase')
         return
       }
       if (values.warrantyActive && !values.warrantyExpiryDate) {
@@ -490,7 +490,7 @@ export const AddPurchase = () => {
         <Form form={lineForm} layout="vertical" initialValues={{ warrantyActive: false }}>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
             <Form.Item name="serialNumber" label="Chassis Number" rules={[{ required: true, whitespace: true }]}>
-              <Input placeholder="Serial number" />
+              <Input placeholder="Chassis number" />
             </Form.Item>
             <Form.Item name="motorNumber" label="Motor Number">
               <Input placeholder="Optional" />
@@ -541,7 +541,7 @@ export const AddPurchase = () => {
           pagination={false}
           locale={{ emptyText: 'No units added yet' }}
           columns={[
-            { title: 'Serial', dataIndex: 'serialNumber', render: (v) => <Text strong>{v}</Text> },
+            { title: 'Chassis Number', dataIndex: 'serialNumber', render: (v) => <Text strong>{v}</Text> },
             { title: 'Motor No.', dataIndex: 'motorNumber', render: (v) => v || '—' },
             { title: 'Product', dataIndex: 'productName' },
             { title: 'Category', dataIndex: 'categoryName' },

@@ -146,7 +146,7 @@ export const SaleDetail = () => {
           dataSource={detail.lines || []}
           pagination={false}
           columns={[
-            { title: 'Serial', dataIndex: 'serialNumber' },
+            { title: 'Chassis Number', dataIndex: 'serialNumber' },
             { title: 'Motor', dataIndex: 'motorNumber', render: (v) => v || '—' },
             { title: 'Product', dataIndex: 'productName' },
             { title: 'Category', dataIndex: 'categoryName', render: (v) => v || '—' },

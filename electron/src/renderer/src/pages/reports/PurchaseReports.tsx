@@ -84,7 +84,7 @@ export const PurchaseReports = () => {
       <Card bordered={false} className="shadow-sm">
         <div className="mb-4 flex flex-wrap gap-3">
           <Input.Search
-            placeholder="Serial or motor number"
+            placeholder="Chassis or motor number"
             allowClear
             onSearch={setSearch}
             style={{ width: 240 }}

@@ -84,7 +84,7 @@ export const Stock = () => {
       <Card bordered={false} className="shadow-sm mb-4">
         <div className="flex flex-wrap gap-3">
           <Input.Search
-            placeholder="Search serial number…"
+            placeholder="Search chassis number…"
             allowClear
             onSearch={(v) => { setPage(1); setSearch(v) }}
             style={{ width: 220 }}
@@ -169,7 +169,7 @@ export const Stock = () => {
             }
           }}
           columns={[
-            { title: 'Serial', dataIndex: 'serialNumber', render: (v) => <Text strong>{v}</Text> },
+            { title: 'Chassis Number', dataIndex: 'serialNumber', render: (v) => <Text strong>{v}</Text> },
             { title: 'Product', render: (_, r) => r.product?.name || '—' },
             { title: 'Category', render: (_, r) => r.category?.name || '—' },
             { title: 'Color', render: (_, r) => r.color?.name || '—' },

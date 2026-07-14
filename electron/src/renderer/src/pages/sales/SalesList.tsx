@@ -87,7 +87,7 @@ export const SalesList = () => {
             style={{ width: 160 }}
           />
           <Input.Search
-            placeholder="Serial or motor number…"
+            placeholder="Chassis or motor number…"
             allowClear
             onSearch={setSearch}
             style={{ width: 240 }}

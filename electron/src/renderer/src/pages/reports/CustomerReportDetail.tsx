@@ -162,7 +162,7 @@ export const CustomerReportDetail = () => {
                         pagination={false}
                         dataSource={sale.lines || []}
                         columns={[
-                          { title: 'Serial', dataIndex: 'serialNumber' },
+                          { title: 'Chassis Number', dataIndex: 'serialNumber' },
                           { title: 'Product', dataIndex: 'productName' },
                           { title: 'Category', dataIndex: 'categoryName', render: (v) => v || '—' },
                           { title: 'Color', dataIndex: 'colorName', render: (v) => v || '—' },
