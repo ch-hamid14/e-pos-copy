@@ -159,9 +159,7 @@ export const Login = () => {
   }
 
   const wipeConfirmValid =
-    wipeConfirm.trim().toUpperCase() === 'WIPE' ||
-    (companyMismatch != null &&
-      wipeConfirm.trim().toLowerCase() === companyMismatch.localCompanyName.trim().toLowerCase())
+    wipeConfirm.trim().toUpperCase() === 'WIPE'
 
   const handleWipeAndSwitch = async () => {
     if (!companyMismatch || !wipeConfirmValid) return
@@ -243,7 +241,7 @@ export const Login = () => {
         />
         <Form layout="vertical">
           <Form.Item
-            label={`Type WIPE or "${companyMismatch.localCompanyName}" to confirm`}
+            label={`Type WIPE to confirm`}
             required
           >
             <Input
