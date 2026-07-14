@@ -5,6 +5,7 @@ import { ArrowLeftOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { App_Routes } from '@/common'
 import { purchaseAPI } from '@/renderer/services'
+import { formatSupplierDiscount } from '@/renderer/utils/supplierDiscount'
 import { formatRs, PageHeader } from '../shared/page-ui'
 import { STATUS_COLORS } from './inventory-ui'
 
@@ -55,8 +56,6 @@ export const PurchaseDetail = () => {
   }
 
   const purchase = detail.purchase
-  console.log('purchase', purchase);
-  console.log('detail', detail);
 
   return (
     <div>
@@ -78,6 +77,18 @@ export const PurchaseDetail = () => {
         <Descriptions column={{ xs: 1, sm: 2 }} size="small">
           <Descriptions.Item label="Supplier">{purchase.supplier?.name || '—'}</Descriptions.Item>
           <Descriptions.Item label="Date">{dayjs(purchase.purchaseDate).format('DD MMM YYYY')}</Descriptions.Item>
+          <Descriptions.Item label="Supplier Discount">
+            {formatSupplierDiscount(
+              Number(purchase.supplier?.discount || 0),
+              purchase.supplier?.discountType === 'percent' ? 'percent' : 'pkr'
+            )}
+          </Descriptions.Item>
+          <Descriptions.Item label="Special Discount">
+            {formatSupplierDiscount(
+              Number(purchase.specialDiscount || 0),
+              purchase.specialDiscountType === 'percent' ? 'percent' : 'pkr'
+            )}
+          </Descriptions.Item>
           <Descriptions.Item label="Notes" span={2}>{purchase.notes || '—'}</Descriptions.Item>
         </Descriptions>
       </Card>

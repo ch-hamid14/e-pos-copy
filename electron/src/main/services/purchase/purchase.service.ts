@@ -30,6 +30,8 @@ export type CreatePurchasePayload = {
   supplierId: string
   purchaseDate: string
   notes?: string
+  specialDiscount?: number
+  specialDiscountType?: 'pkr' | 'percent'
   lines: PurchaseLineInput[]
 }
 
@@ -108,7 +110,15 @@ class PurchaseService {
       .where({ 'p.id': id })
       .whereNull('p.deleted_at')
     joinAuditUsers(q, 'p')
-    const purchase = await q.select('p.*', 's.name as supplier_name', ...AUDIT_USER_SELECT).first()
+    const purchase = await q
+      .select(
+        'p.*',
+        's.name as supplier_name',
+        's.discount as supplier_discount',
+        's.discount_type as supplier_discount_type',
+        ...AUDIT_USER_SELECT
+      )
+      .first()
     if (!purchase) throw new Error('Purchase not found')
 
     const items = await getDb()('product_items as pi')
@@ -120,7 +130,16 @@ class PurchaseService {
       .orderBy('pi.serial_number', 'asc')
 
     return {
-      purchase: { ...asJson(purchase)!, supplier: purchase.supplier_name ? { name: purchase.supplier_name } : null },
+      purchase: {
+        ...asJson(purchase)!,
+        supplier: purchase.supplier_name
+          ? {
+              name: purchase.supplier_name,
+              discount: Number(purchase.supplier_discount || 0),
+              discountType: purchase.supplier_discount_type === 'percent' ? 'percent' : 'pkr'
+            }
+          : null
+      },
       items: items.map((i) => asProductItemJson(i))
     }
   }
@@ -148,6 +167,8 @@ class PurchaseService {
 
     return withTransaction(async (transaction) => {
       const purchaseDate = new Date(payload.purchaseDate)
+      const specialDiscount = Number(payload.specialDiscount || 0)
+      const specialDiscountType = payload.specialDiscountType === 'percent' ? 'percent' : 'pkr'
       const itemAudit = auditCreate(ctx)
       const [purchase] = await getDb()('purchases')
         .transacting(transaction)
@@ -158,6 +179,8 @@ class PurchaseService {
           supplier_id: payload.supplierId,
           purchase_date: purchaseDate,
           notes: payload.notes || '',
+          special_discount: specialDiscount,
+          special_discount_type: specialDiscountType,
           created_at: new Date(),
           updated_at: new Date()
         }))
