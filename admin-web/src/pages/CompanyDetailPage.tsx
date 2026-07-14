@@ -27,7 +27,8 @@ import {
   getCompany,
   getCompanyOps,
   updateCompany,
-  updateRole
+  updateRole,
+  updateUser
 } from '../api/admin'
 import CompanyOpsPanel from '../components/CompanyOpsPanel'
 import StatusTag from '../components/StatusTag'
@@ -56,6 +57,7 @@ export default function CompanyDetailPage() {
   const [tab, setTab] = useState('overview')
   const [branchOpen, setBranchOpen] = useState(false)
   const [userOpen, setUserOpen] = useState(false)
+  const [editUser, setEditUser] = useState<CompanyUser | null>(null)
   const [roleOpen, setRoleOpen] = useState(false)
   const [editRole, setEditRole] = useState<CompanyRole | null>(null)
   const [branchForm] = Form.useForm()
@@ -323,7 +325,14 @@ export default function CompanyDetailPage() {
               <div className="madix-panel">
                 <div className="madix-panel__head">
                   <h2 className="madix-panel__title">Users</h2>
-                  <Button type="primary" onClick={() => setUserOpen(true)}>
+                  <Button
+                    type="primary"
+                    onClick={() => {
+                      setEditUser(null)
+                      userForm.resetFields()
+                      setUserOpen(true)
+                    }}
+                  >
                     Add user
                   </Button>
                 </div>
@@ -346,6 +355,39 @@ export default function CompanyDetailPage() {
                       dataIndex: 'emailVerified',
                       render: (v) => (
                         <Tag color={v ? 'success' : 'warning'}>{v ? 'Verified' : 'Pending'}</Tag>
+                      )
+                    },
+                    {
+                      title: 'Status',
+                      dataIndex: 'isActive',
+                      width: 100,
+                      render: (v) => (
+                        <Tag color={v ? 'success' : 'default'}>{v ? 'Active' : 'Inactive'}</Tag>
+                      )
+                    },
+                    {
+                      title: '',
+                      width: 90,
+                      render: (_, r) => (
+                        <Button
+                          size="small"
+                          onClick={() => {
+                            setEditUser(r)
+                            userForm.setFieldsValue({
+                              firstName: r.firstName,
+                              lastName: r.lastName,
+                              email: r.email,
+                              role: r.role,
+                              branchId: r.branchId || undefined,
+                              roleIds: r.roles?.map((x) => x.id) || [],
+                              isActive: r.isActive,
+                              password: undefined
+                            })
+                            setUserOpen(true)
+                          }}
+                        >
+                          Edit
+                        </Button>
                       )
                     }
                   ]}
@@ -457,17 +499,45 @@ export default function CompanyDetailPage() {
         </Form>
       </Modal>
 
-      <Modal title="Add user" open={userOpen} onCancel={() => setUserOpen(false)} footer={null} width={520}>
+      <Modal
+        title={editUser ? 'Edit user' : 'Add user'}
+        open={userOpen}
+        onCancel={() => {
+          setUserOpen(false)
+          setEditUser(null)
+          userForm.resetFields()
+        }}
+        footer={null}
+        width={520}
+      >
         <Form
           form={userForm}
           layout="vertical"
           onFinish={async (values) => {
             if (!token || !id) return
-            await createUser(token, id, values)
-            message.success('User created — they must verify email on first POS login')
-            setUserOpen(false)
-            userForm.resetFields()
-            load()
+            try {
+              if (editUser) {
+                await updateUser(token, editUser.id, {
+                  firstName: values.firstName,
+                  lastName: values.lastName,
+                  role: values.role,
+                  branchId: values.branchId || null,
+                  roleIds: values.roleIds || [],
+                  isActive: values.isActive,
+                  ...(values.password ? { password: values.password } : {})
+                })
+                message.success('User updated')
+              } else {
+                await createUser(token, id, values)
+                message.success('User created — they must verify email on first POS login')
+              }
+              setUserOpen(false)
+              setEditUser(null)
+              userForm.resetFields()
+              load()
+            } catch (err: any) {
+              message.error(err.message)
+            }
           }}
         >
           <Form.Item name="firstName" label="First name" rules={[{ required: true }]}>
@@ -477,10 +547,14 @@ export default function CompanyDetailPage() {
             <Input />
           </Form.Item>
           <Form.Item name="email" label="Email" rules={[{ required: true, type: 'email' }]}>
-            <Input />
+            <Input disabled={!!editUser} />
           </Form.Item>
-          <Form.Item name="password" label="Password" rules={[{ required: true, min: 6 }]}>
-            <Input.Password />
+          <Form.Item
+            name="password"
+            label={editUser ? 'New password (optional)' : 'Password'}
+            rules={editUser ? [{ min: 6 }] : [{ required: true, min: 6 }]}
+          >
+            <Input.Password placeholder={editUser ? 'Leave blank to keep current' : undefined} />
           </Form.Item>
           <Form.Item name="role" label="Role" rules={[{ required: true }]}>
             <Select options={USER_ROLES} />
@@ -491,8 +565,18 @@ export default function CompanyDetailPage() {
           <Form.Item name="roleIds" label="RBAC roles">
             <Select mode="multiple" options={detail.roles.map((r) => ({ value: r.id, label: r.name }))} />
           </Form.Item>
+          {editUser ? (
+            <Form.Item name="isActive" label="Status" rules={[{ required: true }]}>
+              <Select
+                options={[
+                  { value: true, label: 'Active' },
+                  { value: false, label: 'Inactive' }
+                ]}
+              />
+            </Form.Item>
+          ) : null}
           <Button type="primary" htmlType="submit" block>
-            Create user
+            {editUser ? 'Save changes' : 'Create user'}
           </Button>
         </Form>
       </Modal>

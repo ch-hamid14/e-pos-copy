@@ -254,8 +254,9 @@ export async function getCompanyDetail(controlDb: Knex, companyId: string) {
   const companyDb = await getCompanyDb(companyId, { forOps: true })
   const branches = await companyDb('branches').where({ company_id: companyId }).whereNull('deleted_at').orderBy('name')
   const users = await controlDb('users')
-    .where({ company_id: companyId, is_active: true })
-    .select('id', 'company_id', 'branch_id', 'email', 'first_name', 'last_name', 'role', 'email_verified', 'created_at', 'updated_at')
+    .where({ company_id: companyId })
+    .select('id', 'company_id', 'branch_id', 'email', 'first_name', 'last_name', 'role', 'email_verified', 'is_active', 'created_at', 'updated_at')
+    .orderBy('is_active', 'desc')
     .orderBy('created_at', 'desc')
   const roles = await companyDb('roles').where({ company_id: companyId }).whereNull('deleted_at').orderBy('name')
   const permissions = await companyDb('permissions').orderBy('key')
@@ -431,7 +432,9 @@ export async function updateCompanyUser(
   const user = await controlDb('users').where({ id: userId }).first()
   if (!user) return null
 
-  const companyDb = user.company_id ? await getCompanyDb(user.company_id as string) : null
+  const companyDb = user.company_id
+    ? await getCompanyDb(user.company_id as string, { forOps: true })
+    : null
   const updates: Record<string, unknown> = { updated_at: new Date() }
   if (data.firstName !== undefined) updates.first_name = data.firstName
   if (data.lastName !== undefined) updates.last_name = data.lastName

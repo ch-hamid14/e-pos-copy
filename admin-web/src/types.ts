@@ -41,6 +41,7 @@ export type CompanyUser = {
   role: string
   branchId: string | null
   emailVerified: boolean
+  isActive: boolean
   roles: { id: string; name: string }[]
 }
 
