@@ -162,42 +162,68 @@ export default function CompaniesPage() {
         />
       </div>
 
-      <Modal title="Create company" open={open} onCancel={() => setOpen(false)} footer={null} width={560}>
-        <Form form={form} layout="vertical" onFinish={handleCreate} style={{ marginTop: 8 }}>
-          <Typography.Title level={5} style={{ marginTop: 0 }}>
-            Company
-          </Typography.Title>
-          <Form.Item name="name" label="Company name" rules={[{ required: true }]}>
-            <Input />
-          </Form.Item>
-          <Form.Item name="email" label="Company email">
-            <Input />
-          </Form.Item>
-          <Form.Item name="phone" label="Phone">
-            <Input />
-          </Form.Item>
-          <Form.Item name="branchName" label="Main branch name" initialValue="Main Branch">
-            <Input />
-          </Form.Item>
-          <Form.Item name="branchLocation" label="Branch location">
-            <Input />
-          </Form.Item>
-          <Typography.Title level={5}>Company owner (optional)</Typography.Title>
-          <Form.Item name="ownerEmail" label="Owner email">
-            <Input />
-          </Form.Item>
-          <Form.Item name="ownerPassword" label="Owner password">
-            <Input.Password />
-          </Form.Item>
-          <Form.Item name="ownerFirstName" label="Owner first name">
-            <Input />
-          </Form.Item>
-          <Form.Item name="ownerLastName" label="Owner last name">
-            <Input />
-          </Form.Item>
-          <Button type="primary" htmlType="submit" block loading={loading}>
-            Create company
-          </Button>
+      <Modal
+        title="Create company"
+        open={open}
+        onCancel={() => setOpen(false)}
+        footer={null}
+        width={640}
+        destroyOnClose
+      >
+        <Form
+          form={form}
+          layout="vertical"
+          requiredMark="optional"
+          onFinish={handleCreate}
+          initialValues={{ branchName: 'Main Branch' }}
+        >
+          <div className="madix-form-grid">
+            <div className="madix-form-section">
+              <p className="madix-form-section__title">Company</p>
+            </div>
+            <Form.Item className="madix-span-2" name="name" label="Company name" rules={[{ required: true }]}>
+              <Input placeholder="Acme Retail" />
+            </Form.Item>
+            <Form.Item name="email" label="Email">
+              <Input placeholder="ops@company.com" />
+            </Form.Item>
+            <Form.Item name="phone" label="Phone">
+              <Input placeholder="+1 …" />
+            </Form.Item>
+
+            <div className="madix-form-section">
+              <p className="madix-form-section__title">Main branch</p>
+            </div>
+            <Form.Item name="branchName" label="Branch name">
+              <Input />
+            </Form.Item>
+            <Form.Item name="branchLocation" label="Location">
+              <Input placeholder="City / address" />
+            </Form.Item>
+
+            <div className="madix-form-section">
+              <p className="madix-form-section__title">Owner</p>
+              <p className="madix-form-section__hint">Optional — can be added later</p>
+            </div>
+            <Form.Item name="ownerFirstName" label="First name">
+              <Input />
+            </Form.Item>
+            <Form.Item name="ownerLastName" label="Last name">
+              <Input />
+            </Form.Item>
+            <Form.Item name="ownerEmail" label="Email">
+              <Input />
+            </Form.Item>
+            <Form.Item name="ownerPassword" label="Password">
+              <Input.Password />
+            </Form.Item>
+          </div>
+          <div className="madix-modal-actions">
+            <Button onClick={() => setOpen(false)}>Cancel</Button>
+            <Button type="primary" htmlType="submit" loading={loading}>
+              Create company
+            </Button>
+          </div>
         </Form>
       </Modal>
 

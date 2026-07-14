@@ -474,28 +474,50 @@ export default function CompanyDetailPage() {
         ]}
       />
 
-      <Modal title="Add branch" open={branchOpen} onCancel={() => setBranchOpen(false)} footer={null}>
+      <Modal
+        title="Add branch"
+        open={branchOpen}
+        onCancel={() => setBranchOpen(false)}
+        footer={null}
+        width={480}
+        destroyOnClose
+      >
         <Form
           form={branchForm}
           layout="vertical"
+          requiredMark="optional"
           onFinish={async (values) => {
             if (!token || !id) return
-            await createBranch(token, id, values)
-            message.success('Branch created')
-            setBranchOpen(false)
-            branchForm.resetFields()
-            load()
+            try {
+              await createBranch(token, id, values)
+              message.success('Branch created')
+              setBranchOpen(false)
+              branchForm.resetFields()
+              load()
+            } catch (err: any) {
+              message.error(err.message)
+            }
           }}
         >
-          <Form.Item name="name" label="Branch name" rules={[{ required: true }]}>
-            <Input />
-          </Form.Item>
-          <Form.Item name="location" label="Location">
-            <Input />
-          </Form.Item>
-          <Button type="primary" htmlType="submit" block>
-            Add
-          </Button>
+          <div className="madix-form-grid">
+            <Form.Item
+              className="madix-span-2"
+              name="name"
+              label="Branch name"
+              rules={[{ required: true }]}
+            >
+              <Input placeholder="Main Branch" />
+            </Form.Item>
+            <Form.Item className="madix-span-2" name="location" label="Location">
+              <Input placeholder="City / address" />
+            </Form.Item>
+          </div>
+          <div className="madix-modal-actions">
+            <Button onClick={() => setBranchOpen(false)}>Cancel</Button>
+            <Button type="primary" htmlType="submit">
+              Add branch
+            </Button>
+          </div>
         </Form>
       </Modal>
 
@@ -508,11 +530,13 @@ export default function CompanyDetailPage() {
           userForm.resetFields()
         }}
         footer={null}
-        width={520}
+        width={560}
+        destroyOnClose
       >
         <Form
           form={userForm}
           layout="vertical"
+          requiredMark="optional"
           onFinish={async (values) => {
             if (!token || !id) return
             try {
@@ -540,87 +564,147 @@ export default function CompanyDetailPage() {
             }
           }}
         >
-          <Form.Item name="firstName" label="First name" rules={[{ required: true }]}>
-            <Input />
-          </Form.Item>
-          <Form.Item name="lastName" label="Last name" rules={[{ required: true }]}>
-            <Input />
-          </Form.Item>
-          <Form.Item name="email" label="Email" rules={[{ required: true, type: 'email' }]}>
-            <Input disabled={!!editUser} />
-          </Form.Item>
-          <Form.Item
-            name="password"
-            label={editUser ? 'New password (optional)' : 'Password'}
-            rules={editUser ? [{ min: 6 }] : [{ required: true, min: 6 }]}
-          >
-            <Input.Password placeholder={editUser ? 'Leave blank to keep current' : undefined} />
-          </Form.Item>
-          <Form.Item name="role" label="Role" rules={[{ required: true }]}>
-            <Select options={USER_ROLES} />
-          </Form.Item>
-          <Form.Item name="branchId" label="Branch">
-            <Select allowClear options={detail.branches.map((b) => ({ value: b.id, label: b.name }))} />
-          </Form.Item>
-          <Form.Item name="roleIds" label="RBAC roles">
-            <Select mode="multiple" options={detail.roles.map((r) => ({ value: r.id, label: r.name }))} />
-          </Form.Item>
-          {editUser ? (
-            <Form.Item name="isActive" label="Status" rules={[{ required: true }]}>
+          <div className="madix-form-grid">
+            <div className="madix-form-section">
+              <p className="madix-form-section__title">Identity</p>
+            </div>
+            <Form.Item name="firstName" label="First name" rules={[{ required: true }]}>
+              <Input />
+            </Form.Item>
+            <Form.Item name="lastName" label="Last name" rules={[{ required: true }]}>
+              <Input />
+            </Form.Item>
+            <Form.Item name="email" label="Email" rules={[{ required: true, type: 'email' }]}>
+              <Input disabled={!!editUser} />
+            </Form.Item>
+            <Form.Item
+              name="password"
+              label={editUser ? 'New password' : 'Password'}
+              rules={editUser ? [{ min: 6 }] : [{ required: true, min: 6 }]}
+              extra={editUser ? 'Leave blank to keep current password' : undefined}
+            >
+              <Input.Password />
+            </Form.Item>
+
+            <div className="madix-form-section">
+              <p className="madix-form-section__title">Access</p>
+            </div>
+            <Form.Item name="role" label="Role" rules={[{ required: true }]}>
+              <Select options={USER_ROLES} />
+            </Form.Item>
+            <Form.Item name="branchId" label="Branch">
               <Select
-                options={[
-                  { value: true, label: 'Active' },
-                  { value: false, label: 'Inactive' }
-                ]}
+                allowClear
+                placeholder="Optional"
+                options={detail.branches.map((b) => ({ value: b.id, label: b.name }))}
               />
             </Form.Item>
-          ) : null}
-          <Button type="primary" htmlType="submit" block>
-            {editUser ? 'Save changes' : 'Create user'}
-          </Button>
+            <Form.Item className="madix-span-2" name="roleIds" label="RBAC roles">
+              <Select
+                mode="multiple"
+                placeholder="Assign roles"
+                options={detail.roles.map((r) => ({ value: r.id, label: r.name }))}
+              />
+            </Form.Item>
+            {editUser ? (
+              <Form.Item name="isActive" label="Status" rules={[{ required: true }]}>
+                <Select
+                  options={[
+                    { value: true, label: 'Active' },
+                    { value: false, label: 'Inactive' }
+                  ]}
+                />
+              </Form.Item>
+            ) : null}
+          </div>
+          <div className="madix-modal-actions">
+            <Button
+              onClick={() => {
+                setUserOpen(false)
+                setEditUser(null)
+                userForm.resetFields()
+              }}
+            >
+              Cancel
+            </Button>
+            <Button type="primary" htmlType="submit">
+              {editUser ? 'Save changes' : 'Create user'}
+            </Button>
+          </div>
         </Form>
       </Modal>
 
       <Modal
         title={editRole ? 'Edit role' : 'Add role'}
         open={roleOpen}
-        onCancel={() => setRoleOpen(false)}
+        onCancel={() => {
+          setRoleOpen(false)
+          setEditRole(null)
+          roleForm.resetFields()
+        }}
         footer={null}
-        width={520}
+        width={620}
+        destroyOnClose
       >
         <Form
           form={roleForm}
           layout="vertical"
+          requiredMark="optional"
           onFinish={async (values) => {
             if (!token || !id) return
-            if (editRole) {
-              await updateRole(token, editRole.id, { ...values, companyId: id })
-              message.success('Role updated')
-            } else {
-              await createRole(token, id, values)
-              message.success('Role created')
+            try {
+              if (editRole) {
+                await updateRole(token, editRole.id, { ...values, companyId: id })
+                message.success('Role updated')
+              } else {
+                await createRole(token, id, values)
+                message.success('Role created')
+              }
+              setRoleOpen(false)
+              roleForm.resetFields()
+              setEditRole(null)
+              load()
+            } catch (err: any) {
+              message.error(err.message)
             }
-            setRoleOpen(false)
-            roleForm.resetFields()
-            setEditRole(null)
-            load()
           }}
         >
-          <Form.Item name="name" label="Role name" rules={[{ required: true }]}>
-            <Input />
-          </Form.Item>
-          <Form.Item name="description" label="Description">
-            <Input.TextArea rows={2} />
-          </Form.Item>
-          <Form.Item name="permissionKeys" label="Permissions" rules={[{ required: true }]}>
-            <Checkbox.Group
-              options={detail.permissions.map((p: Permission) => ({ label: p.label, value: p.key }))}
-              style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
-            />
-          </Form.Item>
-          <Button type="primary" htmlType="submit" block>
-            {editRole ? 'Update' : 'Create'}
-          </Button>
+          <div className="madix-form-grid">
+            <Form.Item name="name" label="Role name" rules={[{ required: true }]}>
+              <Input placeholder="e.g. Cashier" />
+            </Form.Item>
+            <Form.Item name="description" label="Description">
+              <Input placeholder="Short summary" />
+            </Form.Item>
+            <Form.Item
+              className="madix-span-2"
+              name="permissionKeys"
+              label="Permissions"
+              rules={[{ required: true, message: 'Select at least one permission' }]}
+            >
+              <Checkbox.Group
+                className="madix-perm-grid"
+                options={detail.permissions.map((p: Permission) => ({
+                  label: p.label,
+                  value: p.key
+                }))}
+              />
+            </Form.Item>
+          </div>
+          <div className="madix-modal-actions">
+            <Button
+              onClick={() => {
+                setRoleOpen(false)
+                setEditRole(null)
+                roleForm.resetFields()
+              }}
+            >
+              Cancel
+            </Button>
+            <Button type="primary" htmlType="submit">
+              {editRole ? 'Save changes' : 'Create role'}
+            </Button>
+          </div>
         </Form>
       </Modal>
     </div>

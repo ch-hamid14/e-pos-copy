@@ -356,6 +356,12 @@ a {
   letter-spacing: -0.03em;
 }
 
+.madix-sider-brand__sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
 .madix-split {
   display: grid;
   grid-template-columns: 1.6fr 1fr;
@@ -364,6 +370,76 @@ a {
 
 @media (max-width: 1000px) {
   .madix-split {
+    grid-template-columns: 1fr;
+  }
+}
+
+.madix-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 16px;
+}
+
+.madix-form-grid .ant-form-item {
+  margin-bottom: 12px;
+}
+
+.madix-form-grid .madix-span-2 {
+  grid-column: 1 / -1;
+}
+
+.madix-form-section {
+  grid-column: 1 / -1;
+  margin: 4px 0 2px;
+  padding: 10px 0 2px;
+  border-top: 1px solid var(--madix-border);
+}
+
+.madix-form-section:first-child {
+  border-top: 0;
+  padding-top: 0;
+  margin-top: 0;
+}
+
+.madix-form-section__title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--madix-muted);
+}
+
+.madix-form-section__hint {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--madix-muted);
+}
+
+.madix-perm-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 12px;
+  max-height: 220px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--madix-border);
+  border-radius: 8px;
+  background: #f8fafb;
+}
+
+.madix-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 16px;
+  border-top: 1px solid var(--madix-border);
+}
+
+@media (max-width: 560px) {
+  .madix-form-grid,
+  .madix-perm-grid {
     grid-template-columns: 1fr;
   }
 }
