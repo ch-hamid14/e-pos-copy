@@ -3,7 +3,7 @@
 const { randomUUID } = require('crypto');
 const schema = require('../lib/schema');
 const { tableOrder, sortChanges } = require('../lib/order');
-const { decide, logConflict, applyRow } = require('../lib/conflict');
+const { decide, logConflict, logDeadLetter, applyRow, isSchemaError } = require('../lib/conflict');
 
 /**
  * Authority role (remote app).
@@ -19,6 +19,8 @@ function createAuthority({ db, config = {} } = {}) {
   const schemaName = config.schema || 'public';
   const idColumn = config.idColumn || 'id';
   const defaultLimit = config.pullLimit || 500;
+  const columnRenames = config.columnRenames || {};
+  const applyOpts = { idColumn, schema: schemaName, columnRenames };
 
   let ready = null;
   let rank = new Map();
@@ -93,20 +95,33 @@ function createAuthority({ db, config = {} } = {}) {
         const winner = decide(incoming, existing);
 
         if (winner === 'incoming') {
-          await applyRow(trx, change, { idColumn });
-          // Canonical log entry other clients pull. Same id => idempotent.
-          await trx('sync_queue')
-            .insert({
+          try {
+            await applyRow(trx, change, applyOpts);
+            await trx('sync_queue')
+              .insert({
+                id: change.id,
+                table: change.table,
+                event: change.event,
+                entity_id: change.entity_id,
+                payload: JSON.stringify(change.payload),
+                hlc: change.hlc,
+                origin_client_id: clientId,
+              })
+              .onConflict('id')
+              .ignore();
+          } catch (err) {
+            if (!isSchemaError(err)) throw err;
+            // Stale-schema payload: ack client, skip canonical enqueue.
+            await logDeadLetter(trx, change, err);
+            conflicts.push({
               id: change.id,
               table: change.table,
-              event: change.event,
               entity_id: change.entity_id,
-              payload: JSON.stringify(change.payload),
-              hlc: change.hlc,
-              origin_client_id: clientId,
-            })
-            .onConflict('id')
-            .ignore();
+              winner: 'schema_skip',
+              current: existing || null,
+              error: err.message,
+            });
+          }
         } else {
           await logConflict(trx, {
             table: change.table,
@@ -161,25 +176,6 @@ function createAuthority({ db, config = {} } = {}) {
       origin_client_id: r.origin_client_id,
     }));
     const nextSince = changes.length ? changes[changes.length - 1].sno : since;
-
-    // const tableCounts = changes.reduce((acc, c) => {
-    //   acc[c.table] = (acc[c.table] || 0) + 1;
-    //   return acc;
-    // }, {});
-
-    // console.log('[sync:authority:pull]', {
-    //   clientId,
-    //   since,
-    //   limit: lim,
-    //   returned: changes.length,
-    //   nextSince,
-    //   tables: tableCounts,
-    //   salesPurchases: {
-    //     sales: tableCounts.sales || 0,
-    //     sale_lines: tableCounts.sale_lines || 0,
-    //     purchases: tableCounts.purchases || 0,
-    //   },
-    // });
 
     return { changes, nextSince };
   }

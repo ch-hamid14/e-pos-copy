@@ -6,6 +6,8 @@ export type SyncConfig = {
   pushLimit?: number
   pullLimit?: number
   nodeId?: string
+  /** Per-table map of oldColumn → newColumn applied before strip/upsert */
+  columnRenames?: Record<string, Record<string, string>>
 }
 
 export type Change = {

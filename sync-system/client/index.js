@@ -20,6 +20,8 @@ function createClient({ db, transport, config = {} } = {}) {
   const schemaName = config.schema || 'public';
   const idColumn = config.idColumn || 'id';
   const pullLimit = config.pullLimit || 500;
+  const columnRenames = config.columnRenames || {};
+  const applyOpts = { idColumn, lww: true, schema: schemaName, columnRenames };
 
   let ready = null;
   let rank = new Map();
@@ -56,11 +58,11 @@ function createClient({ db, transport, config = {} } = {}) {
 
   /** Applies authority-provided rows locally, guarded so they are not re-queued. */
   async function applyIncoming(changeLikes) {
-    if (!changeLikes.length) return { appliedSnos: new Set(), failed: [] };
+    if (!changeLikes.length) return { appliedSnos: new Set(), failed: [], deadLettered: [] };
     let result;
     await db.transaction(async (trx) => {
       await trx.raw("SET LOCAL sync.replicating = 'on'");
-      result = await applyBatch(trx, changeLikes, rank, { idColumn, lww: true });
+      result = await applyBatch(trx, changeLikes, rank, applyOpts);
       let top = null;
       for (const c of changeLikes) top = maxHlc(top, c.hlc);
       if (top) await trx.raw('SELECT sync_hlc_update(?)', [top]);
@@ -175,27 +177,21 @@ function createClient({ db, transport, config = {} } = {}) {
       const result = await applyIncoming(changes);
       applied += result.appliedSnos.size;
 
-      // if (result.failed.length) {
-      //   const failedByTable = result.failed.reduce((acc, c) => {
-      //     acc[c.table] = (acc[c.table] || 0) + 1;
-      //     return acc;
-      //   }, {});
-      //   console.warn('[sync:pull] apply failures', {
-      //     batchNum,
-      //     failedCount: result.failed.length,
-      //     failedByTable,
-      //     samples: result.failed.slice(0, 5).map((c) => ({
-      //       table: c.table,
-      //       event: c.event,
-      //       entity_id: c.entity_id,
-      //       sno: c.sno,
-      //       error: c.__error?.message || String(c.__error),
-      //     })),
-      //   });
-      // }
+      if (result.deadLettered?.length) {
+        console.warn('[sync:pull] dead-lettered schema failures', {
+          count: result.deadLettered.length,
+          samples: result.deadLettered.slice(0, 5).map((c) => ({
+            table: c.table,
+            entity_id: c.entity_id,
+            sno: c.sno,
+            error: c.__error?.message || String(c.__error),
+          })),
+        });
+      }
 
       // Advance only over the contiguous applied prefix; re-pull the rest later
       // (a failure usually means a parent row has not arrived yet).
+      // Schema dead-letters are treated as applied so poison payloads cannot stall.
       let cursor;
       if (result.failed.length) {
         const minFailed = Math.min(...result.failed.map((c) => Number(c.sno)));

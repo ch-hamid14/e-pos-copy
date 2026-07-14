@@ -92,6 +92,22 @@ CREATE TABLE IF NOT EXISTS sync_applied (
 );
 `;
 
+const DEAD_LETTER_DDL = `
+CREATE TABLE IF NOT EXISTS sync_dead_letter (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  change_id  uuid,
+  sno        bigint,
+  "table"    text NOT NULL,
+  entity_id  uuid,
+  event      text,
+  payload    jsonb,
+  message    text,
+  error      jsonb,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS sync_dead_letter_created_idx ON sync_dead_letter (created_at DESC);
+`;
+
 /**
  * Capture trigger: stamps metadata on local writes and enqueues them.
  * When the session flag `sync.replicating = 'on'` is set (during apply of
@@ -178,6 +194,7 @@ async function setup(db, { role, schema = 'public', tables, nodeId } = {}) {
   await db.raw(CONFIG_DDL);
   if (role === 'client') await db.raw(STATE_DDL);
   if (role === 'authority') await db.raw(CONFLICT_DDL);
+  await db.raw(DEAD_LETTER_DDL);
   await db.raw(CAPTURE_FN_DDL);
 
   const nid = await ensureNodeIdentity(db, role, nodeId);

@@ -37,9 +37,17 @@ await authority.setup(); // idempotent: meta tables, HLC, metadata columns, trig
 - `sync_config` — single-row node identity (`node_id`, `role`).
 - `sync_clock` + `sync_hlc()` / `sync_hlc_update()` — in-database Hybrid Logical Clock.
 
-Each tracked app table gains `updated_at`, `deleted_at`, `hlc`,
-`origin_client_id`, plus a `BEFORE` capture trigger guarded by the
-`sync.replicating` session flag.
+- Each tracked app table gains `updated_at`, `deleted_at`, `hlc`,
+  `origin_client_id`, plus a `BEFORE` capture trigger guarded by the
+  `sync.replicating` session flag.
+- `sync_dead_letter` — payloads that fail apply for schema/type reasons are
+  parked here (client + authority) so sync cursors can advance.
+
+## Schema evolution
+
+Apply reshapes payloads with optional `config.columnRenames` then strips
+unknown columns. Poison rows that still fail are dead-lettered instead of
+blocking the fleet.
 
 ## Bootstrap (integrating onto a database with existing data)
 

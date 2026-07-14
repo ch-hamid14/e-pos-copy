@@ -49,6 +49,17 @@ Each tracked app table gains `updated_at`, `deleted_at`, `hlc`,
 and enqueues the write — unless the `sync.replicating` session flag is set,
 which the client sets while applying remote changes to avoid echo loops.
 
+## Schema evolution (migrations)
+
+On apply, payloads are reshaped:
+
+1. Optional `config.columnRenames[table] = { old_col: 'new_col' }`
+2. Keys that are not live table columns are stripped (safe for DROP COLUMN)
+3. Remaining schema/type failures are written to `sync_dead_letter` and skipped
+   so pull cursors do not stall on poison changelog rows
+
+FK / ordering failures still retry on the next cycle.
+
 ## Ordering
 
 Tables are applied parents-first. The package reads the FK graph and topologically

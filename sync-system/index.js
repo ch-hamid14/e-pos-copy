@@ -26,5 +26,6 @@ module.exports = {
     order: require('./lib/order'),
     schema: require('./lib/schema'),
     conflict: require('./lib/conflict'),
+    payload: require('./lib/payload'),
   },
 };
