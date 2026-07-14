@@ -3,8 +3,9 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { Button, Card, Col, Descriptions, Row, Spin, Statistic, Table, Tag, Typography } from 'antd'
 import { ArrowLeftOutlined, EditOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import { App_Routes } from '@/common'
+import { App_Routes, Roles } from '@/common'
 import { purchaseAPI } from '@/renderer/services'
+import { useSession } from '@/renderer/hooks/useSession'
 import { formatSupplierDiscount } from '@/renderer/utils/supplierDiscount'
 import { formatRs, PageHeader } from '../shared/page-ui'
 import { STATUS_COLORS } from './inventory-ui'
@@ -14,6 +15,8 @@ const { Text } = Typography
 export const PurchaseDetail = () => {
   const { id } = useParams()
   const navigate = useNavigate()
+  const { user } = useSession()
+  const canEditPurchases = user?.role === Roles.COMPANY_OWNER
   const [loading, setLoading] = useState(true)
   const [detail, setDetail] = useState<any>(null)
 
@@ -57,6 +60,7 @@ export const PurchaseDetail = () => {
 
   const purchase = detail.purchase
   const editable = Boolean(detail.editable ?? purchase.editable)
+  const canEdit = editable && canEditPurchases
 
   return (
     <div>
@@ -73,7 +77,7 @@ export const PurchaseDetail = () => {
         title="Purchase Detail"
         subtitle={dayjs(purchase.purchaseDate).format('DD MMM YYYY')}
         extra={
-          editable ? (
+          canEdit ? (
             <Button
               type="primary"
               icon={<EditOutlined />}
@@ -82,7 +86,11 @@ export const PurchaseDetail = () => {
               Edit
             </Button>
           ) : (
-            <Text type="secondary">Edit unavailable — no in-stock units remaining</Text>
+            <Text type="secondary">
+              {!canEditPurchases
+                ? 'Only company owners can edit purchases'
+                : 'Edit unavailable — no in-stock units remaining'}
+            </Text>
           )
         }
       />

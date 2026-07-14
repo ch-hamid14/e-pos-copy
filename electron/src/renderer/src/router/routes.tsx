@@ -54,7 +54,7 @@ export const AppRoutes: IAppRoutes[] = [
   { path: App_Routes.CUSTOMERS, component: LazyPages.Customers, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN, Roles.STAFF] },
   { path: App_Routes.ADD_PURCHASE, component: LazyPages.AddPurchase, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
   { path: App_Routes.PURCHASE_LIST, component: LazyPages.PurchaseList, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
-  { path: App_Routes.PURCHASE_EDIT, component: LazyPages.PurchaseEdit, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
+  { path: App_Routes.PURCHASE_EDIT, component: LazyPages.PurchaseEdit, roles: [Roles.COMPANY_OWNER] },
   { path: App_Routes.PURCHASE_DETAIL, component: LazyPages.PurchaseDetail, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
   { path: App_Routes.STOCK, component: LazyPages.Stock, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
   { path: App_Routes.STOCK_DETAIL, component: LazyPages.StockDetail, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },

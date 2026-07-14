@@ -4,7 +4,7 @@ import type { TableProps } from 'antd'
 import { EditOutlined, EyeOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { useNavigate } from 'react-router-dom'
-import { App_Routes } from '@/common'
+import { App_Routes, Roles } from '@/common'
 import { purchaseAPI, supplierAPI } from '@/renderer/services'
 import { useSession } from '@/renderer/hooks/useSession'
 import { formatRs, formatAuditUser, PageHeader } from '../shared/page-ui'
@@ -13,7 +13,8 @@ const { RangePicker } = DatePicker
 
 export const PurchaseList = () => {
   const navigate = useNavigate()
-  const { companyId, branchId } = useSession()
+  const { companyId, branchId, user } = useSession()
+  const canEditPurchases = user?.role === Roles.COMPANY_OWNER
   const [data, setData] = useState<any[]>([])
   const [suppliers, setSuppliers] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
@@ -140,26 +141,35 @@ export const PurchaseList = () => {
             {
               title: '',
               width: 88,
-              render: (_, r) => (
-                <Space size={0}>
-                  <Button
-                    type="text"
-                    icon={<EyeOutlined />}
-                    onClick={() => navigate(App_Routes.PURCHASE_DETAIL.replace(':id', r.id))}
-                  />
-                  {r.editable ? (
+              render: (_, r) => {
+                const canEdit = Boolean(r.editable) && canEditPurchases
+                return (
+                  <Space size={0}>
                     <Button
                       type="text"
-                      icon={<EditOutlined />}
-                      onClick={() => navigate(App_Routes.PURCHASE_EDIT.replace(':id', r.id))}
+                      icon={<EyeOutlined />}
+                      onClick={() => navigate(App_Routes.PURCHASE_DETAIL.replace(':id', r.id))}
                     />
-                  ) : (
-                    <Tooltip title="No in-stock units left to edit">
-                      <Button type="text" icon={<EditOutlined />} disabled />
-                    </Tooltip>
-                  )}
-                </Space>
-              )
+                    {canEdit ? (
+                      <Button
+                        type="text"
+                        icon={<EditOutlined />}
+                        onClick={() => navigate(App_Routes.PURCHASE_EDIT.replace(':id', r.id))}
+                      />
+                    ) : (
+                      <Tooltip
+                        title={
+                          !canEditPurchases
+                            ? 'Only company owners can edit purchases'
+                            : 'No in-stock units left to edit'
+                        }
+                      >
+                        <Button type="text" icon={<EditOutlined />} disabled />
+                      </Tooltip>
+                    )}
+                  </Space>
+                )
+              }
             }
           ]}
         />
