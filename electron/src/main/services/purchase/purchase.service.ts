@@ -26,8 +26,17 @@ export type PurchaseLineInput = {
   colorId?: string
   purchasePrice: number
   sellingPrice?: number
+  specialDiscount?: number
+  specialDiscountType?: 'pkr' | 'percent'
   warrantyActive?: boolean
   warrantyExpiryDate?: string
+}
+
+function lineSpecialDiscount(line: PurchaseLineInput): { discount: number; type: 'pkr' | 'percent' } {
+  return {
+    discount: Number(line.specialDiscount || 0),
+    type: line.specialDiscountType === 'percent' ? 'percent' : 'pkr'
+  }
 }
 
 export type CreatePurchasePayload = {
@@ -220,6 +229,7 @@ class PurchaseService {
           throw new Error(`Warranty expiry required for serial ${line.serialNumber}`)
         }
 
+        const special = lineSpecialDiscount(line)
         const [item] = await getDb()('product_items')
           .transacting(transaction)
           .insert({
@@ -235,6 +245,8 @@ class PurchaseService {
             serial_number: line.serialNumber.trim(),
             purchase_price: Number(line.purchasePrice || 0),
             selling_price: Number(line.sellingPrice ?? line.purchasePrice ?? 0),
+            special_discount: special.discount,
+            special_discount_type: special.type,
             status: ProductItemStatus.IN_STOCK,
             warranty_active: warrantyActive,
             warranty_expiry_date: warrantyExpiry,
@@ -393,6 +405,7 @@ class PurchaseService {
             throw new Error(`Warranty expiry required for serial ${line.serialNumber}`)
           }
 
+          const special = lineSpecialDiscount(line)
           const [updated] = await getDb()('product_items')
             .transacting(transaction)
             .where({ id: line.id, purchase_id: id, status: ProductItemStatus.IN_STOCK })
@@ -405,6 +418,8 @@ class PurchaseService {
               serial_number: line.serialNumber.trim(),
               purchase_price: Number(line.purchasePrice || 0),
               selling_price: Number(line.sellingPrice ?? line.purchasePrice ?? 0),
+              special_discount: special.discount,
+              special_discount_type: special.type,
               warranty_active: warrantyActive,
               warranty_expiry_date: warrantyExpiry,
               purchased_at: purchaseDate,
@@ -434,6 +449,7 @@ class PurchaseService {
           throw new Error(`Warranty expiry required for serial ${line.serialNumber}`)
         }
 
+        const special = lineSpecialDiscount(line)
         const [item] = await getDb()('product_items')
           .transacting(transaction)
           .insert({
@@ -449,6 +465,8 @@ class PurchaseService {
             serial_number: line.serialNumber.trim(),
             purchase_price: Number(line.purchasePrice || 0),
             selling_price: Number(line.sellingPrice ?? line.purchasePrice ?? 0),
+            special_discount: special.discount,
+            special_discount_type: special.type,
             status: ProductItemStatus.IN_STOCK,
             warranty_active: warrantyActive,
             warranty_expiry_date: warrantyExpiry,

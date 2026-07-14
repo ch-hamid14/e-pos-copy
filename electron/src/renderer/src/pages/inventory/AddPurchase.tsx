@@ -51,6 +51,8 @@ type PurchaseLine = {
   colorName?: string
   listPrice: number
   purchasePrice: number
+  specialDiscount: number
+  specialDiscountType: SupplierDiscountType
   warrantyActive: boolean
   warrantyExpiryDate?: string
   /** Sold / reserved / etc. — shown but not editable */
@@ -85,6 +87,9 @@ export const AddPurchase = () => {
   const [lineForm] = Form.useForm()
 
   const warrantyActive = Form.useWatch('warrantyActive', lineForm)
+  const lineSpecialDiscount = Number(Form.useWatch('specialDiscount', lineForm) || 0)
+  const lineSpecialDiscountType: SupplierDiscountType =
+    Form.useWatch('specialDiscountType', lineForm) === 'percent' ? 'percent' : 'pkr'
 
   useEffect(() => {
     if (!companyId) return
@@ -92,13 +97,10 @@ export const AddPurchase = () => {
     productAPI.list(companyId).then(setProducts)
     colorAPI.list(companyId).then(setColors)
     if (!isEdit) {
-      headerForm.setFieldsValue({
-        purchaseDate: dayjs(),
-        specialDiscount: 0,
-        specialDiscountType: 'pkr'
-      })
+      headerForm.setFieldsValue({ purchaseDate: dayjs() })
+      lineForm.setFieldsValue({ specialDiscount: 0, specialDiscountType: 'pkr' })
     }
-  }, [companyId, headerForm, isEdit])
+  }, [companyId, headerForm, lineForm, isEdit])
 
   useEffect(() => {
     if (!isEdit || !id) return
@@ -121,9 +123,7 @@ export const AddPurchase = () => {
         headerForm.setFieldsValue({
           supplierId: purchase.supplierId,
           purchaseDate: dayjs(purchase.purchaseDate),
-          notes: purchase.notes || '',
-          specialDiscount: Number(purchase.specialDiscount || 0),
-          specialDiscountType: purchase.specialDiscountType === 'percent' ? 'percent' : 'pkr'
+          notes: purchase.notes || ''
         })
 
         setLines(
@@ -139,6 +139,8 @@ export const AddPurchase = () => {
             colorName: item.color?.name,
             listPrice: Number(item.sellingPrice ?? item.purchasePrice ?? 0),
             purchasePrice: Number(item.purchasePrice ?? 0),
+            specialDiscount: Number(item.specialDiscount || 0),
+            specialDiscountType: item.specialDiscountType === 'percent' ? 'percent' : 'pkr',
             warrantyActive: Boolean(item.warrantyActive),
             warrantyExpiryDate: item.warrantyExpiryDate
               ? dayjs(item.warrantyExpiryDate).format('YYYY-MM-DD')
@@ -165,37 +167,35 @@ export const AddPurchase = () => {
   const supplierDiscountType: SupplierDiscountType =
     selectedSupplier?.discountType === 'percent' ? 'percent' : 'pkr'
   const hasSupplierDiscount = supplierDiscount > 0
-
-  const specialDiscount = Number(Form.useWatch('specialDiscount', headerForm) || 0)
-  const specialDiscountType: SupplierDiscountType =
-    Form.useWatch('specialDiscountType', headerForm) === 'percent' ? 'percent' : 'pkr'
-  const hasSpecialDiscount = specialDiscount > 0
+  const hasSpecialDiscount = lines.some((l) => l.specialDiscount > 0)
   const hasDiscount = hasSupplierDiscount || hasSpecialDiscount
+  const showNetPreview = hasSupplierDiscount || lineSpecialDiscount > 0
 
   const enteredListPrice = Number(Form.useWatch('purchasePrice', lineForm) || 0)
   const previewNetPrice = computeNetPrice(
     enteredListPrice,
     supplierDiscount,
     supplierDiscountType,
-    specialDiscount,
-    specialDiscountType
+    lineSpecialDiscount,
+    lineSpecialDiscountType
   )
 
-  const recalcLines = (
-    supplier?: { discount?: number; discountType?: string },
-    special?: { discount?: number; discountType?: SupplierDiscountType }
-  ) => {
+  const recalcLines = (supplier?: { discount?: number; discountType?: string }) => {
     const sDiscount = Number(supplier?.discount || 0)
     const sType: SupplierDiscountType = supplier?.discountType === 'percent' ? 'percent' : 'pkr'
-    const spDiscount = Number(special?.discount ?? specialDiscount)
-    const spType: SupplierDiscountType = special?.discountType ?? specialDiscountType
     setLines((prev) =>
       prev.map((line) =>
         line.locked
           ? line
           : {
               ...line,
-              purchasePrice: computeNetPrice(line.listPrice, sDiscount, sType, spDiscount, spType)
+              purchasePrice: computeNetPrice(
+                line.listPrice,
+                sDiscount,
+                sType,
+                line.specialDiscount,
+                line.specialDiscountType
+              )
             }
       )
     )
@@ -214,18 +214,17 @@ export const AddPurchase = () => {
     : '—'
 
   const handleSupplierChange = (supplierId: string) => {
-    recalcLines(supplierMap.get(supplierId), {
-      discount: specialDiscount,
-      discountType: specialDiscountType
-    })
+    recalcLines(supplierMap.get(supplierId))
   }
 
-  const handleSpecialDiscountChange = (
-    next?: Partial<{ discount: number; discountType: SupplierDiscountType }>
-  ) => {
-    recalcLines(selectedSupplier, {
-      discount: next?.discount ?? specialDiscount,
-      discountType: next?.discountType ?? specialDiscountType
+  const resetLineForm = () => {
+    lineForm.resetFields()
+    lineForm.setFieldsValue({
+      warrantyActive: false,
+      motorNumber: '',
+      serialNumber: '',
+      specialDiscount: 0,
+      specialDiscountType: 'pkr'
     })
   }
 
@@ -253,6 +252,9 @@ export const AddPurchase = () => {
 
       const color = values.colorId ? colorMap.get(values.colorId) : undefined
       const listPrice = Number(values.purchasePrice || 0)
+      const specialDiscount = Number(values.specialDiscount || 0)
+      const specialDiscountType: SupplierDiscountType =
+        values.specialDiscountType === 'percent' ? 'percent' : 'pkr'
       const nextLine: PurchaseLine = {
         key: editingKey || `${serial}-${Date.now()}`,
         serialNumber: serial,
@@ -263,6 +265,8 @@ export const AddPurchase = () => {
         colorId: values.colorId,
         colorName: color?.name,
         listPrice,
+        specialDiscount,
+        specialDiscountType,
         purchasePrice: computeNetPrice(
           listPrice,
           supplierDiscount,
@@ -300,8 +304,7 @@ export const AddPurchase = () => {
         setLines((prev) => [...prev, nextLine])
       }
 
-      lineForm.resetFields()
-      lineForm.setFieldsValue({ warrantyActive: false, motorNumber: '', serialNumber: '' })
+      resetLineForm()
     } catch {
       // validation shown by form
     }
@@ -319,6 +322,8 @@ export const AddPurchase = () => {
       productId: line.productId,
       colorId: line.colorId,
       purchasePrice: line.listPrice,
+      specialDiscount: line.specialDiscount,
+      specialDiscountType: line.specialDiscountType,
       warrantyActive: line.warrantyActive,
       warrantyExpiryDate: line.warrantyExpiryDate ? dayjs(line.warrantyExpiryDate) : undefined
     })
@@ -326,8 +331,7 @@ export const AddPurchase = () => {
 
   const cancelEditLine = () => {
     setEditingKey(null)
-    lineForm.resetFields()
-    lineForm.setFieldsValue({ warrantyActive: false, motorNumber: '', serialNumber: '' })
+    resetLineForm()
   }
 
   const removeLine = (key: string) => {
@@ -346,8 +350,8 @@ export const AddPurchase = () => {
     supplierId: header.supplierId,
     purchaseDate: header.purchaseDate.format('YYYY-MM-DD'),
     notes: header.notes,
-    specialDiscount: Number(header.specialDiscount || 0),
-    specialDiscountType: header.specialDiscountType === 'percent' ? 'percent' : 'pkr',
+    specialDiscount: 0,
+    specialDiscountType: 'pkr' as const,
     lines: lines.map((l) => ({
       ...(l.id ? { id: l.id } : {}),
       serialNumber: l.serialNumber,
@@ -356,6 +360,8 @@ export const AddPurchase = () => {
       colorId: l.colorId,
       purchasePrice: l.purchasePrice,
       sellingPrice: l.listPrice,
+      specialDiscount: l.specialDiscount,
+      specialDiscountType: l.specialDiscountType,
       warrantyActive: l.warrantyActive,
       warrantyExpiryDate: l.warrantyExpiryDate
     }))
@@ -380,11 +386,8 @@ export const AddPurchase = () => {
       message.success(`Purchase saved — ${lines.length} unit(s) added to stock`)
       setLines([])
       headerForm.resetFields()
-      headerForm.setFieldsValue({
-        purchaseDate: dayjs(),
-        specialDiscount: 0,
-        specialDiscountType: 'pkr'
-      })
+      headerForm.setFieldsValue({ purchaseDate: dayjs() })
+      resetLineForm()
     } catch (err: any) {
       message.error(err.message || (isEdit ? 'Update failed' : 'Purchase failed'))
     } finally {
@@ -425,11 +428,7 @@ export const AddPurchase = () => {
       />
 
       <Card bordered={false} className="shadow-sm mb-4">
-        <Form
-          form={headerForm}
-          layout="vertical"
-          initialValues={{ specialDiscount: 0, specialDiscountType: 'pkr' }}
-        >
+        <Form form={headerForm} layout="vertical">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Form.Item name="supplierId" label="Supplier" rules={[{ required: true, message: 'Select supplier' }]}>
               <Select placeholder="Select supplier" options={supplierOptions} onChange={handleSupplierChange} />
@@ -447,34 +446,6 @@ export const AddPurchase = () => {
                 disabled
               />
             </Form.Item>
-            <Form.Item name="specialDiscountType" label="Special Discount Type">
-              <Select
-                options={[...SUPPLIER_DISCOUNT_TYPE_OPTIONS]}
-                onChange={(value: SupplierDiscountType) =>
-                  handleSpecialDiscountChange({ discountType: value })
-                }
-              />
-            </Form.Item>
-            <Form.Item
-              name="specialDiscount"
-              label={specialDiscountType === 'percent' ? 'Special Discount %' : 'Special Discount (PKR)'}
-              rules={[
-                { type: 'number', min: 0, message: 'Discount cannot be negative' },
-                ...(specialDiscountType === 'percent'
-                  ? [{ type: 'number' as const, max: 100, message: 'Discount must be between 0 and 100' }]
-                  : [])
-              ]}
-            >
-              <InputNumber
-                className="w-full"
-                min={0}
-                max={specialDiscountType === 'percent' ? 100 : undefined}
-                style={{ width: '100%' }}
-                onChange={(value) =>
-                  handleSpecialDiscountChange({ discount: Number(value || 0) })
-                }
-              />
-            </Form.Item>
             <Form.Item name="notes" label="Notes" className="md:col-span-3">
               <Input placeholder="Optional notes" />
             </Form.Item>
@@ -487,7 +458,11 @@ export const AddPurchase = () => {
         bordered={false}
         className="shadow-sm mb-4"
       >
-        <Form form={lineForm} layout="vertical" initialValues={{ warrantyActive: false }}>
+        <Form
+          form={lineForm}
+          layout="vertical"
+          initialValues={{ warrantyActive: false, specialDiscount: 0, specialDiscountType: 'pkr' }}
+        >
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
             <Form.Item name="serialNumber" label="Chassis Number" rules={[{ required: true, whitespace: true }]}>
               <Input placeholder="Chassis number" />
@@ -513,7 +488,27 @@ export const AddPurchase = () => {
             <Form.Item name="purchasePrice" label="Retail price" rules={[{ required: true }]}>
               <InputNumber className="w-full" min={0} style={{ width: '100%' }} />
             </Form.Item>
-            {hasDiscount && (
+            <Form.Item name="specialDiscountType" label="Special Discount Type">
+              <Select options={[...SUPPLIER_DISCOUNT_TYPE_OPTIONS]} />
+            </Form.Item>
+            <Form.Item
+              name="specialDiscount"
+              label={lineSpecialDiscountType === 'percent' ? 'Special Discount %' : 'Special Discount (PKR)'}
+              rules={[
+                { type: 'number', min: 0, message: 'Discount cannot be negative' },
+                ...(lineSpecialDiscountType === 'percent'
+                  ? [{ type: 'number' as const, max: 100, message: 'Discount must be between 0 and 100' }]
+                  : [])
+              ]}
+            >
+              <InputNumber
+                className="w-full"
+                min={0}
+                max={lineSpecialDiscountType === 'percent' ? 100 : undefined}
+                style={{ width: '100%' }}
+              />
+            </Form.Item>
+            {showNetPreview && (
               <Form.Item label="Net Price">
                 <Input value={formatRs(previewNetPrice)} disabled />
               </Form.Item>
@@ -559,6 +554,12 @@ export const AddPurchase = () => {
                     dataIndex: 'listPrice',
                     align: 'right' as const,
                     render: formatRs
+                  },
+                  {
+                    title: 'Special Disc.',
+                    key: 'specialDiscount',
+                    render: (_: unknown, r: PurchaseLine) =>
+                      formatSupplierDiscount(r.specialDiscount, r.specialDiscountType)
                   },
                   {
                     title: 'Net Price',
@@ -625,7 +626,7 @@ export const AddPurchase = () => {
               {isEdit && lockedCount > 0 && (
                 <Text type="secondary"> · {lockedCount} locked</Text>
               )}
-              {hasDiscount ? (
+              {hasDiscount && discountAmount > 0 ? (
                 <>
                   {' '}
                   · Gross {formatRs(grossTotal)}
@@ -635,12 +636,7 @@ export const AddPurchase = () => {
                       · Supplier ({formatSupplierDiscount(supplierDiscount, supplierDiscountType)})
                     </>
                   )}
-                  {hasSpecialDiscount && (
-                    <>
-                      {' '}
-                      · Special ({formatSupplierDiscount(specialDiscount, specialDiscountType)})
-                    </>
-                  )}
+                  {hasSpecialDiscount && <> · Special (per unit)</>}
                   {' '}
                   − {formatRs(discountAmount)} · Net {formatRs(netTotal)}
                 </>

@@ -105,12 +105,6 @@ export const PurchaseDetail = () => {
               purchase.supplier?.discountType === 'percent' ? 'percent' : 'pkr'
             )}
           </Descriptions.Item>
-          <Descriptions.Item label="Special Discount">
-            {formatSupplierDiscount(
-              Number(purchase.specialDiscount || 0),
-              purchase.specialDiscountType === 'percent' ? 'percent' : 'pkr'
-            )}
-          </Descriptions.Item>
           <Descriptions.Item label="Notes" span={2}>{purchase.notes || '—'}</Descriptions.Item>
         </Descriptions>
       </Card>
@@ -139,6 +133,15 @@ export const PurchaseDetail = () => {
             { title: 'Product', render: (_: unknown, r: any) => r.product?.name || '—' },
             { title: 'Category', render: (_: unknown, r: any) => r.category?.name || '—' },
             { title: 'Color', render: (_: unknown, r: any) => r.color?.name || '—' },
+            {
+              title: 'Special Disc.',
+              key: 'specialDiscount',
+              render: (_: unknown, r: any) =>
+                formatSupplierDiscount(
+                  Number(r.specialDiscount || 0),
+                  r.specialDiscountType === 'percent' ? 'percent' : 'pkr'
+                )
+            },
             { title: 'Purchase Price', dataIndex: 'purchasePrice', align: 'right' as const, render: formatRs },
             { title: 'Selling Price', dataIndex: 'sellingPrice', align: 'right' as const, render: formatRs },
             {
