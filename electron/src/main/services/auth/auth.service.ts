@@ -4,7 +4,7 @@ import { IUser } from '../../../common/types'
 import { appState } from '../../state/app-state'
 import { getClientDeviceId, rotateClientDeviceId, rotateSyncNodeId } from '../device'
 import { apiFetch, checkServerOnline, JWT_SECRET } from '../http'
-import { cacheBootstrapData } from './initial-sync.service'
+import { cacheBootstrapData, upsertSessionUserProfile } from './initial-sync.service'
 import { startSyncAfterAuth, stopSync } from '../sync'
 
 /** Tech factory-reset PIN (not shown in UI). */
@@ -43,10 +43,7 @@ export type LoginResponse =
   | CompanyMismatchResult
   | CompanySwitchBlockedResult
 
-type CompanyGate =
-  | { status: 'ok' }
-  | CompanyMismatchResult
-  | CompanySwitchBlockedResult
+type CompanyGate = { status: 'ok' } | CompanyMismatchResult
 
 class AuthService {
   async checkOnline(): Promise<boolean> {
@@ -133,25 +130,12 @@ class AuthService {
     const incomingCompanyName = (res.data.companyName as string) || 'this company'
     const gate = await this.evaluateCompanyGate(incomingCompanyId, incomingCompanyName)
 
-    if (gate.status === 'company_switch_blocked') {
-      return gate
-    }
-
     if (gate.status === 'company_mismatch') {
       if (!confirmCompanySwitch) {
         return gate
       }
-      const pending = await this.countPendingLocalChanges()
-      if (pending > 0) {
-        return {
-          status: 'company_switch_blocked',
-          localCompanyId: gate.localCompanyId,
-          localCompanyName: gate.localCompanyName,
-          pendingChanges: pending,
-          message: `This POS has ${pending} unsynced change(s) for "${gate.localCompanyName}". Sync or clear them before switching companies.`
-        }
-      }
 
+      // Explicit WIPE confirmation discards local data, including unsynced changes.
       await this.wipeAsFreshDevice(res.data.token as string)
 
       const freshRes = await apiFetch<any>('/auth/login', {
@@ -281,9 +265,7 @@ class AuthService {
     const gate = await this.evaluateCompanyGate(incomingCompanyId, incomingCompanyName)
     if (gate.status !== 'ok') {
       throw new Error(
-        gate.status === 'company_switch_blocked'
-          ? gate.message
-          : `This POS is set up for "${gate.localCompanyName}". Sign in online with a password to switch companies.`
+        `This POS is set up for "${gate.localCompanyName}". Sign in online with a password to switch companies.`
       )
     }
 
@@ -336,15 +318,10 @@ class AuthService {
 
     const localCompanyName = (profile.name as string) || 'another company'
     const pending = await this.countPendingLocalChanges()
-    if (pending > 0) {
-      return {
-        status: 'company_switch_blocked',
-        localCompanyId: profile.id,
-        localCompanyName,
-        pendingChanges: pending,
-        message: `This POS has ${pending} unsynced change(s) for "${localCompanyName}". Sync them before switching to "${incomingCompanyName}".`
-      }
-    }
+    const pendingNote =
+      pending > 0
+        ? ` This will discard ${pending} unsynced local change(s).`
+        : ''
 
     return {
       status: 'company_mismatch',
@@ -352,7 +329,7 @@ class AuthService {
       localCompanyName,
       incomingCompanyId,
       incomingCompanyName,
-      message: `This POS is set up for "${localCompanyName}". Signing in as "${incomingCompanyName}" requires wiping all local data and resetting this device identity.`
+      message: `This POS is set up for "${localCompanyName}". Signing in as "${incomingCompanyName}" requires wiping all local data and resetting this device identity.${pendingNote}`
     }
   }
 
@@ -379,13 +356,18 @@ class AuthService {
     const oldDeviceId = getClientDeviceId()
     await stopSync()
 
-    const release = await apiFetch('/auth/release-device', {
-      method: 'POST',
-      body: JSON.stringify({ clientDeviceId: oldDeviceId }),
-      token
-    })
-    if (!release.ok) {
-      throw new Error(release.error || 'Failed to release device binding on server')
+    // Best-effort: local wipe must proceed even if server release fails.
+    try {
+      const release = await apiFetch('/auth/release-device', {
+        method: 'POST',
+        body: JSON.stringify({ clientDeviceId: oldDeviceId }),
+        token
+      })
+      if (!release.ok) {
+        console.warn('release-device failed during company wipe:', release.error)
+      }
+    } catch (err) {
+      console.warn('release-device error during company wipe:', err)
     }
 
     appState.clearSession()
@@ -396,7 +378,7 @@ class AuthService {
 
   /**
    * Tech-only factory reset: wipe local DB + device/sync identity.
-   * Attempts server release when a token is available and online.
+   * Server release is best-effort; local wipe always proceeds.
    */
   async factoryResetPos(input: {
     pin: string
@@ -416,15 +398,20 @@ class AuthService {
     let releasedDevice = false
     const token = input.token || appState.getToken()
     if (token && (await checkServerOnline())) {
-      const release = await apiFetch('/auth/release-device', {
-        method: 'POST',
-        body: JSON.stringify({ clientDeviceId: oldDeviceId }),
-        token
-      })
-      if (!release.ok) {
-        throw new Error(release.error || 'Failed to release device binding on server')
+      try {
+        const release = await apiFetch('/auth/release-device', {
+          method: 'POST',
+          body: JSON.stringify({ clientDeviceId: oldDeviceId }),
+          token
+        })
+        if (release.ok) {
+          releasedDevice = true
+        } else {
+          console.warn('release-device failed during factory reset:', release.error)
+        }
+      } catch (err) {
+        console.warn('release-device error during factory reset:', err)
       }
-      releasedDevice = true
     }
 
     appState.clearSession()
@@ -463,36 +450,23 @@ class AuthService {
 
     if (data.user.companyId) {
       await this.pullInitialData(data.token, data.user.companyId)
+      // Write session user before sync triggers attach, and skip when unchanged.
+      await upsertSessionUserProfile({
+        id: user.id,
+        companyId: user.companyId,
+        branchId: user.branchId,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role,
+        emailVerified: data.user.emailVerified ?? false
+      })
     }
 
     try {
       await startSyncAfterAuth(data.token)
     } catch (err) {
       console.error('Failed to start sync after login:', err)
-    }
-
-    if (user.companyId) {
-      const existing = await getDb()('user_profiles').where({ id: user.id }).first()
-      const row = {
-        id: user.id,
-        company_id: user.companyId,
-        branch_id: user.branchId,
-        email: user.email,
-        first_name: user.firstName,
-        last_name: user.lastName,
-        role: user.role,
-        is_active: true,
-        updated_at: new Date()
-      }
-      if (existing) {
-        await getDb()('user_profiles').where({ id: user.id }).update(row)
-      } else {
-        await getDb()('user_profiles').insert({
-          ...row,
-          email_verified: data.user.emailVerified ?? false,
-          created_at: new Date()
-        })
-      }
     }
 
     const result: LoginResult = {

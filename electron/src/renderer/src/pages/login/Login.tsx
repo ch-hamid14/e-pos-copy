@@ -48,7 +48,8 @@ export const Login = () => {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.shiftKey && e.altKey && e.key.toLowerCase() === 'r') {
+      // e.code: macOS Option mutates e.key (e.g. ®); KeyR is stable on Win/Mac.
+      if (e.ctrlKey && e.shiftKey && e.altKey && e.code === 'KeyR') {
         e.preventDefault()
         setTechResetOpen(true)
         setTechPin('')
@@ -334,7 +335,7 @@ export const Login = () => {
           message={companyMismatch.message}
           description={
             <Typography.Paragraph className="mb-0 mt-2">
-              Wiping removes all local sales, stock, and offline queue data for{' '}
+              Wiping removes all local sales, stock, and unsynced offline changes for{' '}
               <strong>{companyMismatch.localCompanyName}</strong> on this device.
             </Typography.Paragraph>
           }

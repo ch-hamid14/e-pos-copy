@@ -5,10 +5,40 @@ function toDate(val: unknown): Date {
   return val ? new Date(val as string) : new Date()
 }
 
+function comparable(value: unknown): string {
+  if (value == null) return ''
+  if (value instanceof Date) return value.toISOString()
+  if (typeof value === 'boolean') return value ? '1' : '0'
+  if (typeof value === 'number') return String(value)
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    // Normalize ISO timestamps for equality checks.
+    const asDate = Date.parse(trimmed)
+    if (!Number.isNaN(asDate) && /^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+      return new Date(asDate).toISOString()
+    }
+    return trimmed
+  }
+  return String(value)
+}
+
+/** True when any business field in `data` differs from `existing` (ignores updated_at). */
+function rowNeedsUpdate(
+  existing: Record<string, unknown>,
+  data: Record<string, unknown>
+): boolean {
+  for (const [key, next] of Object.entries(data)) {
+    if (key === 'updated_at') continue
+    if (comparable(existing[key]) !== comparable(next)) return true
+  }
+  return false
+}
+
 async function upsertRow(table: string, id: string, data: Record<string, unknown>): Promise<void> {
   const db = getDb()
   const existing = await db(table).where({ id }).first()
   if (existing) {
+    if (!rowNeedsUpdate(existing as Record<string, unknown>, data)) return
     await db(table).where({ id }).update({ ...data, updated_at: new Date() })
   } else {
     await db(table).insert({ id, ...data })
@@ -43,10 +73,12 @@ export async function cacheBootstrapData(data: any): Promise<void> {
   for (const perm of data.permissions || []) {
     const existing = await db('permissions').where({ key: perm.key }).first()
     if (existing) {
-      await db('permissions').where({ id: existing.id }).update({
+      const next = {
         label: perm.label,
         updated_at: toDate(perm.updated_at)
-      })
+      }
+      if (!rowNeedsUpdate(existing as Record<string, unknown>, next)) continue
+      await db('permissions').where({ id: existing.id }).update(next)
     } else {
       await db('permissions').insert({
         id: perm.id,
@@ -112,4 +144,45 @@ export async function cacheBootstrapData(data: any): Promise<void> {
       })
     }
   }
+}
+
+/** Upsert the signed-in user profile only when local fields differ. */
+export async function upsertSessionUserProfile(input: {
+  id: string
+  companyId: string
+  branchId: string | null | undefined
+  email: string
+  firstName: string
+  lastName: string
+  role: string
+  emailVerified?: boolean
+}): Promise<void> {
+  const db = getDb()
+  const existing = await db('user_profiles').where({ id: input.id }).first()
+  const row = {
+    company_id: input.companyId,
+    branch_id: input.branchId ?? null,
+    email: input.email,
+    first_name: input.firstName,
+    last_name: input.lastName,
+    role: input.role,
+    is_active: true,
+    email_verified: input.emailVerified ?? false
+  }
+
+  if (existing) {
+    if (!rowNeedsUpdate(existing as Record<string, unknown>, row)) return
+    await db('user_profiles').where({ id: input.id }).update({
+      ...row,
+      updated_at: new Date()
+    })
+    return
+  }
+
+  await db('user_profiles').insert({
+    id: input.id,
+    ...row,
+    created_at: new Date(),
+    updated_at: new Date()
+  })
 }
