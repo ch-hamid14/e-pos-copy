@@ -25,6 +25,7 @@ ipcMain.handle(`POST:${Channels.AUTH}:refresh`, catchIpcHandler(authController.r
 ipcMain.handle(`GET:${Channels.AUTH}:online`, catchIpcHandler(authController.checkOnline))
 ipcMain.handle(`POST:${Channels.AUTH}:otp`, catchIpcHandler(authController.sendOtp))
 ipcMain.handle(`POST:${Channels.AUTH}:logout`, catchIpcHandler(authController.logout))
+  ipcMain.handle(`POST:${Channels.AUTH}:factory-reset`, catchIpcHandler(authController.factoryReset))
 
 ipcMain.handle(`GET:${Channels.COLORS}`, catchIpcHandler(colorController.list))
 ipcMain.handle(`POST:${Channels.COLORS}`, catchIpcHandler(colorController.create))

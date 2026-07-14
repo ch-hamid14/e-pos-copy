@@ -47,6 +47,15 @@ class AuthController {
     appState.clearSession()
     return { success: true }
   }
+
+  async factoryReset(_: Electron.IpcMainInvokeEvent, req: IRequest) {
+    const { pin, confirm, token } = req.body as {
+      pin: string
+      confirm: string
+      token?: string | null
+    }
+    return authService.factoryResetPos({ pin, confirm, token })
+  }
 }
 
 export const authController = new AuthController()

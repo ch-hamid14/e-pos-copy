@@ -7,6 +7,9 @@ import { apiFetch, checkServerOnline, JWT_SECRET } from '../http'
 import { cacheBootstrapData } from './initial-sync.service'
 import { startSyncAfterAuth, stopSync } from '../sync'
 
+/** Tech factory-reset PIN (not shown in UI). */
+const TECH_RESET_PIN = '54321'
+
 export type OtpPurpose = 'email_verify' | 'device_reset'
 
 export type LoginResult = {
@@ -389,6 +392,47 @@ class AuthService {
     await resetLocalCompanyDatabase()
     rotateClientDeviceId()
     rotateSyncNodeId()
+  }
+
+  /**
+   * Tech-only factory reset: wipe local DB + device/sync identity.
+   * Attempts server release when a token is available and online.
+   */
+  async factoryResetPos(input: {
+    pin: string
+    confirm: string
+    token?: string | null
+  }): Promise<{ ok: true; releasedDevice: boolean }> {
+    if (input.pin !== TECH_RESET_PIN) {
+      throw new Error('Invalid PIN')
+    }
+    if (input.confirm.trim().toUpperCase() !== 'WIPE') {
+      throw new Error('Type WIPE to confirm')
+    }
+
+    const oldDeviceId = getClientDeviceId()
+    await stopSync()
+
+    let releasedDevice = false
+    const token = input.token || appState.getToken()
+    if (token && (await checkServerOnline())) {
+      const release = await apiFetch('/auth/release-device', {
+        method: 'POST',
+        body: JSON.stringify({ clientDeviceId: oldDeviceId }),
+        token
+      })
+      if (!release.ok) {
+        throw new Error(release.error || 'Failed to release device binding on server')
+      }
+      releasedDevice = true
+    }
+
+    appState.clearSession()
+    await resetLocalCompanyDatabase()
+    rotateClientDeviceId()
+    rotateSyncNodeId()
+
+    return { ok: true, releasedDevice }
   }
 
   private async handleAuthSuccess(data: any, email: string): Promise<LoginResult> {

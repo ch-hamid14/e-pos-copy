@@ -34,6 +34,9 @@ export const Login = () => {
   const [otpCode, setOtpCode] = useState('')
   const [companyMismatch, setCompanyMismatch] = useState<CompanyMismatch | null>(null)
   const [wipeConfirm, setWipeConfirm] = useState('')
+  const [techResetOpen, setTechResetOpen] = useState(false)
+  const [techPin, setTechPin] = useState('')
+  const [techWipe, setTechWipe] = useState('')
   const bootstrapStarted = useRef(false)
 
   const { token, cachedEmail } = useSelector((s: IRootState) => s.app)
@@ -42,6 +45,19 @@ export const Login = () => {
   useEffect(() => {
     if (cachedEmail) form.setFieldValue('email', cachedEmail)
   }, [cachedEmail, form])
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.altKey && e.key.toLowerCase() === 'r') {
+        e.preventDefault()
+        setTechResetOpen(true)
+        setTechPin('')
+        setTechWipe('')
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   const enterApp = (result: any) => {
     dispatch(appActions.setSession({
@@ -201,6 +217,35 @@ export const Login = () => {
     }
   }
 
+  const techWipeValid = techWipe.trim().toUpperCase() === 'WIPE'
+
+  const handleTechFactoryReset = async () => {
+    if (!techPin || !techWipeValid) return
+    setLoading(true)
+    try {
+      const result = await authAPI.factoryReset(techPin, techWipe, token)
+      dispatch(appActions.clearSession())
+      bootstrapStarted.current = false
+      setTechResetOpen(false)
+      setTechPin('')
+      setTechWipe('')
+      setCompanyMismatch(null)
+      setOtpStep(null)
+      setRefreshFailed(false)
+      setOfflineContinueFailed(false)
+      form.resetFields()
+      message.success(
+        result.releasedDevice
+          ? 'POS reset. Sign in to download fresh data.'
+          : 'POS wiped locally. Sign in online to rebind this device.'
+      )
+    } catch (err: any) {
+      message.error(err.message || 'Factory reset failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleResendOtp = async () => {
     if (!otpStep) return
     try {
@@ -222,6 +267,61 @@ export const Login = () => {
     bootstrapping ||
     !online ||
     (hasCachedAuth && online && !refreshFailed)
+
+  if (techResetOpen) {
+    return (
+      <>
+        <h2>Service reset</h2>
+        <Alert
+          type="warning"
+          showIcon
+          className="mb-4"
+          message="This clears all local data and device identity. Online company data is not deleted."
+        />
+        <Form layout="vertical">
+          <Form.Item label="PIN" required>
+            <Input.Password
+              size="large"
+              value={techPin}
+              onChange={(e) => setTechPin(e.target.value)}
+              autoFocus
+              visibilityToggle={false}
+            />
+          </Form.Item>
+          <Form.Item label="Type WIPE to confirm" required>
+            <Input
+              size="large"
+              value={techWipe}
+              onChange={(e) => setTechWipe(e.target.value)}
+              placeholder="WIPE"
+            />
+          </Form.Item>
+          <Button
+            type="primary"
+            danger
+            block
+            size="large"
+            loading={loading}
+            disabled={!techPin || !techWipeValid}
+            onClick={handleTechFactoryReset}
+          >
+            Reset this POS
+          </Button>
+          <Button
+            type="link"
+            block
+            onClick={() => {
+              setTechResetOpen(false)
+              setTechPin('')
+              setTechWipe('')
+            }}
+          >
+            Cancel
+          </Button>
+        </Form>
+      </>
+    )
+  }
 
   if (companyMismatch) {
     return (

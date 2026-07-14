@@ -19,5 +19,9 @@ export const authAPI = {
   checkOnline: () => ipcCall<{ online: boolean }>(`GET:${Channels.AUTH}:online`),
   sendOtp: (email: string, purpose: string) =>
     ipcCall(`POST:${Channels.AUTH}:otp`, { body: { email, purpose } }),
-  logout: () => ipcCall(`POST:${Channels.AUTH}:logout`)
+  logout: () => ipcCall(`POST:${Channels.AUTH}:logout`),
+  factoryReset: (pin: string, confirm: string, token?: string | null) =>
+    ipcCall<{ ok: true; releasedDevice: boolean }>(`POST:${Channels.AUTH}:factory-reset`, {
+      body: { pin, confirm, token }
+    })
 }
