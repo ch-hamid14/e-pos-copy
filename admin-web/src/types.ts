@@ -16,6 +16,9 @@ export type Company = {
   email: string
   phone: string
   status: string
+  dbName?: string
+  dbHost?: string
+  dbPort?: number
   branchCount: number
   userCount: number
   createdAt: string
@@ -67,4 +70,58 @@ export type Overview = {
   usersCount: number
   branchesCount: number
   companies: Company[]
+}
+
+export type CompanyMigrationStatus = {
+  completed: string[]
+  pending: string[]
+  current: string | null
+  upToDate: boolean
+}
+
+export type CompanyDevice = {
+  id: string
+  deviceCode: string
+  clientDeviceId: string | null
+  name: string | null
+  lastSyncAt: string | null
+  userId: string | null
+  userEmail: string | null
+  branchId: string | null
+  createdAt: string
+}
+
+export type CompanyOps = {
+  company: Company
+  database: {
+    dbName: string
+    dbHost: string | null
+    dbPort: number | null
+  }
+  migrations: CompanyMigrationStatus
+  permissions: {
+    control: number
+    company: number
+    inSync: boolean
+  }
+  sync: {
+    queueDepth: number
+    conflictCount: number
+    tablesReady: boolean
+  }
+  devices: CompanyDevice[]
+}
+
+export type MigrateAllResult = {
+  total: number
+  succeeded: number
+  failed: number
+  results: Array<{
+    companyId: string
+    name: string
+    status: string
+    ok: boolean
+    applied: string[]
+    error?: string
+  }>
 }

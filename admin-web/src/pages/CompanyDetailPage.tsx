@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import {
   Button,
   Card,
@@ -22,6 +22,7 @@ import {
   updateCompany,
   updateRole
 } from '../api/admin'
+import CompanyOpsPanel from '../components/CompanyOpsPanel'
 import { useAuth } from '../context/AuthContext'
 import type { Branch, CompanyDetail, CompanyRole, CompanyUser, Permission } from '../types'
 
@@ -33,6 +34,7 @@ const USER_ROLES = [
 
 export default function CompanyDetailPage() {
   const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
   const { token } = useAuth()
   const [detail, setDetail] = useState<CompanyDetail | null>(null)
   const [branchOpen, setBranchOpen] = useState(false)
@@ -46,18 +48,22 @@ export default function CompanyDetailPage() {
 
   const load = () => {
     if (!token || !id) return
-    getCompany(token, id).then((d) => {
-      setDetail(d)
-      companyForm.setFieldsValue({
-        name: d.company.name,
-        email: d.company.email,
-        phone: d.company.phone,
-        status: d.company.status
+    getCompany(token, id)
+      .then((d) => {
+        setDetail(d)
+        companyForm.setFieldsValue({
+          name: d.company.name,
+          email: d.company.email,
+          phone: d.company.phone,
+          status: d.company.status
+        })
       })
-    })
+      .catch((err: Error) => message.error(err.message))
   }
 
-  useEffect(() => { load() }, [token, id])
+  useEffect(() => {
+    load()
+  }, [token, id])
 
   const saveCompany = async (values: Record<string, string>) => {
     if (!token || !id) return
@@ -81,7 +87,13 @@ export default function CompanyDetailPage() {
           <Form.Item name="email" label="Email"><Input /></Form.Item>
           <Form.Item name="phone" label="Phone"><Input /></Form.Item>
           <Form.Item name="status" label="Status">
-            <Select style={{ width: 120 }} options={[{ value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }]} />
+            <Select
+              style={{ width: 120 }}
+              options={[
+                { value: 'active', label: 'Active' },
+                { value: 'inactive', label: 'Inactive' }
+              ]}
+            />
           </Form.Item>
           <Form.Item><Button type="primary" htmlType="submit">Save</Button></Form.Item>
         </Form>
@@ -94,14 +106,22 @@ export default function CompanyDetailPage() {
             label: 'Branches',
             children: (
               <>
-                <Button type="primary" style={{ marginBottom: 12 }} onClick={() => setBranchOpen(true)}>Add Branch</Button>
+                <Button type="primary" style={{ marginBottom: 12 }} onClick={() => setBranchOpen(true)}>
+                  Add Branch
+                </Button>
                 <Table<Branch>
                   rowKey="id"
                   dataSource={detail.branches}
                   columns={[
                     { title: 'Name', dataIndex: 'name' },
                     { title: 'Location', dataIndex: 'location' },
-                    { title: 'Status', dataIndex: 'isActive', render: (v) => <Tag color={v ? 'green' : 'red'}>{v ? 'Active' : 'Inactive'}</Tag> }
+                    {
+                      title: 'Status',
+                      dataIndex: 'isActive',
+                      render: (v) => (
+                        <Tag color={v ? 'green' : 'red'}>{v ? 'Active' : 'Inactive'}</Tag>
+                      )
+                    }
                   ]}
                 />
               </>
@@ -112,7 +132,9 @@ export default function CompanyDetailPage() {
             label: 'Users',
             children: (
               <>
-                <Button type="primary" style={{ marginBottom: 12 }} onClick={() => setUserOpen(true)}>Add User</Button>
+                <Button type="primary" style={{ marginBottom: 12 }} onClick={() => setUserOpen(true)}>
+                  Add User
+                </Button>
                 <Table<CompanyUser>
                   rowKey="id"
                   dataSource={detail.users}
@@ -127,7 +149,9 @@ export default function CompanyDetailPage() {
                     {
                       title: 'Email Verified',
                       dataIndex: 'emailVerified',
-                      render: (v) => <Tag color={v ? 'green' : 'orange'}>{v ? 'Yes' : 'Pending'}</Tag>
+                      render: (v) => (
+                        <Tag color={v ? 'green' : 'orange'}>{v ? 'Yes' : 'Pending'}</Tag>
+                      )
                     }
                   ]}
                 />
@@ -183,6 +207,19 @@ export default function CompanyDetailPage() {
                 />
               </>
             )
+          },
+          {
+            key: 'ops',
+            label: 'Configure',
+            children:
+              token && id ? (
+                <CompanyOpsPanel
+                  companyId={id}
+                  companyName={detail.company.name}
+                  token={token}
+                  onDeleted={() => navigate('/companies')}
+                />
+              ) : null
           }
         ]}
       />
@@ -200,9 +237,15 @@ export default function CompanyDetailPage() {
             load()
           }}
         >
-          <Form.Item name="name" label="Branch Name" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="location" label="Location"><Input /></Form.Item>
-          <Button type="primary" htmlType="submit" block>Add</Button>
+          <Form.Item name="name" label="Branch Name" rules={[{ required: true }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="location" label="Location">
+            <Input />
+          </Form.Item>
+          <Button type="primary" htmlType="submit" block>
+            Add
+          </Button>
         </Form>
       </Modal>
 
@@ -219,10 +262,18 @@ export default function CompanyDetailPage() {
             load()
           }}
         >
-          <Form.Item name="firstName" label="First Name" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="lastName" label="Last Name" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="email" label="Email" rules={[{ required: true, type: 'email' }]}><Input /></Form.Item>
-          <Form.Item name="password" label="Password" rules={[{ required: true, min: 6 }]}><Input.Password /></Form.Item>
+          <Form.Item name="firstName" label="First Name" rules={[{ required: true }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="lastName" label="Last Name" rules={[{ required: true }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="email" label="Email" rules={[{ required: true, type: 'email' }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="password" label="Password" rules={[{ required: true, min: 6 }]}>
+            <Input.Password />
+          </Form.Item>
           <Form.Item name="role" label="Role" rules={[{ required: true }]}>
             <Select options={USER_ROLES} />
           </Form.Item>
@@ -232,7 +283,9 @@ export default function CompanyDetailPage() {
           <Form.Item name="roleIds" label="RBAC Roles">
             <Select mode="multiple" options={detail.roles.map((r) => ({ value: r.id, label: r.name }))} />
           </Form.Item>
-          <Button type="primary" htmlType="submit" block>Create User</Button>
+          <Button type="primary" htmlType="submit" block>
+            Create User
+          </Button>
         </Form>
       </Modal>
 
@@ -249,7 +302,7 @@ export default function CompanyDetailPage() {
           onFinish={async (values) => {
             if (!token || !id) return
             if (editRole) {
-              await updateRole(token, editRole.id, values)
+              await updateRole(token, editRole.id, { ...values, companyId: id })
               message.success('Role updated')
             } else {
               await createRole(token, id, values)
@@ -261,15 +314,21 @@ export default function CompanyDetailPage() {
             load()
           }}
         >
-          <Form.Item name="name" label="Role Name" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="description" label="Description"><Input.TextArea rows={2} /></Form.Item>
+          <Form.Item name="name" label="Role Name" rules={[{ required: true }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="description" label="Description">
+            <Input.TextArea rows={2} />
+          </Form.Item>
           <Form.Item name="permissionKeys" label="Permissions" rules={[{ required: true }]}>
             <Checkbox.Group
               options={detail.permissions.map((p: Permission) => ({ label: p.label, value: p.key }))}
               style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
             />
           </Form.Item>
-          <Button type="primary" htmlType="submit" block>{editRole ? 'Update' : 'Create'}</Button>
+          <Button type="primary" htmlType="submit" block>
+            {editRole ? 'Update' : 'Create'}
+          </Button>
         </Form>
       </Modal>
     </div>

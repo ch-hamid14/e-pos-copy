@@ -1,5 +1,14 @@
 import { api } from './client'
-import type { Company, CompanyDetail, CompanyRole, CompanyUser, Overview, Permission } from '../types'
+import type {
+  Company,
+  CompanyDetail,
+  CompanyOps,
+  CompanyRole,
+  CompanyUser,
+  MigrateAllResult,
+  Overview,
+  Permission
+} from '../types'
 
 export function getOverview(token: string) {
   return api<Overview>('/admin/overview', { token })
@@ -63,4 +72,36 @@ export function updateRole(token: string, roleId: string, data: Record<string, u
 
 export function listPermissions(token: string) {
   return api<Permission[]>('/admin/permissions', { token })
+}
+
+export function getCompanyOps(token: string, id: string) {
+  return api<CompanyOps>(`/admin/companies/${id}/ops`, { token })
+}
+
+export function migrateCompany(token: string, id: string) {
+  return api(`/admin/companies/${id}/migrate`, { method: 'POST', token })
+}
+
+export function migrateAllCompanies(token: string) {
+  return api<MigrateAllResult>('/admin/companies/migrate-all', { method: 'POST', token })
+}
+
+export function reseedPermissions(token: string, id: string) {
+  return api(`/admin/companies/${id}/reseed-permissions`, { method: 'POST', token })
+}
+
+export function bootstrapSync(token: string, id: string) {
+  return api(`/admin/companies/${id}/bootstrap-sync`, { method: 'POST', token })
+}
+
+export function unbindDevice(token: string, companyId: string, deviceId: string) {
+  return api(`/admin/companies/${companyId}/devices/${deviceId}`, { method: 'DELETE', token })
+}
+
+export function deleteCompany(token: string, id: string, confirmName: string) {
+  return api(`/admin/companies/${id}`, {
+    method: 'DELETE',
+    token,
+    body: JSON.stringify({ confirmName })
+  })
 }

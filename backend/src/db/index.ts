@@ -20,8 +20,8 @@ if (!controlConnectionUrl) {
 export const controlDb = createControlKnex(controlConnectionUrl)
 export const companyDbPool = new CompanyDbPool(controlConnectionUrl)
 
-export async function getCompanyDb(companyId: string) {
-  return companyDbPool.get(controlDb, companyId)
+export async function getCompanyDb(companyId: string, options?: { forOps?: boolean }) {
+  return companyDbPool.get(controlDb, companyId, options)
 }
 
 export { provisionCompanyDatabase, teardownCompanyDatabase, companyDbName }

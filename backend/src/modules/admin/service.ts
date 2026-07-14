@@ -247,7 +247,7 @@ export async function getCompanyDetail(controlDb: Knex, companyId: string) {
   const company = await controlDb('companies').where({ id: companyId }).first()
   if (!company) return null
 
-  const companyDb = await getCompanyDb(companyId)
+  const companyDb = await getCompanyDb(companyId, { forOps: true })
   const branches = await companyDb('branches').where({ company_id: companyId }).whereNull('deleted_at').orderBy('name')
   const users = await controlDb('users')
     .where({ company_id: companyId, is_active: true })
@@ -303,7 +303,7 @@ export async function updateCompany(
         })
 
       if (data.name !== undefined || email !== undefined || phone !== undefined || data.status !== undefined) {
-        const companyDb = await getCompanyDb(companyId)
+        const companyDb = await getCompanyDb(companyId, { forOps: true })
         await companyDb('company_profile')
           .where({ id: companyId })
           .update({
@@ -560,7 +560,7 @@ async function getRoleWithPermissions(companyDb: Knex, roleId: string) {
   return { ...mapRole(role), permissionKeys: perms.map((p: { key: string }) => p.key) }
 }
 
-function mapCompany(row: Record<string, unknown>) {
+export function mapCompany(row: Record<string, unknown>) {
   return {
     id: row.id,
     name: row.name,
@@ -568,6 +568,8 @@ function mapCompany(row: Record<string, unknown>) {
     phone: row.phone,
     status: row.status,
     dbName: row.db_name,
+    dbHost: row.db_host,
+    dbPort: row.db_port,
     branchCount: Number(row.branch_count ?? 0),
     userCount: Number(row.user_count ?? 0),
     createdAt: row.created_at,

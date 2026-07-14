@@ -51,30 +51,86 @@ export async function teardownCompanyDatabase(
   await dropDatabase(baseConfig, companyDbName(companyId))
 }
 
-export async function runCompanyMigrations(companyKnex: Knex): Promise<void> {
-  await companyKnex.migrate.latest({
-    directory: companyMigrationsDir(),
-    loadExtensions: ['.js']
-  })
+const migrateConfig = () => ({
+  directory: companyMigrationsDir(),
+  loadExtensions: ['.js'] as string[]
+})
+
+function migrationName(entry: unknown): string {
+  if (typeof entry === 'string') return entry
+  if (entry && typeof entry === 'object') {
+    const row = entry as { name?: string; file?: string }
+    if (row.name) return row.name
+    if (row.file) return row.file
+  }
+  return String(entry)
+}
+
+export type CompanyMigrationStatus = {
+  completed: string[]
+  pending: string[]
+  current: string | null
+  upToDate: boolean
+}
+
+export async function getCompanyMigrationStatus(companyKnex: Knex): Promise<CompanyMigrationStatus> {
+  const [completedRaw, pendingRaw] = await companyKnex.migrate.list(migrateConfig())
+  const completed = (completedRaw as unknown[]).map(migrationName)
+  const pending = (pendingRaw as unknown[]).map(migrationName)
+  return {
+    completed,
+    pending,
+    current: completed.length > 0 ? completed[completed.length - 1] : null,
+    upToDate: pending.length === 0
+  }
+}
+
+export async function runCompanyMigrations(companyKnex: Knex): Promise<{ batch: number; migrations: string[] }> {
+  const [batch, migrations] = await companyKnex.migrate.latest(migrateConfig())
+  return {
+    batch: Number(batch || 0),
+    migrations: (migrations as string[]) || []
+  }
 }
 
 export async function seedCompanyPermissions(
   controlDb: Knex,
   companyDb: Knex
-): Promise<void> {
+): Promise<number> {
   const permissions = await controlDb('permissions').select('*')
+  let count = 0
   for (const perm of permissions) {
-    await companyDb('permissions')
-      .insert({
-        id: perm.id,
+    const existingById = await companyDb('permissions').where({ id: perm.id }).first()
+    if (existingById) {
+      await companyDb('permissions').where({ id: perm.id }).update({
         key: perm.key,
         label: perm.label,
-        created_at: perm.created_at,
-        updated_at: perm.updated_at
+        updated_at: new Date()
       })
-      .onConflict('id')
-      .ignore()
+      count++
+      continue
+    }
+
+    const existingByKey = await companyDb('permissions').where({ key: perm.key }).first()
+    if (existingByKey) {
+      await companyDb('permissions').where({ id: existingByKey.id }).update({
+        label: perm.label,
+        updated_at: new Date()
+      })
+      count++
+      continue
+    }
+
+    await companyDb('permissions').insert({
+      id: perm.id,
+      key: perm.key,
+      label: perm.label,
+      created_at: perm.created_at,
+      updated_at: perm.updated_at
+    })
+    count++
   }
+  return count
 }
 
 export async function provisionCompanyDatabase(
@@ -134,13 +190,22 @@ export class CompanyDbPool {
     this.baseConfig = parseConnectionUrl(adminConnectionUrl)
   }
 
-  async get(controlDb: Knex, companyId: string): Promise<Knex> {
+  async get(
+    controlDb: Knex,
+    companyId: string,
+    options?: { forOps?: boolean }
+  ): Promise<Knex> {
     const cached = this.cache.get(companyId)
     if (cached) return cached
 
     const company = await controlDb('companies').where({ id: companyId }).first()
     if (!company) throw new Error(`Company not found: ${companyId}`)
-    if (company.status !== 'active' && company.status !== 'provisioning') {
+
+    const status = company.status as string
+    const allowed = options?.forOps
+      ? status === 'active' || status === 'provisioning' || status === 'inactive'
+      : status === 'active' || status === 'provisioning'
+    if (!allowed) {
       throw new Error(`Company is not active: ${companyId}`)
     }
 

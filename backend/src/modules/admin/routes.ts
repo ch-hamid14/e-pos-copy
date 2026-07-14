@@ -15,6 +15,15 @@ import {
   updateCompanyRoleInDb,
   listPermissions
 } from './service'
+import {
+  getCompanyOps,
+  migrateCompany,
+  migrateAllCompanies,
+  reseedCompanyPermissions,
+  bootstrapSyncForCompany,
+  unbindCompanyDevice,
+  deleteCompany
+} from './ops'
 import { getCompanyDb } from '../../db'
 
 export function adminRouter(db: Knex): Router {
@@ -45,6 +54,14 @@ export function adminRouter(db: Knex): Router {
     }
   })
 
+  router.post('/companies/migrate-all', async (_req, res) => {
+    try {
+      res.json(await migrateAllCompanies(db))
+    } catch (err: any) {
+      res.status(500).json({ error: err.message })
+    }
+  })
+
   router.get('/companies/:id', async (req, res) => {
     try {
       const detail = await getCompanyDetail(db, req.params.id)
@@ -52,6 +69,56 @@ export function adminRouter(db: Knex): Router {
       res.json(detail)
     } catch (err: any) {
       res.status(500).json({ error: err.message })
+    }
+  })
+
+  router.get('/companies/:id/ops', async (req, res) => {
+    try {
+      res.json(await getCompanyOps(db, req.params.id))
+    } catch (err: any) {
+      const status = err.message === 'Company not found' ? 404 : 500
+      res.status(status).json({ error: err.message })
+    }
+  })
+
+  router.post('/companies/:id/migrate', async (req, res) => {
+    try {
+      res.json(await migrateCompany(db, req.params.id))
+    } catch (err: any) {
+      res.status(400).json({ error: err.message })
+    }
+  })
+
+  router.post('/companies/:id/reseed-permissions', async (req, res) => {
+    try {
+      res.json(await reseedCompanyPermissions(db, req.params.id))
+    } catch (err: any) {
+      res.status(400).json({ error: err.message })
+    }
+  })
+
+  router.post('/companies/:id/bootstrap-sync', async (req, res) => {
+    try {
+      res.json(await bootstrapSyncForCompany(db, req.params.id))
+    } catch (err: any) {
+      res.status(400).json({ error: err.message })
+    }
+  })
+
+  router.delete('/companies/:id/devices/:deviceId', async (req, res) => {
+    try {
+      res.json(await unbindCompanyDevice(db, req.params.id, req.params.deviceId))
+    } catch (err: any) {
+      res.status(400).json({ error: err.message })
+    }
+  })
+
+  router.delete('/companies/:id', async (req, res) => {
+    try {
+      const confirmName = String(req.body?.confirmName || '')
+      res.json(await deleteCompany(db, req.params.id, confirmName))
+    } catch (err: any) {
+      res.status(400).json({ error: err.message })
     }
   })
 
@@ -103,7 +170,7 @@ export function adminRouter(db: Knex): Router {
     try {
       const { companyId } = req.body as { companyId?: string }
       if (!companyId) return res.status(400).json({ error: 'companyId is required' })
-      const companyDb = await getCompanyDb(companyId)
+      const companyDb = await getCompanyDb(companyId, { forOps: true })
       const role = await updateCompanyRoleInDb(companyDb, req.params.roleId, req.body)
       if (!role) return res.status(404).json({ error: 'Role not found' })
       res.json(role)
