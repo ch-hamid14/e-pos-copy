@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Alert, Button, Form, Input, message, Typography } from 'antd'
+import { Button, Form, Input, message, Typography } from 'antd'
 import { login } from '../api/auth'
 import { useAuth } from '../context/AuthContext'
 

@@ -37,7 +37,9 @@ import {
 import {
   listConflicts,
   dismissConflict,
+  dismissConflicts,
   applyConflictLoser,
+  applyConflictLosers,
   listSyncQueue,
   deleteSyncQueueItem,
   clearSyncQueue
@@ -333,6 +335,39 @@ export function adminRouter(db: Knex): Router {
         resource: 'sync_conflict',
         companyId: req.params.id,
         detail: { conflictId: req.params.conflictId }
+      })
+      res.json(result)
+    } catch (err: any) {
+      res.status(400).json({ error: err.message })
+    }
+  })
+
+  router.post('/companies/:id/conflicts/bulk-dismiss', async (req: AuthRequest, res) => {
+    try {
+      const ids = Array.isArray(req.body?.ids) ? (req.body.ids as string[]) : undefined
+      const result = await dismissConflicts(req.params.id, ids)
+      await writeAudit(db, req, {
+        action: 'sync.conflict_bulk_dismiss',
+        resource: 'sync_conflict',
+        companyId: req.params.id,
+        detail: { ids: ids ?? 'all', ...result }
+      })
+      res.json(result)
+    } catch (err: any) {
+      res.status(400).json({ error: err.message })
+    }
+  })
+
+  router.post('/companies/:id/conflicts/bulk-apply-loser', async (req: AuthRequest, res) => {
+    try {
+      const ids = Array.isArray(req.body?.ids) ? (req.body.ids as string[]) : []
+      if (!ids.length) return res.status(400).json({ error: 'ids array is required' })
+      const result = await applyConflictLosers(req.params.id, ids)
+      await writeAudit(db, req, {
+        action: 'sync.conflict_bulk_apply_loser',
+        resource: 'sync_conflict',
+        companyId: req.params.id,
+        detail: result
       })
       res.json(result)
     } catch (err: any) {

@@ -184,11 +184,30 @@ export function dismissConflict(token: string, companyId: string, conflictId: st
   })
 }
 
+export function dismissConflicts(token: string, companyId: string, ids?: string[]) {
+  return api<{ dismissed: number }>(`/admin/companies/${companyId}/conflicts/bulk-dismiss`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify(ids ? { ids } : {})
+  })
+}
+
 export function applyConflictLoser(token: string, companyId: string, conflictId: string) {
   return api(`/admin/companies/${companyId}/conflicts/${conflictId}/apply-loser`, {
     method: 'POST',
     token
   })
+}
+
+export function applyConflictLosers(token: string, companyId: string, ids: string[]) {
+  return api<{ applied: number; failed: Array<{ id: string; error: string }> }>(
+    `/admin/companies/${companyId}/conflicts/bulk-apply-loser`,
+    {
+      method: 'POST',
+      token,
+      body: JSON.stringify({ ids })
+    }
+  )
 }
 
 export function listSyncQueue(token: string, companyId: string) {

@@ -41,6 +41,18 @@ export async function dismissConflict(companyId: string, conflictId: string) {
   return { ok: true }
 }
 
+export async function dismissConflicts(companyId: string, conflictIds?: string[]) {
+  const db = await getCompanyDb(companyId, { forOps: true })
+  if (!(await db.schema.hasTable('sync_conflict'))) return { dismissed: 0 }
+
+  let q = db('sync_conflict')
+  if (conflictIds?.length) {
+    q = q.whereIn('id', conflictIds)
+  }
+  const dismissed = await q.del()
+  return { dismissed }
+}
+
 export async function applyConflictLoser(companyId: string, conflictId: string) {
   const db = await getCompanyDb(companyId, { forOps: true })
   const conflict = await db('sync_conflict').where({ id: conflictId }).first()
@@ -56,13 +68,30 @@ export async function applyConflictLoser(companyId: string, conflictId: string) 
 
   await db.transaction(async (trx) => {
     await trx.raw(`SELECT set_config('sync.replicating', 'on', true)`)
-    const id = (payload.id as string) || conflict.entity_id
     await trx(conflict.table).insert(payload).onConflict('id').merge()
     await trx('sync_conflict').where({ id: conflictId }).del()
-    if (!id) return
   })
 
   return { ok: true }
+}
+
+export async function applyConflictLosers(companyId: string, conflictIds: string[]) {
+  if (!conflictIds.length) return { applied: 0, failed: [] as Array<{ id: string; error: string }> }
+
+  const failed: Array<{ id: string; error: string }> = []
+  let applied = 0
+  for (const id of conflictIds) {
+    try {
+      await applyConflictLoser(companyId, id)
+      applied++
+    } catch (err) {
+      failed.push({
+        id,
+        error: err instanceof Error ? err.message : String(err)
+      })
+    }
+  }
+  return { applied, failed }
 }
 
 export async function listSyncQueue(companyId: string, limit = 50) {

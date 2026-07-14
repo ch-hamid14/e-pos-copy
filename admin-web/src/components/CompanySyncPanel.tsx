@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
-import { Button, Modal, Space, Table, Tabs, Tag, Typography, message } from 'antd'
+import { Alert, Button, Modal, Space, Table, Tabs, Tag, Typography, message } from 'antd'
 import {
   applyConflictLoser,
+  applyConflictLosers,
   bootstrapSync,
   clearSyncQueue,
   deleteSyncQueueItem,
   dismissConflict,
+  dismissConflicts,
   listConflicts,
   listSyncQueue
 } from '../api/admin'
@@ -21,6 +23,7 @@ export default function CompanySyncPanel({ companyId, token }: Props) {
   const [loading, setLoading] = useState(false)
   const [inspect, setInspect] = useState<SyncConflict | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
 
   const load = async () => {
     setLoading(true)
@@ -33,6 +36,7 @@ export default function CompanySyncPanel({ companyId, token }: Props) {
       setConflictTotal(c.total)
       setQueue(q.items)
       setQueueTotal(q.total)
+      setSelectedIds([])
     } catch (err: any) {
       message.error(err.message)
     } finally {
@@ -43,6 +47,8 @@ export default function CompanySyncPanel({ companyId, token }: Props) {
   useEffect(() => {
     load()
   }, [token, companyId])
+
+  const selectedCount = selectedIds.length
 
   return (
     <div style={{ display: 'grid', gap: 16 }}>
@@ -71,6 +77,13 @@ export default function CompanySyncPanel({ companyId, token }: Props) {
           </Space>
         </div>
         <div className="madix-panel__body">
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message="Conflicts are already auto-resolved (LWW)"
+            description="Each row is a record of a losing write. The winner is already in the database. Dismiss clears the log. Apply loser overrides the current row with the rejected payload."
+          />
           <Typography.Text type="secondary">
             {conflictTotal} conflicts · {queueTotal} queue items
           </Typography.Text>
@@ -84,11 +97,100 @@ export default function CompanySyncPanel({ companyId, token }: Props) {
             label: `Conflicts (${conflictTotal})`,
             children: (
               <div className="madix-panel">
+                <div className="madix-panel__head">
+                  <h2 className="madix-panel__title">
+                    {selectedCount ? `${selectedCount} selected` : 'Conflict log'}
+                  </h2>
+                  <Space wrap>
+                    <Button
+                      disabled={!selectedCount}
+                      loading={busy === 'bulk-dismiss'}
+                      onClick={() =>
+                        Modal.confirm({
+                          title: `Dismiss ${selectedCount} selected conflicts?`,
+                          content: 'Removes log entries only. Live data is unchanged.',
+                          onOk: async () => {
+                            setBusy('bulk-dismiss')
+                            try {
+                              const res = await dismissConflicts(token, companyId, selectedIds)
+                              message.success(`Dismissed ${res.dismissed}`)
+                              load()
+                            } catch (err: any) {
+                              message.error(err.message)
+                            } finally {
+                              setBusy(null)
+                            }
+                          }
+                        })
+                      }
+                    >
+                      Dismiss selected
+                    </Button>
+                    <Button
+                      disabled={!selectedCount}
+                      loading={busy === 'bulk-apply'}
+                      onClick={() =>
+                        Modal.confirm({
+                          title: `Apply loser for ${selectedCount} selected?`,
+                          content:
+                            'Overwrites current DB rows with rejected payloads, then clears those log entries.',
+                          okType: 'danger',
+                          onOk: async () => {
+                            setBusy('bulk-apply')
+                            try {
+                              const res = await applyConflictLosers(token, companyId, selectedIds)
+                              message.success(
+                                `Applied ${res.applied}${res.failed.length ? `, ${res.failed.length} failed` : ''}`
+                              )
+                              load()
+                            } catch (err: any) {
+                              message.error(err.message)
+                            } finally {
+                              setBusy(null)
+                            }
+                          }
+                        })
+                      }
+                    >
+                      Apply loser selected
+                    </Button>
+                    <Button
+                      danger
+                      disabled={!conflictTotal}
+                      loading={busy === 'dismiss-all'}
+                      onClick={() =>
+                        Modal.confirm({
+                          title: 'Dismiss all conflicts?',
+                          content: 'Clears the entire conflict log for this company. Data stays as-is.',
+                          okType: 'danger',
+                          onOk: async () => {
+                            setBusy('dismiss-all')
+                            try {
+                              const res = await dismissConflicts(token, companyId)
+                              message.success(`Dismissed ${res.dismissed}`)
+                              load()
+                            } catch (err: any) {
+                              message.error(err.message)
+                            } finally {
+                              setBusy(null)
+                            }
+                          }
+                        })
+                      }
+                    >
+                      Dismiss all
+                    </Button>
+                  </Space>
+                </div>
                 <Table
                   loading={loading}
                   rowKey="id"
                   dataSource={conflicts}
                   pagination={false}
+                  rowSelection={{
+                    selectedRowKeys: selectedIds,
+                    onChange: (keys) => setSelectedIds(keys as string[])
+                  }}
                   columns={[
                     { title: 'Table', dataIndex: 'table', width: 140 },
                     { title: 'Entity', dataIndex: 'entityId', ellipsis: true },
@@ -236,13 +338,13 @@ export default function CompanySyncPanel({ companyId, token }: Props) {
         {inspect && (
           <div className="madix-ops-grid">
             <div>
-              <Typography.Text strong>Current row</Typography.Text>
+              <Typography.Text strong>Current row (winner already applied)</Typography.Text>
               <pre style={{ fontSize: 11, maxHeight: 360, overflow: 'auto', background: '#f4f7fa', padding: 12 }}>
                 {JSON.stringify(inspect.current, null, 2) || 'null'}
               </pre>
             </div>
             <div>
-              <Typography.Text strong>Loser payload</Typography.Text>
+              <Typography.Text strong>Loser payload (rejected)</Typography.Text>
               <pre style={{ fontSize: 11, maxHeight: 360, overflow: 'auto', background: '#f4f7fa', padding: 12 }}>
                 {JSON.stringify(inspect.loserPayload, null, 2) || 'null'}
               </pre>
