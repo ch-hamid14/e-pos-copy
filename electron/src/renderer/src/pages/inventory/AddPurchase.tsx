@@ -8,13 +8,18 @@ import {
   InputNumber,
   Select,
   Space,
+  Spin,
   Switch,
   Table,
+  Tag,
+  Tooltip,
   Typography,
   message
 } from 'antd'
-import { DeleteOutlined, PlusOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
+import { useNavigate, useParams } from 'react-router-dom'
+import { App_Routes } from '@/common'
 import {
   colorAPI,
   productAPI,
@@ -30,11 +35,13 @@ import {
   type SupplierDiscountType
 } from '@/renderer/utils/supplierDiscount'
 import { formatRs, PageHeader } from '../shared/page-ui'
+import { STATUS_COLORS } from './inventory-ui'
 
 const { Text } = Typography
 
 type PurchaseLine = {
   key: string
+  id?: string
   motorNumber?: string
   serialNumber: string
   productId: string
@@ -46,6 +53,9 @@ type PurchaseLine = {
   purchasePrice: number
   warrantyActive: boolean
   warrantyExpiryDate?: string
+  /** Sold / reserved / etc. — shown but not editable */
+  locked?: boolean
+  status?: string
 }
 
 function computeNetPrice(
@@ -60,12 +70,17 @@ function computeNetPrice(
 }
 
 export const AddPurchase = () => {
+  const { id } = useParams()
+  const isEdit = Boolean(id)
+  const navigate = useNavigate()
   const { companyId, branchId, audit } = useSession()
   const [suppliers, setSuppliers] = useState<any[]>([])
   const [products, setProducts] = useState<any[]>([])
   const [colors, setColors] = useState<any[]>([])
   const [lines, setLines] = useState<PurchaseLine[]>([])
+  const [editingKey, setEditingKey] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [loadingDetail, setLoadingDetail] = useState(isEdit)
   const [headerForm] = Form.useForm()
   const [lineForm] = Form.useForm()
 
@@ -76,12 +91,69 @@ export const AddPurchase = () => {
     supplierAPI.list(companyId).then(setSuppliers)
     productAPI.list(companyId).then(setProducts)
     colorAPI.list(companyId).then(setColors)
-    headerForm.setFieldsValue({
-      purchaseDate: dayjs(),
-      specialDiscount: 0,
-      specialDiscountType: 'pkr'
-    })
-  }, [companyId, headerForm])
+    if (!isEdit) {
+      headerForm.setFieldsValue({
+        purchaseDate: dayjs(),
+        specialDiscount: 0,
+        specialDiscountType: 'pkr'
+      })
+    }
+  }, [companyId, headerForm, isEdit])
+
+  useEffect(() => {
+    if (!isEdit || !id) return
+    setLoadingDetail(true)
+    purchaseAPI
+      .get(id)
+      .then((detail: any) => {
+        if (!detail?.purchase) {
+          message.error('Purchase not found')
+          navigate(App_Routes.PURCHASE_LIST)
+          return
+        }
+        if (!detail.editable && !detail.purchase.editable) {
+          message.warning('No in-stock units left to edit on this purchase')
+          navigate(App_Routes.PURCHASE_DETAIL.replace(':id', id))
+          return
+        }
+
+        const purchase = detail.purchase
+        headerForm.setFieldsValue({
+          supplierId: purchase.supplierId,
+          purchaseDate: dayjs(purchase.purchaseDate),
+          notes: purchase.notes || '',
+          specialDiscount: Number(purchase.specialDiscount || 0),
+          specialDiscountType: purchase.specialDiscountType === 'percent' ? 'percent' : 'pkr'
+        })
+
+        setLines(
+          (detail.items || []).map((item: any) => ({
+            key: item.id,
+            id: item.id,
+            serialNumber: item.serialNumber,
+            motorNumber: item.motorNumber || undefined,
+            productId: item.productId,
+            productName: item.product?.name || '—',
+            categoryName: item.category?.name || '—',
+            colorId: item.colorId || undefined,
+            colorName: item.color?.name,
+            listPrice: Number(item.sellingPrice ?? item.purchasePrice ?? 0),
+            purchasePrice: Number(item.purchasePrice ?? 0),
+            warrantyActive: Boolean(item.warrantyActive),
+            warrantyExpiryDate: item.warrantyExpiryDate
+              ? dayjs(item.warrantyExpiryDate).format('YYYY-MM-DD')
+              : undefined,
+            status: item.status,
+            locked: item.status !== 'in_stock'
+          }))
+        )
+      })
+      .catch((err: any) => {
+        message.error(err.message || 'Failed to load purchase')
+        navigate(App_Routes.PURCHASE_LIST)
+      })
+      .finally(() => setLoadingDetail(false))
+  }, [id, isEdit, navigate, headerForm])
 
   const productMap = useMemo(() => new Map(products.map((p) => [p.id, p])), [products])
   const colorMap = useMemo(() => new Map(colors.map((c) => [c.id, c])), [colors])
@@ -118,10 +190,14 @@ export const AddPurchase = () => {
     const spDiscount = Number(special?.discount ?? specialDiscount)
     const spType: SupplierDiscountType = special?.discountType ?? specialDiscountType
     setLines((prev) =>
-      prev.map((line) => ({
-        ...line,
-        purchasePrice: computeNetPrice(line.listPrice, sDiscount, sType, spDiscount, spType)
-      }))
+      prev.map((line) =>
+        line.locked
+          ? line
+          : {
+              ...line,
+              purchasePrice: computeNetPrice(line.listPrice, sDiscount, sType, spDiscount, spType)
+            }
+      )
     )
   }
 
@@ -161,7 +237,12 @@ export const AddPurchase = () => {
         message.error('Select a valid product')
         return
       }
-      if (lines.some((l) => l.serialNumber === values.serialNumber.trim())) {
+      const serial = values.serialNumber.trim()
+      if (
+        lines.some(
+          (l) => l.serialNumber === serial && (!editingKey || l.key !== editingKey)
+        )
+      ) {
         message.error('Serial already added to this purchase')
         return
       }
@@ -172,42 +253,113 @@ export const AddPurchase = () => {
 
       const color = values.colorId ? colorMap.get(values.colorId) : undefined
       const listPrice = Number(values.purchasePrice || 0)
-      setLines((prev) => [
-        ...prev,
-        {
-          key: `${values.serialNumber}-${Date.now()}`,
-          serialNumber: values.serialNumber.trim(),
-          motorNumber: values.motorNumber?.trim() || undefined,
-          productId: values.productId,
-          productName: product.name,
-          categoryName: product.category?.name || '—',
-          colorId: values.colorId,
-          colorName: color?.name,
+      const nextLine: PurchaseLine = {
+        key: editingKey || `${serial}-${Date.now()}`,
+        serialNumber: serial,
+        motorNumber: values.motorNumber?.trim() || undefined,
+        productId: values.productId,
+        productName: product.name,
+        categoryName: product.category?.name || '—',
+        colorId: values.colorId,
+        colorName: color?.name,
+        listPrice,
+        purchasePrice: computeNetPrice(
           listPrice,
-          purchasePrice: computeNetPrice(
-            listPrice,
-            supplierDiscount,
-            supplierDiscountType,
-            specialDiscount,
-            specialDiscountType
-          ),
-          warrantyActive: Boolean(values.warrantyActive),
-          warrantyExpiryDate: values.warrantyActive
-            ? values.warrantyExpiryDate.format('YYYY-MM-DD')
-            : undefined
+          supplierDiscount,
+          supplierDiscountType,
+          specialDiscount,
+          specialDiscountType
+        ),
+        warrantyActive: Boolean(values.warrantyActive),
+        warrantyExpiryDate: values.warrantyActive
+          ? values.warrantyExpiryDate.format('YYYY-MM-DD')
+          : undefined
+      }
+
+      if (editingKey) {
+        const existing = lines.find((l) => l.key === editingKey)
+        if (!existing || existing.locked) {
+          message.error('This unit cannot be edited')
+          return
         }
-      ])
-      lineForm.setFieldsValue({ motorNumber: '', serialNumber: '' })
+        setLines((prev) =>
+          prev.map((l) =>
+            l.key === editingKey
+              ? {
+                  ...nextLine,
+                  id: existing.id,
+                  locked: existing.locked,
+                  status: existing.status || 'in_stock'
+                }
+              : l
+          )
+        )
+        setEditingKey(null)
+        message.success('Unit updated in list')
+      } else {
+        setLines((prev) => [...prev, nextLine])
+      }
+
+      lineForm.resetFields()
+      lineForm.setFieldsValue({ warrantyActive: false, motorNumber: '', serialNumber: '' })
     } catch {
       // validation shown by form
     }
   }
 
-  const removeLine = (key: string) => setLines((prev) => prev.filter((l) => l.key !== key))
+  const startEditLine = (line: PurchaseLine) => {
+    if (line.locked) {
+      message.warning('Sold or not in stock units cannot be edited')
+      return
+    }
+    setEditingKey(line.key)
+    lineForm.setFieldsValue({
+      serialNumber: line.serialNumber,
+      motorNumber: line.motorNumber || '',
+      productId: line.productId,
+      colorId: line.colorId,
+      purchasePrice: line.listPrice,
+      warrantyActive: line.warrantyActive,
+      warrantyExpiryDate: line.warrantyExpiryDate ? dayjs(line.warrantyExpiryDate) : undefined
+    })
+  }
+
+  const cancelEditLine = () => {
+    setEditingKey(null)
+    lineForm.resetFields()
+    lineForm.setFieldsValue({ warrantyActive: false, motorNumber: '', serialNumber: '' })
+  }
+
+  const removeLine = (key: string) => {
+    setLines((prev) => prev.filter((l) => l.key !== key || l.locked))
+    if (editingKey === key) cancelEditLine()
+  }
+
+  const lockedCount = lines.filter((l) => l.locked).length
+  const editableCount = lines.length - lockedCount
 
   const grossTotal = lines.reduce((sum, l) => sum + l.listPrice, 0)
   const netTotal = lines.reduce((sum, l) => sum + l.purchasePrice, 0)
   const discountAmount = round2(grossTotal - netTotal)
+
+  const buildPayload = (header: any) => ({
+    supplierId: header.supplierId,
+    purchaseDate: header.purchaseDate.format('YYYY-MM-DD'),
+    notes: header.notes,
+    specialDiscount: Number(header.specialDiscount || 0),
+    specialDiscountType: header.specialDiscountType === 'percent' ? 'percent' : 'pkr',
+    lines: lines.map((l) => ({
+      ...(l.id ? { id: l.id } : {}),
+      serialNumber: l.serialNumber,
+      motorNumber: l.motorNumber,
+      productId: l.productId,
+      colorId: l.colorId,
+      purchasePrice: l.purchasePrice,
+      sellingPrice: l.listPrice,
+      warrantyActive: l.warrantyActive,
+      warrantyExpiryDate: l.warrantyExpiryDate
+    }))
+  })
 
   const handleSubmit = async () => {
     if (!lines.length) {
@@ -217,23 +369,14 @@ export const AddPurchase = () => {
     const header = await headerForm.validateFields()
     setLoading(true)
     try {
-      await purchaseAPI.create(companyId, branchId, audit(), {
-        supplierId: header.supplierId,
-        purchaseDate: header.purchaseDate.format('YYYY-MM-DD'),
-        notes: header.notes,
-        specialDiscount: Number(header.specialDiscount || 0),
-        specialDiscountType: header.specialDiscountType === 'percent' ? 'percent' : 'pkr',
-        lines: lines.map((l) => ({
-          serialNumber: l.serialNumber,
-          motorNumber: l.motorNumber,
-          productId: l.productId,
-          colorId: l.colorId,
-          purchasePrice: l.purchasePrice,
-          sellingPrice: l.listPrice,
-          warrantyActive: l.warrantyActive,
-          warrantyExpiryDate: l.warrantyExpiryDate
-        }))
-      })
+      if (isEdit && id) {
+        await purchaseAPI.update(id, companyId, branchId, audit(), buildPayload(header))
+        message.success(`Purchase updated — ${lines.length} unit(s)`)
+        navigate(App_Routes.PURCHASE_DETAIL.replace(':id', id))
+        return
+      }
+
+      await purchaseAPI.create(companyId, branchId, audit(), buildPayload(header))
       message.success(`Purchase saved — ${lines.length} unit(s) added to stock`)
       setLines([])
       headerForm.resetFields()
@@ -243,17 +386,42 @@ export const AddPurchase = () => {
         specialDiscountType: 'pkr'
       })
     } catch (err: any) {
-      message.error(err.message || 'Purchase failed')
+      message.error(err.message || (isEdit ? 'Update failed' : 'Purchase failed'))
     } finally {
       setLoading(false)
     }
   }
 
+  if (loadingDetail) {
+    return (
+      <div className="flex justify-center py-24">
+        <Spin size="large" />
+      </div>
+    )
+  }
+
   return (
     <div>
+      {isEdit && (
+        <Button
+          type="link"
+          icon={<ArrowLeftOutlined />}
+          className="!px-0 mb-2"
+          onClick={() => navigate(App_Routes.PURCHASE_DETAIL.replace(':id', id!))}
+        >
+          Back to Purchase Detail
+        </Button>
+      )}
+
       <PageHeader
-        title="Add Purchase"
-        subtitle="Receive serialized units into stock at this branch."
+        title={isEdit ? 'Edit Purchase' : 'Add Purchase'}
+        subtitle={
+          isEdit
+            ? lockedCount
+              ? `${lockedCount} unit(s) are locked (sold or not in stock). You can still edit the ${editableCount} in-stock unit(s).`
+              : 'Update in-stock units on this purchase.'
+            : 'Receive serialized units into stock at this branch.'
+        }
       />
 
       <Card bordered={false} className="shadow-sm mb-4">
@@ -314,7 +482,11 @@ export const AddPurchase = () => {
         </Form>
       </Card>
 
-      <Card title="Add unit" bordered={false} className="shadow-sm mb-4">
+      <Card
+        title={editingKey ? 'Edit unit' : 'Add unit'}
+        bordered={false}
+        className="shadow-sm mb-4"
+      >
         <Form form={lineForm} layout="vertical" initialValues={{ warrantyActive: false }}>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
             <Form.Item name="serialNumber" label="Chassis Number" rules={[{ required: true, whitespace: true }]}>
@@ -349,9 +521,16 @@ export const AddPurchase = () => {
               </Form.Item>
             )}
           </div>
-          <Button type="dashed" icon={<PlusOutlined />} onClick={addLine}>
-            Add to purchase
-          </Button>
+          <Space>
+            <Button
+              type="dashed"
+              icon={editingKey ? <EditOutlined /> : <PlusOutlined />}
+              onClick={addLine}
+            >
+              {editingKey ? 'Update unit' : 'Add to purchase'}
+            </Button>
+            {editingKey && <Button onClick={cancelEditLine}>Cancel edit</Button>}
+          </Space>
         </Form>
       </Card>
 
@@ -392,15 +571,44 @@ export const AddPurchase = () => {
                 ]),
             {
               title: 'Warranty',
-              render: (_, r) =>
+              render: (_: unknown, r: PurchaseLine) =>
                 r.warrantyActive ? `Yes · ${r.warrantyExpiryDate}` : 'No'
             },
+            ...(isEdit
+              ? [
+                  {
+                    title: 'Status',
+                    dataIndex: 'status',
+                    render: (v: string | undefined, r: PurchaseLine) =>
+                      r.locked ? (
+                        <Tag color={STATUS_COLORS[v || ''] || 'default'}>
+                          {(v || 'locked').replace(/_/g, ' ')}
+                        </Tag>
+                      ) : (
+                        <Tag color="green">in stock</Tag>
+                      )
+                  }
+                ]
+              : []),
             {
               title: '',
-              width: 48,
-              render: (_, r) => (
-                <Button type="text" danger icon={<DeleteOutlined />} onClick={() => removeLine(r.key)} />
-              )
+              width: 88,
+              render: (_: unknown, r: PurchaseLine) =>
+                r.locked ? (
+                  <Space size={0}>
+                    <Tooltip title="Sold or not in stock — cannot edit">
+                      <Button type="text" icon={<EditOutlined />} disabled />
+                    </Tooltip>
+                    <Tooltip title="Sold or not in stock — cannot remove">
+                      <Button type="text" danger icon={<DeleteOutlined />} disabled />
+                    </Tooltip>
+                  </Space>
+                ) : (
+                  <Space size={0}>
+                    <Button type="text" icon={<EditOutlined />} onClick={() => startEditLine(r)} />
+                    <Button type="text" danger icon={<DeleteOutlined />} onClick={() => removeLine(r.key)} />
+                  </Space>
+                )
             }
           ]}
         />
@@ -408,6 +616,9 @@ export const AddPurchase = () => {
           <div className="space-y-1">
             <Text strong>
               {lines.length} unit(s)
+              {isEdit && lockedCount > 0 && (
+                <Text type="secondary"> · {lockedCount} locked</Text>
+              )}
               {hasDiscount ? (
                 <>
                   {' '}
@@ -433,9 +644,16 @@ export const AddPurchase = () => {
             </Text>
           </div>
           <Space>
-            <Button onClick={() => setLines([])} disabled={!lines.length}>Clear</Button>
+            {!isEdit && (
+              <Button onClick={() => setLines([])} disabled={!lines.length}>Clear</Button>
+            )}
+            {isEdit && (
+              <Button onClick={() => navigate(App_Routes.PURCHASE_DETAIL.replace(':id', id!))}>
+                Cancel
+              </Button>
+            )}
             <Button type="primary" loading={loading} onClick={handleSubmit} disabled={!lines.length}>
-              Save Purchase
+              {isEdit ? 'Update Purchase' : 'Save Purchase'}
             </Button>
           </Space>
         </div>

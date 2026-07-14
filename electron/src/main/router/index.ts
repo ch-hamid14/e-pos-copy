@@ -48,6 +48,7 @@ ipcMain.handle(`DELETE:${Channels.PRODUCTS}`, catchIpcHandler(productController.
 
 ipcMain.handle(`GET:${Channels.PURCHASES}`, catchIpcHandler(purchaseController.list))
 ipcMain.handle(`POST:${Channels.PURCHASES}`, catchIpcHandler(purchaseController.create))
+ipcMain.handle(`PUT:${Channels.PURCHASES}`, catchIpcHandler(purchaseController.update))
 ipcMain.handle(`GET:${Channels.PURCHASES}:detail`, catchIpcHandler(purchaseController.get))
 
 ipcMain.handle(`GET:${Channels.PRODUCT_ITEMS}`, catchIpcHandler(inventoryController.list))

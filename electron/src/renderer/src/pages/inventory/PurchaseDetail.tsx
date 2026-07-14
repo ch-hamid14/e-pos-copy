@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Button, Card, Col, Descriptions, Row, Spin, Statistic, Table, Tag, Typography } from 'antd'
-import { ArrowLeftOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, EditOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { App_Routes } from '@/common'
 import { purchaseAPI } from '@/renderer/services'
@@ -56,6 +56,7 @@ export const PurchaseDetail = () => {
   }
 
   const purchase = detail.purchase
+  const editable = Boolean(detail.editable ?? purchase.editable)
 
   return (
     <div>
@@ -71,6 +72,19 @@ export const PurchaseDetail = () => {
       <PageHeader
         title="Purchase Detail"
         subtitle={dayjs(purchase.purchaseDate).format('DD MMM YYYY')}
+        extra={
+          editable ? (
+            <Button
+              type="primary"
+              icon={<EditOutlined />}
+              onClick={() => navigate(App_Routes.PURCHASE_EDIT.replace(':id', purchase.id))}
+            >
+              Edit
+            </Button>
+          ) : (
+            <Text type="secondary">Edit unavailable — no in-stock units remaining</Text>
+          )
+        }
       />
 
       <Card bordered={false} className="shadow-sm mb-4">

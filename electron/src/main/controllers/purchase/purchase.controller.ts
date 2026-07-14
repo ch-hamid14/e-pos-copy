@@ -31,6 +31,16 @@ class PurchaseController {
   async get(_: Electron.IpcMainInvokeEvent, req: IRequest) {
     return purchaseService.get(req.params?.id as string)
   }
+
+  async update(_: Electron.IpcMainInvokeEvent, req: IRequest) {
+    return purchaseService.update(
+      req.params?.id as string,
+      req.body?.companyId as string,
+      req.body?.branchId as string,
+      auditFromRequest(req),
+      req.body?.payload as any
+    )
+  }
 }
 
 export const purchaseController = new PurchaseController()

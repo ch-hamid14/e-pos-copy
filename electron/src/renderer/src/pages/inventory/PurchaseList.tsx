@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Button, Card, DatePicker, Input, Select, Table } from 'antd'
+import { Button, Card, DatePicker, Input, Select, Space, Table, Tooltip } from 'antd'
 import type { TableProps } from 'antd'
-import { EyeOutlined } from '@ant-design/icons'
+import { EditOutlined, EyeOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { useNavigate } from 'react-router-dom'
 import { App_Routes } from '@/common'
@@ -139,13 +139,26 @@ export const PurchaseList = () => {
             },
             {
               title: '',
-              width: 48,
+              width: 88,
               render: (_, r) => (
-                <Button
-                  type="text"
-                  icon={<EyeOutlined />}
-                  onClick={() => navigate(App_Routes.PURCHASE_DETAIL.replace(':id', r.id))}
-                />
+                <Space size={0}>
+                  <Button
+                    type="text"
+                    icon={<EyeOutlined />}
+                    onClick={() => navigate(App_Routes.PURCHASE_DETAIL.replace(':id', r.id))}
+                  />
+                  {r.editable ? (
+                    <Button
+                      type="text"
+                      icon={<EditOutlined />}
+                      onClick={() => navigate(App_Routes.PURCHASE_EDIT.replace(':id', r.id))}
+                    />
+                  ) : (
+                    <Tooltip title="No in-stock units left to edit">
+                      <Button type="text" icon={<EditOutlined />} disabled />
+                    </Tooltip>
+                  )}
+                </Space>
               )
             }
           ]}

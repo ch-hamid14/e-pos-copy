@@ -21,6 +21,9 @@ function parentMenuKey(pathname: string): string | undefined {
 }
 
 function pageTitle(pathname: string): string {
+  if (pathname.match(/^\/inventory\/purchases\/[^/]+\/edit$/)) {
+    return 'Edit Purchase'
+  }
   if (pathname.startsWith('/inventory/purchases/') && pathname !== App_Routes.PURCHASE_LIST) {
     return 'Purchase Detail'
   }

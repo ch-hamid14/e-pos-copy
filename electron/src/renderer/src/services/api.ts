@@ -62,6 +62,17 @@ export const purchaseAPI = {
     audit: SessionAudit,
     payload: Record<string, unknown>
   ) => ipcCall(`POST:${Channels.PURCHASES}`, { body: auditBody(audit, { companyId, branchId, payload }) }),
+  update: (
+    id: string,
+    companyId: string,
+    branchId: string,
+    audit: SessionAudit,
+    payload: Record<string, unknown>
+  ) =>
+    ipcCall(`PUT:${Channels.PURCHASES}`, {
+      params: { id },
+      body: auditBody(audit, { companyId, branchId, payload })
+    }),
   get: (id: string) => ipcCall(`GET:${Channels.PURCHASES}:detail`, { params: { id } })
 }
 

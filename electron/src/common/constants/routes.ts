@@ -8,6 +8,7 @@ export enum App_Routes {
   ADD_PURCHASE = '/inventory/add-purchase',
   PURCHASE_LIST = '/inventory/purchases',
   PURCHASE_DETAIL = '/inventory/purchases/:id',
+  PURCHASE_EDIT = '/inventory/purchases/:id/edit',
   STOCK = '/inventory/stock',
   STOCK_DETAIL = '/inventory/stock/:id',
   TRANSFERS = '/inventory/transfers',
