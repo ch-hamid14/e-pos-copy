@@ -14,6 +14,7 @@ export const SALE_INVOICE_PRINT_CSS = `
     box-sizing: border-box;
     font-family: Arial, Helvetica, sans-serif;
     font-size: 11pt;
+    font-weight: 700;
     color: #000;
     background: #fff;
   }
@@ -58,6 +59,7 @@ export const SALE_INVOICE_PRINT_CSS = `
   .sale-invoice-label {
     white-space: nowrap;
     font-size: 10.5pt;
+    font-weight: 700 !important;
   }
 
   .sale-invoice-value {
@@ -67,10 +69,22 @@ export const SALE_INVOICE_PRINT_CSS = `
     min-height: 5mm;
     padding: 0 1mm 0.5mm;
     font-size: 10.5pt;
+    font-weight: 700 !important;
+    text-align: center !important;
   }
 
   .sale-invoice-field-row--right .sale-invoice-value {
     flex: 0 1 42mm;
+  }
+
+  .sale-invoice-amount-words-value {
+    flex: 1;
+    border-bottom: 1px solid #000;
+    min-height: 5mm;
+    padding: 0 1mm 0.5mm;
+    font-size: 10.5pt;
+    font-weight: 700 !important;
+    text-align: center !important;
   }
 
   .sale-invoice-table {
@@ -85,6 +99,7 @@ export const SALE_INVOICE_PRINT_CSS = `
     border: 1px solid #000;
     vertical-align: top;
     padding: 2mm;
+    font-weight: 700;
   }
 
   .sale-invoice-table th {
@@ -107,6 +122,7 @@ export const SALE_INVOICE_PRINT_CSS = `
     text-align: center;
     vertical-align: middle !important;
     font-size: 11pt;
+    font-weight: 700;
   }
 
   .col-amount {
@@ -114,6 +130,7 @@ export const SALE_INVOICE_PRINT_CSS = `
     text-align: center;
     vertical-align: middle !important;
     font-size: 11pt;
+    font-weight: 700;
   }
 
   .sale-invoice-particulars {
@@ -132,6 +149,7 @@ export const SALE_INVOICE_PRINT_CSS = `
     float: right;
     width: 48%;
     font-size: 9.5pt;
+    font-weight: 700;
     line-height: 1.55;
   }
 
@@ -139,12 +157,14 @@ export const SALE_INVOICE_PRINT_CSS = `
     display: flex;
     justify-content: space-between;
     gap: 2mm;
+    font-weight: 700;
   }
 
   .sale-invoice-particulars-desc {
     clear: both;
     padding-top: 10mm;
     font-size: 10.5pt;
+    font-weight: 700;
   }
 
   .sale-invoice-total-label {
@@ -164,14 +184,6 @@ export const SALE_INVOICE_PRINT_CSS = `
     margin-top: 4mm;
   }
 
-  .sale-invoice-amount-words-value {
-    flex: 1;
-    border-bottom: 1px solid #000;
-    min-height: 5mm;
-    padding: 0 1mm 0.5mm;
-    font-size: 10.5pt;
-  }
-
   .sale-invoice-signatures {
     display: flex;
     justify-content: space-between;
@@ -183,6 +195,7 @@ export const SALE_INVOICE_PRINT_CSS = `
     width: 38%;
     text-align: center;
     font-size: 10.5pt;
+    font-weight: 700;
   }
 
   .sale-invoice-signature-block--right {

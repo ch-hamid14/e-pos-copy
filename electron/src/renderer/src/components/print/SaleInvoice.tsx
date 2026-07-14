@@ -42,8 +42,15 @@ type FieldRowProps = {
 function FieldRow({ label, value, className }: FieldRowProps) {
   return (
     <div className={`sale-invoice-field-row ${className || ''}`}>
-      <span className="sale-invoice-label">{label}</span>
-      <span className="sale-invoice-value">{value || ''}</span>
+      <span className="sale-invoice-label" style={{ fontWeight: 700 }}>
+        {label}
+      </span>
+      <span
+        className="sale-invoice-value"
+        style={{ fontWeight: 700, textAlign: 'center' }}
+      >
+        {value || ''}
+      </span>
     </div>
   )
 }
@@ -100,7 +107,7 @@ export function SaleInvoice({ data }: { data: SaleInvoiceData }) {
   const dated = dayjs(data.saleDate).format('DD-MMM-YYYY')
 
   return (
-    <div className="sale-invoice-page">
+    <div className="sale-invoice-page" style={{ fontWeight: 700 }}>
       <div className="sale-invoice-letterhead-space" aria-hidden="true" />
 
       <div className="sale-invoice-sheet">
@@ -187,8 +194,15 @@ export function SaleInvoice({ data }: { data: SaleInvoiceData }) {
         </table>
 
         <div className="sale-invoice-amount-words">
-          <span className="sale-invoice-label">Amount in Word</span>
-          <span className="sale-invoice-amount-words-value">{amountInWords(data.netTotal)}</span>
+          <span className="sale-invoice-label" style={{ fontWeight: 700 }}>
+            Amount in Word
+          </span>
+          <span
+            className="sale-invoice-amount-words-value"
+            style={{ fontWeight: 700, textAlign: 'center' }}
+          >
+            {amountInWords(data.netTotal)}
+          </span>
         </div>
 
         <div className="sale-invoice-signatures">
