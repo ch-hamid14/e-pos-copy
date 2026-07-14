@@ -10,13 +10,20 @@ export function authRouter(db: Knex): Router {
 
   router.post('/login', async (req, res) => {
     try {
-      const { email, password, clientDeviceId, otp, otpPurpose } = req.body
+      const { email, password, clientDeviceId, otp, otpPurpose, appVersion } = req.body
 
       if (!email || !password || !clientDeviceId) {
         return res.status(400).json({ error: 'email, password, and clientDeviceId are required' })
       }
 
-      const result = await loginUser(db, { email, password, clientDeviceId, otp, otpPurpose })
+      const result = await loginUser(db, {
+        email,
+        password,
+        clientDeviceId,
+        otp,
+        otpPurpose,
+        appVersion
+      })
 
       if (result.status === 'invalid_credentials') {
         return res.status(401).json({ error: 'Invalid credentials or OTP' })
@@ -25,6 +32,13 @@ export function authRouter(db: Knex): Router {
         return res.status(403).json({
           requiresOtp: true,
           otpPurpose: result.purpose,
+          message: result.message
+        })
+      }
+      if (result.status === 'blocked') {
+        return res.status(403).json({
+          blocked: true,
+          code: result.code,
           message: result.message
         })
       }

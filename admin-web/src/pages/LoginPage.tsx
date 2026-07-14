@@ -49,12 +49,6 @@ export default function LoginPage() {
           <Typography.Paragraph type="secondary" style={{ marginBottom: 20 }}>
             Use your super admin credentials
           </Typography.Paragraph>
-          <Alert
-            type="info"
-            showIcon
-            message="Requires a connection to the backend API"
-            style={{ marginBottom: 20 }}
-          />
           <Form
             layout="vertical"
             onFinish={onFinish}

@@ -16,10 +16,12 @@ export type JwtPayload = {
   deviceId: string
   tokenExpiresAt?: string
   offlineAllowedUntil?: string
+  impersonatorId?: string
+  impersonatorEmail?: string
 }
 
-export function signToken(payload: JwtPayload): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN })
+export function signToken(payload: JwtPayload, expiresIn: jwt.SignOptions['expiresIn'] = JWT_EXPIRES_IN): string {
+  return jwt.sign(payload, JWT_SECRET, { expiresIn })
 }
 
 export function verifyToken(token: string): JwtPayload {

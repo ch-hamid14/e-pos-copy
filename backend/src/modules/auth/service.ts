@@ -11,6 +11,7 @@ export type LoginInput = {
   clientDeviceId: string
   otp?: string
   otpPurpose?: OtpPurpose
+  appVersion?: string
 }
 
 export type AuthUserResponse = {
@@ -38,6 +39,7 @@ export type LoginResult =
     }
   | { status: 'otp_required'; purpose: OtpPurpose; message: string }
   | { status: 'invalid_credentials' }
+  | { status: 'blocked'; code: 'maintenance' | 'plan_expired' | 'app_version'; message: string }
 
 export type RefreshResult =
   | Extract<LoginResult, { status: 'success' }>
@@ -213,6 +215,56 @@ export async function loginUser(controlDb: Knex, input: LoginInput): Promise<Log
 
   const isSuperAdmin = user.role === 'super_admin'
 
+  if (!isSuperAdmin && user.company_id) {
+    const company = await controlDb('companies').where({ id: user.company_id }).first()
+    if (!company || company.status === 'inactive') {
+      return {
+        status: 'blocked',
+        code: 'maintenance',
+        message: 'This company account is inactive. Contact support.'
+      }
+    }
+    if (company.maintenance_mode) {
+      return {
+        status: 'blocked',
+        code: 'maintenance',
+        message: 'This company is in maintenance mode. Try again later.'
+      }
+    }
+    if (company.plan_expires_at && new Date(company.plan_expires_at) < new Date()) {
+      return {
+        status: 'blocked',
+        code: 'plan_expired',
+        message: 'This company subscription has expired. Contact support.'
+      }
+    }
+    if (company.min_app_version && input.appVersion) {
+      if (compareVersions(input.appVersion, company.min_app_version) < 0) {
+        return {
+          status: 'blocked',
+          code: 'app_version',
+          message: `Please update the POS app to version ${company.min_app_version} or newer.`
+        }
+      }
+    }
+    if (company.max_devices != null) {
+      const [{ count }] = await controlDb('devices')
+        .where({ company_id: user.company_id })
+        .count('* as count')
+      const deviceCount = Number(count)
+      const existingDevice = await controlDb('devices')
+        .where({ client_device_id: input.clientDeviceId })
+        .first()
+      if (!existingDevice && deviceCount >= Number(company.max_devices)) {
+        return {
+          status: 'blocked',
+          code: 'maintenance',
+          message: 'Device limit reached for this company.'
+        }
+      }
+    }
+  }
+
   if (!isSuperAdmin && !user.email_verified) {
     if (!input.otp || input.otpPurpose !== 'email_verify') {
       await createOtp(controlDb, email, 'email_verify')
@@ -285,7 +337,14 @@ export async function getBootstrapData(
     .select('ur.*')
 
   return {
-    company: company || profile,
+    company: {
+      ...(company || profile),
+      plan: company?.plan,
+      maintenanceMode: Boolean(company?.maintenance_mode),
+      featureFlags: parseFlags(company?.feature_flags),
+      minAppVersion: company?.min_app_version ?? null,
+      planExpiresAt: company?.plan_expires_at ?? null
+    },
     branch,
     branches,
     roles,
@@ -294,4 +353,29 @@ export async function getBootstrapData(
     users,
     userRoles
   }
+}
+
+function parseFlags(value: unknown): Record<string, boolean> {
+  if (!value) return {}
+  if (typeof value === 'object') return value as Record<string, boolean>
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value)
+    } catch {
+      return {}
+    }
+  }
+  return {}
+}
+
+/** Returns negative if a < b, 0 if equal, positive if a > b. */
+function compareVersions(a: string, b: string): number {
+  const pa = a.replace(/^v/i, '').split('.').map((x) => parseInt(x, 10) || 0)
+  const pb = b.replace(/^v/i, '').split('.').map((x) => parseInt(x, 10) || 0)
+  const len = Math.max(pa.length, pb.length)
+  for (let i = 0; i < len; i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0)
+    if (d !== 0) return d
+  }
+  return 0
 }

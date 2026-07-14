@@ -61,6 +61,32 @@ export async function getOverview(controlDb: Knex) {
   const branchesCount = companies.reduce((sum, c) => sum + Number(c.branch_count || 0), 0)
   const activeCompaniesCount = companies.filter((c) => c.status === 'active').length
   const inactiveCompaniesCount = companies.filter((c) => c.status === 'inactive').length
+  const maintenanceCount = companies.filter((c) => c.maintenance_mode).length
+  const expiredPlanCount = companies.filter(
+    (c) => c.plan_expires_at && new Date(c.plan_expires_at) < new Date()
+  ).length
+
+  let migrationLagCount = 0
+  let conflictTenantCount = 0
+  const scout = companies.filter((c) => c.status === 'active' || c.status === 'inactive').slice(0, 40)
+  await Promise.all(
+    scout.map(async (c) => {
+      try {
+        const companyDb = await getCompanyDb(c.id as string, { forOps: true })
+        const { getCompanyMigrationStatus } = await import('@madix/database')
+        const mig = await getCompanyMigrationStatus(companyDb)
+        if (!mig.upToDate) migrationLagCount++
+        if (await companyDb.schema.hasTable('sync_conflict')) {
+          const n = Number(
+            (await companyDb('sync_conflict').count('* as count').first())?.count ?? 0
+          )
+          if (n > 0) conflictTenantCount++
+        }
+      } catch {
+        // ignore unreachable tenants in overview
+      }
+    })
+  )
 
   return {
     companiesCount: Number(companiesCount),
@@ -68,6 +94,13 @@ export async function getOverview(controlDb: Knex) {
     inactiveCompaniesCount,
     usersCount: Number(usersCount),
     branchesCount,
+    fleet: {
+      maintenanceCount,
+      expiredPlanCount,
+      migrationLagCount,
+      conflictTenantCount,
+      scouted: scout.length
+    },
     companies: companies.map(mapCompany)
   }
 }
@@ -332,7 +365,13 @@ export async function createBranch(
   companyId: string,
   data: { name: string; location?: string }
 ) {
-  const companyDb = await getCompanyDb(companyId)
+  const company = await controlDb('companies').where({ id: companyId }).first()
+  if (!company) throw new Error('Company not found')
+  if (company.max_branches != null && Number(company.branch_count) >= Number(company.max_branches)) {
+    throw new Error(`Branch limit reached (${company.max_branches})`)
+  }
+
+  const companyDb = await getCompanyDb(companyId, { forOps: true })
   const id = randomUUID()
   const now = new Date()
   await companyDb('branches').insert({
@@ -369,7 +408,18 @@ export async function createCompanyUser(
   const existing = await controlDb('users').where({ email: data.email.toLowerCase() }).first()
   if (existing) throw new Error('Email already in use')
 
-  const companyDb = await getCompanyDb(companyId)
+  const company = await controlDb('companies').where({ id: companyId }).first()
+  if (!company) throw new Error('Company not found')
+  if (company.max_users != null) {
+    const [{ count }] = await controlDb('users')
+      .where({ company_id: companyId, is_active: true })
+      .count('* as count')
+    if (Number(count) >= Number(company.max_users)) {
+      throw new Error(`User limit reached (${company.max_users})`)
+    }
+  }
+
+  const companyDb = await getCompanyDb(companyId, { forOps: true })
   const userId = randomUUID()
   const now = new Date()
   const hashed = await bcrypt.hash(data.password, 10)
@@ -568,6 +618,18 @@ async function getRoleWithPermissions(companyDb: Knex, roleId: string) {
 }
 
 export function mapCompany(row: Record<string, unknown>) {
+  const flagsRaw = row.feature_flags
+  let featureFlags: Record<string, boolean> = {}
+  if (flagsRaw && typeof flagsRaw === 'object') {
+    featureFlags = flagsRaw as Record<string, boolean>
+  } else if (typeof flagsRaw === 'string') {
+    try {
+      featureFlags = JSON.parse(flagsRaw)
+    } catch {
+      featureFlags = {}
+    }
+  }
+
   return {
     id: row.id,
     name: row.name,
@@ -579,6 +641,14 @@ export function mapCompany(row: Record<string, unknown>) {
     dbPort: row.db_port,
     branchCount: Number(row.branch_count ?? 0),
     userCount: Number(row.user_count ?? 0),
+    plan: row.plan ?? 'standard',
+    planExpiresAt: row.plan_expires_at ?? null,
+    maintenanceMode: Boolean(row.maintenance_mode),
+    minAppVersion: row.min_app_version ?? null,
+    maxBranches: row.max_branches ?? null,
+    maxUsers: row.max_users ?? null,
+    maxDevices: row.max_devices ?? null,
+    featureFlags,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   }

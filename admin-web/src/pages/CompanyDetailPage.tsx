@@ -3,7 +3,10 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeftOutlined,
   BranchesOutlined,
+  DatabaseOutlined,
   SafetyCertificateOutlined,
+  SettingOutlined,
+  SyncOutlined,
   TeamOutlined,
   ToolOutlined
 } from '@ant-design/icons'
@@ -14,6 +17,7 @@ import {
   Input,
   Modal,
   Select,
+  Space,
   Table,
   Tabs,
   Tag,
@@ -26,11 +30,16 @@ import {
   createUser,
   getCompany,
   getCompanyOps,
+  impersonateUser,
+  resetUserPassword,
   updateCompany,
   updateRole,
   updateUser
 } from '../api/admin'
+import CompanyDataPanel from '../components/CompanyDataPanel'
 import CompanyOpsPanel from '../components/CompanyOpsPanel'
+import CompanySettingsPanel from '../components/CompanySettingsPanel'
+import CompanySyncPanel from '../components/CompanySyncPanel'
 import StatusTag from '../components/StatusTag'
 import { useAuth } from '../context/AuthContext'
 import type {
@@ -367,27 +376,87 @@ export default function CompanyDetailPage() {
                     },
                     {
                       title: '',
-                      width: 90,
+                      width: 200,
                       render: (_, r) => (
-                        <Button
-                          size="small"
-                          onClick={() => {
-                            setEditUser(r)
-                            userForm.setFieldsValue({
-                              firstName: r.firstName,
-                              lastName: r.lastName,
-                              email: r.email,
-                              role: r.role,
-                              branchId: r.branchId || undefined,
-                              roleIds: r.roles?.map((x) => x.id) || [],
-                              isActive: r.isActive,
-                              password: undefined
-                            })
-                            setUserOpen(true)
-                          }}
-                        >
-                          Edit
-                        </Button>
+                        <Space size={4}>
+                          <Button
+                            size="small"
+                            onClick={() => {
+                              setEditUser(r)
+                              userForm.setFieldsValue({
+                                firstName: r.firstName,
+                                lastName: r.lastName,
+                                email: r.email,
+                                role: r.role,
+                                branchId: r.branchId || undefined,
+                                roleIds: r.roles?.map((x) => x.id) || [],
+                                isActive: r.isActive,
+                                password: undefined
+                              })
+                              setUserOpen(true)
+                            }}
+                          >
+                            Edit
+                          </Button>
+                          <Button
+                            size="small"
+                            onClick={() => {
+                              let password = ''
+                              Modal.confirm({
+                                title: 'Reset password',
+                                content: (
+                                  <Input.Password
+                                    placeholder="New password (min 6)"
+                                    onChange={(e) => {
+                                      password = e.target.value
+                                    }}
+                                    style={{ marginTop: 12 }}
+                                  />
+                                ),
+                                onOk: async () => {
+                                  if (!token || !id) return
+                                  await resetUserPassword(token, id, r.id, password)
+                                  message.success('Password reset')
+                                }
+                              })
+                            }}
+                          >
+                            Reset PW
+                          </Button>
+                          <Button
+                            size="small"
+                            onClick={async () => {
+                              if (!token || !id) return
+                              try {
+                                const session = await impersonateUser(token, id, r.id)
+                                Modal.info({
+                                  title: 'Support session (1 hour)',
+                                  width: 560,
+                                  content: (
+                                    <div>
+                                      <Typography.Paragraph>
+                                        Signed in as {session.user.email}. Copy this token for
+                                        support tooling / API calls.
+                                      </Typography.Paragraph>
+                                      <Input.TextArea
+                                        readOnly
+                                        value={session.token}
+                                        autoSize={{ minRows: 3, maxRows: 6 }}
+                                      />
+                                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                                        Expires {new Date(session.tokenExpiresAt).toLocaleString()}
+                                      </Typography.Text>
+                                    </div>
+                                  )
+                                })
+                              } catch (err: any) {
+                                message.error(err.message)
+                              }
+                            }}
+                          >
+                            Impersonate
+                          </Button>
+                        </Space>
                       )
                     }
                   ]}
@@ -452,6 +521,35 @@ export default function CompanyDetailPage() {
                 />
               </div>
             )
+          },
+          {
+            key: 'data',
+            label: (
+              <span>
+                <DatabaseOutlined /> Data
+              </span>
+            ),
+            children: token && id ? <CompanyDataPanel companyId={id} token={token} /> : null
+          },
+          {
+            key: 'sync',
+            label: (
+              <span>
+                <SyncOutlined /> Sync
+              </span>
+            ),
+            children: token && id ? <CompanySyncPanel companyId={id} token={token} /> : null
+          },
+          {
+            key: 'settings',
+            label: (
+              <span>
+                <SettingOutlined /> Settings
+              </span>
+            ),
+            children: token ? (
+              <CompanySettingsPanel company={detail.company} token={token} onChanged={load} />
+            ) : null
           },
           {
             key: 'configure',

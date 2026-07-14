@@ -1,5 +1,6 @@
 import {
   ApartmentOutlined,
+  AuditOutlined,
   DashboardOutlined,
   LogoutOutlined
 } from '@ant-design/icons'
@@ -14,8 +15,11 @@ export default function AdminLayout() {
   const location = useLocation()
   const navigate = useNavigate()
 
-  const selected =
-    location.pathname.startsWith('/companies') ? '/companies' : '/'
+  const selected = location.pathname.startsWith('/companies')
+    ? '/companies'
+    : location.pathname.startsWith('/audit')
+      ? '/audit'
+      : '/'
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
@@ -46,6 +50,11 @@ export default function AdminLayout() {
               key: '/companies',
               icon: <ApartmentOutlined />,
               label: <Link to="/companies">Companies</Link>
+            },
+            {
+              key: '/audit',
+              icon: <AuditOutlined />,
+              label: <Link to="/audit">Audit</Link>
             }
           ]}
         />

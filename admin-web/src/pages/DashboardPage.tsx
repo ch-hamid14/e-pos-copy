@@ -31,7 +31,15 @@ export default function DashboardPage() {
 
   const recent = useMemo(() => (data?.companies ?? []).slice(0, 8), [data])
   const attention = useMemo(
-    () => (data?.companies ?? []).filter((c) => c.status !== 'active').slice(0, 5),
+    () =>
+      (data?.companies ?? [])
+        .filter(
+          (c) =>
+            c.status !== 'active' ||
+            c.maintenanceMode ||
+            (c.planExpiresAt && new Date(c.planExpiresAt) < new Date())
+        )
+        .slice(0, 5),
     [data]
   )
 
@@ -81,6 +89,29 @@ export default function DashboardPage() {
           value={data?.branchesCount ?? 0}
           hint="Total branch locations"
           icon={<ApartmentOutlined />}
+        />
+      </div>
+
+      <div className="madix-stat-grid">
+        <StatCard
+          label="Migration lag"
+          value={data?.fleet?.migrationLagCount ?? 0}
+          hint={`Of ${data?.fleet?.scouted ?? 0} scouted tenants`}
+        />
+        <StatCard
+          label="With conflicts"
+          value={data?.fleet?.conflictTenantCount ?? 0}
+          hint="Tenants with sync_conflict rows"
+        />
+        <StatCard
+          label="Maintenance"
+          value={data?.fleet?.maintenanceCount ?? 0}
+          hint="POS login blocked"
+        />
+        <StatCard
+          label="Expired plans"
+          value={data?.fleet?.expiredPlanCount ?? 0}
+          hint="Past plan_expires_at"
         />
       </div>
 

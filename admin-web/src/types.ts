@@ -21,6 +21,14 @@ export type Company = {
   dbPort?: number
   branchCount: number
   userCount: number
+  plan?: string
+  planExpiresAt?: string | null
+  maintenanceMode?: boolean
+  minAppVersion?: string | null
+  maxBranches?: number | null
+  maxUsers?: number | null
+  maxDevices?: number | null
+  featureFlags?: Record<string, boolean>
   createdAt: string
   updatedAt: string
 }
@@ -72,6 +80,13 @@ export type Overview = {
   inactiveCompaniesCount: number
   usersCount: number
   branchesCount: number
+  fleet?: {
+    maintenanceCount: number
+    expiredPlanCount: number
+    migrationLagCount: number
+    conflictTenantCount: number
+    scouted: number
+  }
   companies: Company[]
 }
 
@@ -127,4 +142,55 @@ export type MigrateAllResult = {
     applied: string[]
     error?: string
   }>
+}
+
+export type SyncConflict = {
+  id: string
+  sno: number
+  table: string
+  entityId: string
+  message: string | null
+  error: unknown
+  winner: string
+  loserPayload: Record<string, unknown> | null
+  current: Record<string, unknown> | null
+  createdAt: string
+}
+
+export type SyncQueueItem = {
+  id: string
+  sno: number
+  table: string
+  event: string
+  entityId: string
+  hlc: string
+  originClientId: string
+  createdAt: string
+  payload: unknown
+}
+
+export type DataBrowseResult = {
+  table: string
+  columns: Array<{ name: string; type: string; nullable: boolean; readonly: boolean }>
+  page: number
+  pageSize: number
+  total: number
+  rows: Record<string, unknown>[]
+}
+
+export type AuditLog = {
+  id: string
+  actorUserId: string | null
+  actorEmail: string | null
+  companyId: string | null
+  action: string
+  resource: string | null
+  detail: unknown
+  createdAt: string
+}
+
+export type SnapshotInfo = {
+  filename: string
+  size: number
+  createdAt: string
 }

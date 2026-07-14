@@ -43,6 +43,59 @@ export async function dropDatabase(adminConfig: PgConnectionConfig, dbName: stri
   }
 }
 
+/** Clone an existing company database via PostgreSQL TEMPLATE. */
+export async function cloneDatabase(
+  adminConfig: PgConnectionConfig,
+  sourceDbName: string,
+  targetDbName: string
+): Promise<void> {
+  const source = sourceDbName.replace(/"/g, '')
+  const target = targetDbName.replace(/"/g, '')
+  const adminKnex = createKnex({ ...adminConfig, database: 'postgres' })
+  try {
+    await adminKnex.raw(
+      `SELECT pg_terminate_backend(pid)
+       FROM pg_stat_activity
+       WHERE datname = ? AND pid <> pg_backend_pid()`,
+      [source]
+    )
+    const exists = await adminKnex.raw('SELECT 1 FROM pg_database WHERE datname = ?', [target])
+    if (exists.rows.length > 0) {
+      throw new Error(`Database already exists: ${target}`)
+    }
+    await adminKnex.raw(`CREATE DATABASE "${target}" WITH TEMPLATE "${source}"`)
+  } finally {
+    await adminKnex.destroy()
+  }
+}
+
+/** After a TEMPLATE clone, rewrite company_id / company_profile.id to the new company. */
+export async function remapClonedCompanyIds(
+  companyKnex: Knex,
+  oldCompanyId: string,
+  newCompanyId: string,
+  newName: string
+): Promise<void> {
+  const result = await companyKnex.raw(
+    `SELECT table_name
+     FROM information_schema.columns
+     WHERE table_schema = 'public' AND column_name = 'company_id'`
+  )
+  const tables = (result.rows as Array<{ table_name: string }>).map((r) => r.table_name)
+  await companyKnex.transaction(async (trx) => {
+    for (const table of tables) {
+      await trx(table).where({ company_id: oldCompanyId }).update({ company_id: newCompanyId })
+    }
+    if (await trx.schema.hasTable('company_profile')) {
+      await trx('company_profile').where({ id: oldCompanyId }).update({
+        id: newCompanyId,
+        name: newName,
+        updated_at: new Date()
+      })
+    }
+  })
+}
+
 export async function teardownCompanyDatabase(
   adminConnectionUrl: string,
   companyId: string

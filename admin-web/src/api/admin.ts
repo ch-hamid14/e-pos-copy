@@ -1,17 +1,30 @@
 import { api } from './client'
 import type {
+  AuditLog,
   Company,
   CompanyDetail,
   CompanyOps,
   CompanyRole,
   CompanyUser,
+  DataBrowseResult,
   MigrateAllResult,
   Overview,
-  Permission
+  Permission,
+  SnapshotInfo,
+  SyncConflict,
+  SyncQueueItem
 } from '../types'
 
 export function getOverview(token: string) {
   return api<Overview>('/admin/overview', { token })
+}
+
+export function listAuditLogs(token: string, params?: { companyId?: string; limit?: number }) {
+  const q = new URLSearchParams()
+  if (params?.companyId) q.set('companyId', params.companyId)
+  if (params?.limit) q.set('limit', String(params.limit))
+  const suffix = q.toString() ? `?${q}` : ''
+  return api<AuditLog[]>(`/admin/audit${suffix}`, { token })
 }
 
 export function listCompanies(token: string) {
@@ -28,6 +41,14 @@ export function getCompany(token: string, id: string) {
 
 export function updateCompany(token: string, id: string, data: Record<string, unknown>) {
   return api<Company>(`/admin/companies/${id}`, { method: 'PATCH', token, body: JSON.stringify(data) })
+}
+
+export function updateCompanySettings(token: string, id: string, data: Record<string, unknown>) {
+  return api<Company>(`/admin/companies/${id}/settings`, {
+    method: 'PATCH',
+    token,
+    body: JSON.stringify(data)
+  })
 }
 
 export function createBranch(token: string, companyId: string, data: { name: string; location?: string }) {
@@ -98,10 +119,143 @@ export function unbindDevice(token: string, companyId: string, deviceId: string)
   return api(`/admin/companies/${companyId}/devices/${deviceId}`, { method: 'DELETE', token })
 }
 
+export function unbindAllDevices(token: string, companyId: string) {
+  return api(`/admin/companies/${companyId}/unbind-all-devices`, { method: 'POST', token })
+}
+
 export function deleteCompany(token: string, id: string, confirmName: string) {
   return api(`/admin/companies/${id}`, {
     method: 'DELETE',
     token,
     body: JSON.stringify({ confirmName })
+  })
+}
+
+export function cloneCompany(token: string, id: string, name?: string) {
+  return api<Company>(`/admin/companies/${id}/clone`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ name })
+  })
+}
+
+export function impersonateUser(token: string, companyId: string, userId: string) {
+  return api<{ token: string; tokenExpiresAt: string; user: CompanyUser }>(
+    `/admin/companies/${companyId}/impersonate`,
+    { method: 'POST', token, body: JSON.stringify({ userId }) }
+  )
+}
+
+export function resetUserPassword(token: string, companyId: string, userId: string, password: string) {
+  return api(`/admin/companies/${companyId}/users/${userId}/reset-password`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ password })
+  })
+}
+
+export function listSnapshots(token: string, companyId: string) {
+  return api<SnapshotInfo[]>(`/admin/companies/${companyId}/snapshots`, { token })
+}
+
+export function createSnapshot(token: string, companyId: string) {
+  return api<SnapshotInfo>(`/admin/companies/${companyId}/snapshots`, { method: 'POST', token })
+}
+
+export function restoreSnapshot(token: string, companyId: string, filename: string) {
+  return api(`/admin/companies/${companyId}/snapshots/restore`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ filename })
+  })
+}
+
+export function listConflicts(token: string, companyId: string) {
+  return api<{ conflicts: SyncConflict[]; total: number }>(
+    `/admin/companies/${companyId}/conflicts`,
+    { token }
+  )
+}
+
+export function dismissConflict(token: string, companyId: string, conflictId: string) {
+  return api(`/admin/companies/${companyId}/conflicts/${conflictId}/dismiss`, {
+    method: 'POST',
+    token
+  })
+}
+
+export function applyConflictLoser(token: string, companyId: string, conflictId: string) {
+  return api(`/admin/companies/${companyId}/conflicts/${conflictId}/apply-loser`, {
+    method: 'POST',
+    token
+  })
+}
+
+export function listSyncQueue(token: string, companyId: string) {
+  return api<{ items: SyncQueueItem[]; total: number }>(
+    `/admin/companies/${companyId}/sync-queue`,
+    { token }
+  )
+}
+
+export function deleteSyncQueueItem(token: string, companyId: string, itemId: string) {
+  return api(`/admin/companies/${companyId}/sync-queue/${itemId}`, { method: 'DELETE', token })
+}
+
+export function clearSyncQueue(token: string, companyId: string) {
+  return api(`/admin/companies/${companyId}/sync-queue`, { method: 'DELETE', token })
+}
+
+export function listDataTables(token: string) {
+  return api<string[]>('/admin/data-tables', { token })
+}
+
+export function browseData(
+  token: string,
+  companyId: string,
+  table: string,
+  params?: { page?: number; pageSize?: number; search?: string; includeDeleted?: boolean }
+) {
+  const q = new URLSearchParams()
+  if (params?.page) q.set('page', String(params.page))
+  if (params?.pageSize) q.set('pageSize', String(params.pageSize))
+  if (params?.search) q.set('search', params.search)
+  if (params?.includeDeleted) q.set('includeDeleted', '1')
+  const suffix = q.toString() ? `?${q}` : ''
+  return api<DataBrowseResult>(`/admin/companies/${companyId}/data/${table}${suffix}`, { token })
+}
+
+export function updateDataRow(
+  token: string,
+  companyId: string,
+  table: string,
+  rowId: string,
+  patch: Record<string, unknown>
+) {
+  return api(`/admin/companies/${companyId}/data/${table}/${rowId}`, {
+    method: 'PATCH',
+    token,
+    body: JSON.stringify(patch)
+  })
+}
+
+export function softDeleteDataRow(token: string, companyId: string, table: string, rowId: string) {
+  return api(`/admin/companies/${companyId}/data/${table}/${rowId}/soft-delete`, {
+    method: 'POST',
+    token
+  })
+}
+
+export function restoreDataRow(token: string, companyId: string, table: string, rowId: string) {
+  return api(`/admin/companies/${companyId}/data/${table}/${rowId}/restore`, {
+    method: 'POST',
+    token
+  })
+}
+
+export function hardDeleteDataRow(token: string, companyId: string, table: string, rowId: string) {
+  return api(`/admin/companies/${companyId}/data/${table}/${rowId}`, {
+    method: 'DELETE',
+    token
   })
 }
