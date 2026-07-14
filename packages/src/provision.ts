@@ -263,18 +263,10 @@ export class CompanyDbPool {
     }
 
     const dbName = company.db_name as string
-    const knex = createCompanyKnex(
-      {
-        host: (company.db_host as string) || this.baseConfig.host,
-        port: (company.db_port as number) || this.baseConfig.port,
-        user: this.baseConfig.user,
-        password: this.baseConfig.password,
-        database: dbName,
-        ssl: this.baseConfig.ssl
-      },
-      dbName
-    )
+    if (!dbName) throw new Error(`Company has no db_name: ${companyId}`)
 
+    // Host/user/password/port/ssl from CONTROL_DATABASE_URL; only db name from company row.
+    const knex = createCompanyKnex(this.baseConfig, dbName)
     this.cache.set(companyId, knex)
     return knex
   }
