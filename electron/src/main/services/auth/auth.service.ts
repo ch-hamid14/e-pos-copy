@@ -1,5 +1,11 @@
 import jwt from 'jsonwebtoken'
-import { getDb, resetLocalCompanyDatabase } from '../../db'
+import { companyDbName } from '@madix/database'
+import {
+  getDb,
+  isDatabaseReady,
+  switchLocalCompanyDatabase,
+  wipeActiveLocalCompanyDatabase
+} from '../../db'
 import { IUser } from '../../../common/types'
 import { appState } from '../../state/app-state'
 import { getClientDeviceId, rotateClientDeviceId, rotateSyncNodeId } from '../device'
@@ -126,6 +132,8 @@ class AuthService {
       throw new Error(res.error || 'Login failed')
     }
 
+    await this.prepareCompanyLocalDb(res.data)
+
     const incomingCompanyId = (res.data.user.companyId as string) || ''
     const incomingCompanyName = (res.data.companyName as string) || 'this company'
     const gate = await this.evaluateCompanyGate(incomingCompanyId, incomingCompanyName)
@@ -135,7 +143,7 @@ class AuthService {
         return gate
       }
 
-      // Explicit WIPE confirmation discards local data, including unsynced changes.
+      // Explicit WIPE: drop this local tenant DB + rotate device (proxy / cleanup).
       await this.wipeAsFreshDevice(res.data.token as string)
 
       const freshRes = await apiFetch<any>('/auth/login', {
@@ -260,12 +268,14 @@ class AuthService {
       throw new Error(res.error || 'Session expired. Please login again.')
     }
 
+    await this.prepareCompanyLocalDb(res.data)
+
     const incomingCompanyId = (res.data.user.companyId as string) || ''
     const incomingCompanyName = (res.data.companyName as string) || 'this company'
     const gate = await this.evaluateCompanyGate(incomingCompanyId, incomingCompanyName)
     if (gate.status !== 'ok') {
       throw new Error(
-        `This POS is set up for "${gate.localCompanyName}". Sign in online with a password to switch companies.`
+        `This POS is set up for "${gate.localCompanyName}". Sign in online with a password to wipe and switch.`
       )
     }
 
@@ -290,6 +300,7 @@ class AuthService {
   }
 
   private async countPendingLocalChanges(): Promise<number> {
+    if (!isDatabaseReady()) return 0
     try {
       const state = await getDb()('sync_state').first()
       const since = Number(state?.last_pushed_sno) || 0
@@ -300,11 +311,33 @@ class AuthService {
     }
   }
 
+  /** Confirmed company DB only — refuse sign-in without dbName/companyId. */
+  private resolveLocalDbName(data: {
+    dbName?: string
+    user?: { companyId?: string | null }
+  }): string {
+    if (data.dbName?.trim()) return data.dbName.trim()
+    if (data.user?.companyId) return companyDbName(data.user.companyId)
+    throw new Error(
+      'This account has no company database. Create or assign a company before signing in on POS.'
+    )
+  }
+
+  /** Point local Postgres at the confirmed online company DB. Required before session. */
+  private async prepareCompanyLocalDb(data: {
+    dbName?: string
+    user?: { companyId?: string | null }
+  }): Promise<void> {
+    const dbName = this.resolveLocalDbName(data)
+    await switchLocalCompanyDatabase(dbName)
+  }
+
   private async evaluateCompanyGate(
     incomingCompanyId: string,
     incomingCompanyName: string
   ): Promise<CompanyGate> {
     if (!incomingCompanyId) return { status: 'ok' }
+    if (!isDatabaseReady()) return { status: 'ok' }
 
     let profile: { id: string; name?: string } | undefined
     try {
@@ -316,6 +349,7 @@ class AuthService {
     if (!profile?.id) return { status: 'ok' }
     if (profile.id === incomingCompanyId) return { status: 'ok' }
 
+    // Different company_profile inside this named DB (corrupt / reused name) — proxy WIPE.
     const localCompanyName = (profile.name as string) || 'another company'
     const pending = await this.countPendingLocalChanges()
     const pendingNote =
@@ -329,12 +363,15 @@ class AuthService {
       localCompanyName,
       incomingCompanyId,
       incomingCompanyName,
-      message: `This POS is set up for "${localCompanyName}". Signing in as "${incomingCompanyName}" requires wiping all local data and resetting this device identity.${pendingNote}`
+      message: `Local database for this company already has data for "${localCompanyName}". Signing in as "${incomingCompanyName}" requires wiping this local database and resetting device identity.${pendingNote}`
     }
   }
 
   private async assertOfflineCompanyMatch(sessionCompanyId: string | null): Promise<void> {
     if (!sessionCompanyId) return
+    if (!isDatabaseReady()) {
+      throw new Error('Local company database is not ready. Connect online and sign in.')
+    }
 
     let profile: { id: string; name?: string } | undefined
     try {
@@ -371,13 +408,13 @@ class AuthService {
     }
 
     appState.clearSession()
-    await resetLocalCompanyDatabase()
+    await wipeActiveLocalCompanyDatabase()
     rotateClientDeviceId()
     rotateSyncNodeId()
   }
 
   /**
-   * Tech-only factory reset: wipe local DB + device/sync identity.
+   * Tech-only factory reset: wipe active local company DB + device/sync identity.
    * Server release is best-effort; local wipe always proceeds.
    */
   async factoryResetPos(input: {
@@ -415,7 +452,7 @@ class AuthService {
     }
 
     appState.clearSession()
-    await resetLocalCompanyDatabase()
+    await wipeActiveLocalCompanyDatabase()
     rotateClientDeviceId()
     rotateSyncNodeId()
 
@@ -423,6 +460,8 @@ class AuthService {
   }
 
   private async handleAuthSuccess(data: any, email: string): Promise<LoginResult> {
+    await this.prepareCompanyLocalDb(data)
+
     const tokenExpiresAt =
       data.tokenExpiresAt ||
       (() => {

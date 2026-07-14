@@ -105,15 +105,26 @@ export async function cacheBootstrapData(data: any): Promise<void> {
     const exists = await db('role_permissions')
       .where({ role_id: rp.role_id, permission_id: rp.permission_id })
       .first()
-    if (!exists) {
-      await db('role_permissions').insert({
-        id: rp.id || generateId(),
-        role_id: rp.role_id,
-        permission_id: rp.permission_id,
-        created_at: toDate(rp.created_at),
-        updated_at: toDate(rp.updated_at)
-      })
+    if (exists) continue
+
+    const roleExists = await db('roles').where({ id: rp.role_id }).first()
+    if (!roleExists) {
+      console.warn('Skipping role_permissions: roles missing for', rp.role_id)
+      continue
     }
+    const permExists = await db('permissions').where({ id: rp.permission_id }).first()
+    if (!permExists) {
+      console.warn('Skipping role_permissions: permissions missing for', rp.permission_id)
+      continue
+    }
+
+    await db('role_permissions').insert({
+      id: rp.id || generateId(),
+      role_id: rp.role_id,
+      permission_id: rp.permission_id,
+      created_at: toDate(rp.created_at),
+      updated_at: toDate(rp.updated_at)
+    })
   }
 
   for (const u of data.users || []) {
@@ -134,15 +145,26 @@ export async function cacheBootstrapData(data: any): Promise<void> {
 
   for (const ur of data.userRoles || []) {
     const exists = await db('user_roles').where({ user_id: ur.user_id, role_id: ur.role_id }).first()
-    if (!exists) {
-      await db('user_roles').insert({
-        id: ur.id || generateId(),
-        user_id: ur.user_id,
-        role_id: ur.role_id,
-        created_at: toDate(ur.created_at),
-        updated_at: toDate(ur.updated_at)
-      })
+    if (exists) continue
+
+    const userExists = await db('user_profiles').where({ id: ur.user_id }).first()
+    if (!userExists) {
+      console.warn('Skipping user_roles: user_profiles missing for', ur.user_id)
+      continue
     }
+    const roleExists = await db('roles').where({ id: ur.role_id }).first()
+    if (!roleExists) {
+      console.warn('Skipping user_roles: roles missing for', ur.role_id)
+      continue
+    }
+
+    await db('user_roles').insert({
+      id: ur.id || generateId(),
+      user_id: ur.user_id,
+      role_id: ur.role_id,
+      created_at: toDate(ur.created_at),
+      updated_at: toDate(ur.updated_at)
+    })
   }
 }
 

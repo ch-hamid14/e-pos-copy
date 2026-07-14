@@ -12,9 +12,11 @@ import {
   createDatabase,
   parseConnectionUrl,
   remapClonedCompanyIds,
+  resetClonedCompanySync,
   teardownCompanyDatabase
 } from '@madix/database'
 import { companyDbPool, getCompanyDb } from '../../db'
+import { bootstrapCompanySync } from '../sync/bootstrap'
 import { signToken } from '../../utils/jwt'
 import { mapCompany } from './service'
 
@@ -296,6 +298,7 @@ export async function cloneCompany(
     )
     try {
       await remapClonedCompanyIds(companyKnex, sourceCompanyId, newId, newName)
+      await resetClonedCompanySync(companyKnex)
     } finally {
       await companyKnex.destroy()
     }
@@ -304,6 +307,9 @@ export async function cloneCompany(
       status: 'active',
       updated_at: new Date()
     })
+
+    const liveDb = await getCompanyDb(newId, { forOps: true })
+    await bootstrapCompanySync(newId, liveDb)
 
     return mapCompany(await controlDb('companies').where({ id: newId }).first())
   } catch (err) {

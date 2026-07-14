@@ -327,7 +327,7 @@ export const Login = () => {
   if (companyMismatch) {
     return (
       <>
-        <h2>Company mismatch</h2>
+        <h2>Company Mismatch</h2>
         <Alert
           type="error"
           showIcon
@@ -335,8 +335,9 @@ export const Login = () => {
           message={companyMismatch.message}
           description={
             <Typography.Paragraph className="mb-0 mt-2">
-              Wiping removes all local sales, stock, and unsynced offline changes for{' '}
-              <strong>{companyMismatch.localCompanyName}</strong> on this device.
+              Wiping removes local data for{' '}
+              <strong>{companyMismatch.localCompanyName}</strong> in this company database and
+              resets device identity.
             </Typography.Paragraph>
           }
         />

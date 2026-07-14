@@ -7,6 +7,18 @@ import {
   parseConnectionUrl,
   type PgConnectionConfig
 } from './connections'
+import { SYNC_TABLES } from './sync/tables'
+
+/** Matches sync-system sentinel HLC for never-captured rows. */
+export const SYNC_SENTINEL_HLC = '000000000000000-000000'
+
+const SYNC_META_TABLES = [
+  'sync_queue',
+  'sync_applied',
+  'sync_conflict',
+  'sync_dead_letter',
+  'sync_state'
+] as const
 
 export type ProvisionResult = {
   companyId: string
@@ -94,6 +106,41 @@ export async function remapClonedCompanyIds(
       })
     }
   })
+}
+
+/**
+ * After a TEMPLATE clone: drop copied sync history, mint a new node id,
+ * reset business-row HLCs to the sentinel so bootstrap() can re-enqueue.
+ */
+export async function resetClonedCompanySync(companyKnex: Knex): Promise<void> {
+  for (const table of SYNC_META_TABLES) {
+    if (await companyKnex.schema.hasTable(table)) {
+      await companyKnex(table).del()
+    }
+  }
+
+  if (await companyKnex.schema.hasTable('sync_clock')) {
+    await companyKnex('sync_clock').del()
+    await companyKnex('sync_clock').insert({ only_one: true, physical: 0, counter: 0 })
+  }
+
+  if (await companyKnex.schema.hasTable('sync_config')) {
+    const raw = await companyKnex.raw('SELECT gen_random_uuid() AS id')
+    const id = (raw.rows as Array<{ id: string }>)[0].id
+    const existing = await companyKnex('sync_config').first()
+    if (existing) {
+      await companyKnex('sync_config').update({ node_id: id })
+    } else {
+      await companyKnex('sync_config').insert({ only_one: true, node_id: id, role: 'authority' })
+    }
+  }
+
+  for (const table of SYNC_TABLES) {
+    if (!(await companyKnex.schema.hasTable(table))) continue
+    const hasHlc = await companyKnex.schema.hasColumn(table, 'hlc')
+    if (!hasHlc) continue
+    await companyKnex(table).update({ hlc: SYNC_SENTINEL_HLC })
+  }
 }
 
 export async function teardownCompanyDatabase(

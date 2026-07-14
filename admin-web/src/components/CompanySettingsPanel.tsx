@@ -181,19 +181,25 @@ export default function CompanySettingsPanel({ company, token, onChanged }: Prop
                 Modal.confirm({
                   title: 'Clone company database?',
                   content: (
-                    <Input
-                      defaultValue={name}
-                      onChange={(e) => {
-                        name = e.target.value
-                      }}
-                      style={{ marginTop: 12 }}
-                    />
+                    <div>
+                      <p style={{ marginBottom: 8 }}>
+                        Creates a new company DB with remapped ids, a fresh sync queue (not
+                        the source history), and the name below. Create users on the clone
+                        before POS login.
+                      </p>
+                      <Input
+                        defaultValue={name}
+                        onChange={(e) => {
+                          name = e.target.value
+                        }}
+                      />
+                    </div>
                   ),
                   onOk: async () => {
                     setBusy('clone')
                     try {
                       const cloned = await cloneCompany(token, company.id, name)
-                      message.success('Company cloned')
+                      message.success('Company cloned with fresh sync bootstrap')
                       navigate(`/companies/${cloned.id}`)
                     } catch (err: any) {
                       message.error(err.message)

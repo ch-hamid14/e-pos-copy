@@ -34,6 +34,8 @@ export type LoginResult =
       deviceId: string
       branchName?: string
       companyName?: string
+      /** Logical Postgres database name for this company (local POS mirrors this name). */
+      dbName?: string
       tokenExpiresAt: string
       offlineAllowedUntil: string
     }
@@ -127,6 +129,7 @@ async function issueSessionToken(
 
   let branchName: string | undefined
   let companyName: string | undefined
+  let dbName: string | undefined
 
   if (user.branch_id && companyDb) {
     const branch = await companyDb('branches').where({ id: user.branch_id }).first()
@@ -135,6 +138,7 @@ async function issueSessionToken(
   if (user.company_id) {
     const company = await controlDb('companies').where({ id: user.company_id }).first()
     companyName = company?.name
+    dbName = company?.db_name as string | undefined
   }
 
   const authUser: AuthUserResponse = {
@@ -171,6 +175,7 @@ async function issueSessionToken(
     deviceId,
     branchName,
     companyName,
+    dbName,
     tokenExpiresAt,
     offlineAllowedUntil
   }
@@ -361,7 +366,11 @@ export async function getBootstrapData(
     .select('id', 'company_id', 'branch_id', 'email', 'first_name', 'last_name', 'role', 'email_verified', 'created_at', 'updated_at')
   const userRoles = await companyDb('user_roles as ur')
     .join('user_profiles as u', 'ur.user_id', 'u.id')
+    .join('roles as r', 'ur.role_id', 'r.id')
     .where('u.company_id', companyId)
+    .andWhere('u.is_active', true)
+    .whereNull('u.deleted_at')
+    .whereNull('r.deleted_at')
     .select('ur.*')
 
   return {
