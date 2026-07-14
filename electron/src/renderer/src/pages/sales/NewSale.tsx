@@ -34,19 +34,20 @@ type SaleLine = {
   warrantyExpiryDate?: string
 }
 
+/** Round to whole rupees: ≥.5 up, ≤.4 (below .5) drop decimals — never keep a point value. */
+function roundAmount(n: number): number {
+  return Math.round(Number(n) || 0)
+}
+
 function calcLineTotal(line: Pick<SaleLine, 'salePrice' | 'taxPercent' | 'whtPercent'>) {
   const tax = (line.salePrice * line.taxPercent) / 100
   const wht = (line.salePrice * line.whtPercent) / 100
-  return Math.round((line.salePrice + tax + wht) * 100) / 100
-}
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100
+  return roundAmount(line.salePrice + tax + wht)
 }
 
 function calcDueAmount(grossTotal: number, paid: number, discount: number) {
   if (grossTotal <= 0) return 0
-  return Math.max(0, round2(grossTotal - paid - discount))
+  return Math.max(0, roundAmount(grossTotal - paid - discount))
 }
 
 export const NewSale = () => {
@@ -163,11 +164,11 @@ export const NewSale = () => {
 
   const removeLine = (key: string) => setLines((prev) => prev.filter((l) => l.key !== key))
 
-  const subtotal = lines.reduce((s, l) => s + l.salePrice, 0)
-  const totalTax = lines.reduce((s, l) => s + (l.salePrice * l.taxPercent) / 100, 0)
-  const totalWht = lines.reduce((s, l) => s + (l.salePrice * l.whtPercent) / 100, 0)
-  const grossTotal = round2(subtotal + totalTax + totalWht)
-  const maxDiscount = Math.max(0, round2(grossTotal - paidAmount))
+  const subtotal = roundAmount(lines.reduce((s, l) => s + l.salePrice, 0))
+  const totalTax = roundAmount(lines.reduce((s, l) => s + (l.salePrice * l.taxPercent) / 100, 0))
+  const totalWht = roundAmount(lines.reduce((s, l) => s + (l.salePrice * l.whtPercent) / 100, 0))
+  const grossTotal = roundAmount(subtotal + totalTax + totalWht)
+  const maxDiscount = Math.max(0, roundAmount(grossTotal - paidAmount))
 
   useEffect(() => {
     const due = calcDueAmount(grossTotal, paidAmount, discountAmount)
@@ -189,10 +190,10 @@ export const NewSale = () => {
     if ('paidAmount' in changed || 'discount' in changed) {
       if (paid + discount > grossTotal) {
         if ('discount' in changed) {
-          discount = round2(grossTotal - paid)
+          discount = roundAmount(grossTotal - paid)
           message.warning('Discount cannot exceed sale total minus amount paid')
         } else {
-          discount = round2(Math.max(0, grossTotal - paid))
+          discount = roundAmount(Math.max(0, grossTotal - paid))
         }
       }
 
@@ -216,7 +217,7 @@ export const NewSale = () => {
     const paid = Number(header.paidAmount || 0)
     const discount = Number(header.discount || 0)
     const due = calcDueAmount(grossTotal, paid, discount)
-    if (round2(paid + discount) > grossTotal) {
+    if (roundAmount(paid + discount) > grossTotal) {
       message.error('Paid amount + discount cannot exceed sale total')
       return
     }

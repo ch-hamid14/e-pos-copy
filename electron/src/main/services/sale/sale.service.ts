@@ -57,8 +57,9 @@ export type SaleListFilters = {
   sortOrder?: string
 }
 
+/** Round to whole rupees: ≥.5 up, below .5 drop decimals. */
 function round2(n: number): number {
-  return Math.round(n * 100) / 100
+  return Math.round(Number(n) || 0)
 }
 
 function calcLine(line: SaleLineInput) {
