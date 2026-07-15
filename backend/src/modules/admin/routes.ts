@@ -22,7 +22,8 @@ import {
   reseedCompanyPermissions,
   bootstrapSyncForCompany,
   unbindCompanyDevice,
-  deleteCompany
+  deleteCompany,
+  flushCompany
 } from './ops'
 import { writeAudit, listAuditLogs } from './audit'
 import {
@@ -53,7 +54,8 @@ import {
   createCompanySnapshot,
   listCompanySnapshots,
   restoreCompanySnapshot,
-  cloneCompany
+  cloneCompany,
+  runScheduledCompanySnapshots
 } from './platform'
 import { getCompanyDb } from '../../db'
 
@@ -275,7 +277,7 @@ export function adminRouter(db: Knex): Router {
 
   router.post('/companies/:id/snapshots', async (req: AuthRequest, res) => {
     try {
-      const snap = await createCompanySnapshot(db, req.params.id)
+      const snap = await createCompanySnapshot(db, req.params.id, { kind: 'manual' })
       await writeAudit(db, req, {
         action: 'company.snapshot',
         resource: 'database',
@@ -283,6 +285,24 @@ export function adminRouter(db: Knex): Router {
         detail: snap
       })
       res.status(201).json(snap)
+    } catch (err: any) {
+      res.status(400).json({ error: err.message })
+    }
+  })
+
+  router.post('/snapshots/run-scheduled', async (req: AuthRequest, res) => {
+    try {
+      const result = await runScheduledCompanySnapshots(db)
+      await writeAudit(db, req, {
+        action: 'company.snapshot.scheduled',
+        resource: 'database',
+        detail: {
+          total: result.total,
+          succeeded: result.succeeded,
+          failed: result.failed
+        }
+      })
+      res.json(result)
     } catch (err: any) {
       res.status(400).json({ error: err.message })
     }
@@ -544,6 +564,29 @@ export function adminRouter(db: Knex): Router {
         resource: 'company',
         companyId: req.params.id,
         detail: { confirmName }
+      })
+      res.json(result)
+    } catch (err: any) {
+      res.status(400).json({ error: err.message })
+    }
+  })
+
+  router.post('/companies/:id/flush', async (req: AuthRequest, res) => {
+    try {
+      const confirmName = String(req.body?.confirmName || '')
+      const result = await flushCompany(db, req.params.id, confirmName)
+      await writeAudit(db, req, {
+        action: 'company.flush',
+        resource: 'database',
+        companyId: req.params.id,
+        detail: {
+          confirmName,
+          snapshot: result.snapshot,
+          restored: result.restored,
+          branchCount: result.branchCount,
+          enqueued: result.enqueued,
+          devicesUnbound: result.devicesUnbound
+        }
       })
       res.json(result)
     } catch (err: any) {

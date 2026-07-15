@@ -1,13 +1,21 @@
 import type { Knex } from 'knex'
+import { randomUUID } from 'crypto'
 import {
   getCompanyMigrationStatus,
   runCompanyMigrations,
-  seedCompanyPermissions
+  seedCompanyPermissions,
+  provisionCompanyDatabase
 } from '@madix/database'
 import { companyDbPool, getCompanyDb, teardownCompanyDatabase } from '../../db'
 import { bootstrapCompanySync } from '../sync/bootstrap'
 import { clearSyncAuthority } from '../sync/authority'
 import { mapCompany } from './service'
+import {
+  createCompanySnapshot,
+  FLUSH_IDENTITY_TABLES,
+  insertRowsMatchingSchema,
+  unbindAllDevices
+} from './platform'
 
 async function requireCompany(controlDb: Knex, companyId: string) {
   const company = await controlDb('companies').where({ id: companyId }).first()
@@ -205,4 +213,151 @@ export async function deleteCompany(controlDb: Knex, companyId: string, confirmN
   })
 
   return { ok: true, companyId }
+}
+
+/**
+ * Demo → production reset: JSON snapshot, unbind devices, drop + reprovision
+ * company DB, reinsert identity rows with the same UUIDs, bootstrap sync.
+ * Control-plane company + users stay intact.
+ */
+export async function flushCompany(controlDb: Knex, companyId: string, confirmName: string) {
+  const company = await requireCompany(controlDb, companyId)
+  if (!confirmName || confirmName.trim() !== (company.name as string)) {
+    throw new Error('Confirmation name does not match company name')
+  }
+
+  const adminUrl = process.env.CONTROL_DATABASE_URL || ''
+  if (!adminUrl) throw new Error('CONTROL_DATABASE_URL is not set')
+
+  const snapshot = await createCompanySnapshot(controlDb, companyId, { kind: 'manual' })
+
+  const companyDb = await getCompanyDb(companyId, { forOps: true })
+  const identity: Record<string, Record<string, unknown>[]> = {}
+  for (const table of FLUSH_IDENTITY_TABLES) {
+    if (await companyDb.schema.hasTable(table)) {
+      const rows = await companyDb(table).select('*')
+      identity[table] = rows.map((row) => {
+        const out: Record<string, unknown> = {}
+        for (const [key, value] of Object.entries(row as Record<string, unknown>)) {
+          out[key] = value instanceof Date ? value.toISOString() : value
+        }
+        return out
+      })
+    } else {
+      identity[table] = []
+    }
+  }
+
+  const previousStatus = company.status as string
+  const previousMaintenance = Boolean(company.maintenance_mode)
+  let dbDropped = false
+
+  await controlDb('companies').where({ id: companyId }).update({
+    status: 'provisioning',
+    maintenance_mode: true,
+    updated_at: new Date()
+  })
+
+  try {
+    await unbindAllDevices(controlDb, companyId)
+
+    clearSyncAuthority(companyId)
+    await companyDbPool.evict(companyId).catch(() => {})
+    await teardownCompanyDatabase(adminUrl, companyId)
+    dbDropped = true
+
+    await provisionCompanyDatabase(controlDb, adminUrl, companyId, {
+      name: company.name as string,
+      email: (company.email as string) || undefined,
+      phone: (company.phone as string) || undefined
+    })
+
+    const freshDb = await getCompanyDb(companyId, { forOps: true })
+    await freshDb.raw(`SELECT set_config('session_replication_role', 'replica', true)`)
+
+    for (const table of FLUSH_IDENTITY_TABLES) {
+      const rows = identity[table] || []
+      if (!rows.length) continue
+      await insertRowsMatchingSchema(freshDb, table, rows)
+    }
+
+    if (!(identity.branches || []).length) {
+      const branchId = randomUUID()
+      const now = new Date()
+      await freshDb('branches').insert({
+        id: branchId,
+        company_id: companyId,
+        name: 'Main Branch',
+        location: '',
+        is_active: true,
+        created_at: now,
+        updated_at: now
+      })
+      await controlDb('users').where({ company_id: companyId }).update({
+        branch_id: branchId,
+        updated_at: now
+      })
+      identity.branches = [{ id: branchId }]
+    } else {
+      const branchIds = new Set(
+        (identity.branches || []).map((b) => String(b.id)).filter(Boolean)
+      )
+      const fallbackBranchId = String((identity.branches || [])[0].id)
+      const users = await controlDb('users').where({ company_id: companyId }).select('id', 'branch_id')
+      for (const user of users) {
+        if (user.branch_id && branchIds.has(String(user.branch_id))) continue
+        await controlDb('users').where({ id: user.id }).update({
+          branch_id: fallbackBranchId,
+          updated_at: new Date()
+        })
+      }
+    }
+
+    await freshDb.raw(`SELECT set_config('session_replication_role', 'origin', true)`)
+
+    const branchCount = Number(
+      (await freshDb('branches').where({ company_id: companyId }).whereNull('deleted_at').count('* as count').first())
+        ?.count ?? 0
+    )
+
+    clearSyncAuthority(companyId)
+    const enqueued = await bootstrapCompanySync(companyId, freshDb)
+
+    await controlDb('companies').where({ id: companyId }).update({
+      status: 'active',
+      maintenance_mode: false,
+      branch_count: branchCount,
+      updated_at: new Date()
+    })
+
+    return {
+      ok: true,
+      companyId,
+      snapshot,
+      restored: Object.fromEntries(
+        FLUSH_IDENTITY_TABLES.map((table) => [table, (identity[table] || []).length])
+      ),
+      branchCount,
+      enqueued,
+      devicesUnbound: true
+    }
+  } catch (err) {
+    await controlDb('companies')
+      .where({ id: companyId })
+      .update({
+        status: dbDropped ? 'provisioning' : previousStatus,
+        maintenance_mode: dbDropped ? true : previousMaintenance,
+        updated_at: new Date()
+      })
+      .catch(() => {})
+
+    const hint = dbDropped
+      ? ` Company left in provisioning; pre-flush snapshot: ${snapshot.filename}`
+      : ` Pre-flush snapshot: ${snapshot.filename}`
+    if (err instanceof Error) {
+      err.message = `${err.message}.${hint}`
+      throw err
+    }
+    throw new Error(`${String(err)}.${hint}`)
+  }
 }

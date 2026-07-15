@@ -1,8 +1,6 @@
 import type { Knex } from 'knex'
 import { randomUUID } from 'crypto'
 import bcrypt from 'bcryptjs'
-import { execFile } from 'child_process'
-import { promisify } from 'util'
 import fs from 'fs/promises'
 import path from 'path'
 import {
@@ -13,14 +11,15 @@ import {
   parseConnectionUrl,
   remapClonedCompanyIds,
   resetClonedCompanySync,
+  runCompanyMigrations,
   teardownCompanyDatabase
 } from '@madix/database'
 import { companyDbPool, getCompanyDb } from '../../db'
 import { bootstrapCompanySync } from '../sync/bootstrap'
+import { clearSyncAuthority } from '../sync/authority'
+import { runPgDump, runPsql } from '../../lib/pgDump'
 import { signToken } from '../../utils/jwt'
 import { mapCompany } from './service'
-
-const execFileAsync = promisify(execFile)
 
 export const DEFAULT_FEATURE_FLAGS: Record<string, boolean> = {
   inventory: true,
@@ -30,12 +29,219 @@ export const DEFAULT_FEATURE_FLAGS: Record<string, boolean> = {
   purchases: true
 }
 
-function snapshotDir() {
+/** Tables rebuilt after flush with the same primary keys. */
+export const FLUSH_IDENTITY_TABLES = [
+  'branches',
+  'roles',
+  'role_permissions',
+  'user_profiles',
+  'user_roles'
+] as const
+
+const PG_DUMP_EXCLUDE_TABLES = [
+  'sync_queue',
+  'sync_applied',
+  'sync_conflict',
+  'sync_dead_letter',
+  'sync_state',
+  'sync_clock',
+  'sync_config'
+]
+
+const SCHEDULED_RETENTION_DAYS = 7
+
+export type SnapshotKind = 'manual' | 'scheduled'
+
+export const SNAPSHOT_FORMAT_PG = 'madix-pg-dump-v1'
+export const SNAPSHOT_FORMAT_LEGACY = 'madix-company-sql-v1'
+
+function snapshotRootDir() {
   return process.env.SNAPSHOT_DIR || path.join(process.cwd(), 'snapshots')
 }
 
 function adminUrl() {
   return process.env.CONTROL_DATABASE_URL || ''
+}
+
+/** Safe folder name from company display name. */
+export function companySnapshotFolderName(companyName: string): string {
+  const cleaned =
+    companyName
+      .trim()
+      .replace(/[^a-zA-Z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 80) || 'company'
+  return cleaned
+}
+
+function pad2(n: number) {
+  return String(n).padStart(2, '0')
+}
+
+/** `{companyId}-{DD}-{MM}-{YYYY}.sql` or `...-manual-HHMMSS.sql` */
+export function buildSnapshotFilename(companyId: string, at: Date, kind: SnapshotKind): string {
+  const stamp = `${pad2(at.getDate())}-${pad2(at.getMonth() + 1)}-${at.getFullYear()}`
+  const base = `${companyId}-${stamp}`
+  if (kind === 'scheduled') return `${base}.sql`
+  const time = `${pad2(at.getHours())}${pad2(at.getMinutes())}${pad2(at.getSeconds())}`
+  return `${base}-manual-${time}.sql`
+}
+
+function isManualSnapshotFilename(filename: string): boolean {
+  return filename.toLowerCase().includes('manual')
+}
+
+function companySnapshotDir(companyName: string) {
+  return path.join(snapshotRootDir(), companySnapshotFolderName(companyName))
+}
+
+function pgDumpEnv(cfg: ReturnType<typeof parseConnectionUrl>): Record<string, string> {
+  return { PGPASSWORD: cfg.password || '' }
+}
+
+function buildSnapshotHeader(meta: {
+  companyId: string
+  companyName: string
+  dbName: string
+  kind: SnapshotKind
+  createdAt: string
+}): string {
+  const safeDb = meta.dbName.replace(/'/g, "''")
+  return [
+    '-- Madix company SQL snapshot',
+    `-- format: ${SNAPSHOT_FORMAT_PG}`,
+    `-- company_id: ${meta.companyId}`,
+    `-- company_name: ${meta.companyName.replace(/\n/g, ' ')}`,
+    `-- db_name: ${meta.dbName}`,
+    `-- kind: ${meta.kind}`,
+    `-- created_at: ${meta.createdAt}`,
+    '-- Generated with pg_dump. Sync meta tables omitted.',
+    '-- Restore: admin UI, or psql -d postgres -v ON_ERROR_STOP=1 -f this-file.sql (superuser)',
+    '',
+    'DO $madix$',
+    'BEGIN',
+    `  IF NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = '${safeDb}') THEN`,
+    `    EXECUTE format('CREATE DATABASE %I', '${safeDb}');`,
+    '  END IF;',
+    'END',
+    '$madix$;',
+    ''
+  ].join('\n')
+}
+
+/** Add IF NOT EXISTS to common CREATE statements for safer standalone restore. */
+function augmentPgDumpSql(sql: string): string {
+  return sql
+    .replace(/^CREATE TABLE /gm, 'CREATE TABLE IF NOT EXISTS ')
+    .replace(/^CREATE SEQUENCE /gm, 'CREATE SEQUENCE IF NOT EXISTS ')
+    .replace(/^CREATE INDEX /gm, 'CREATE INDEX IF NOT EXISTS ')
+    .replace(/^CREATE UNIQUE INDEX /gm, 'CREATE UNIQUE INDEX IF NOT EXISTS ')
+}
+
+async function dumpCompanyWithPgDump(
+  cfg: ReturnType<typeof parseConnectionUrl>,
+  dbName: string,
+  outPath: string
+) {
+  const args = [
+    '-h',
+    cfg.host,
+    '-p',
+    String(cfg.port),
+    '-U',
+    cfg.user,
+    '-d',
+    dbName,
+    '--no-owner',
+    '--no-acl',
+    '--format=plain',
+    '-f',
+    outPath
+  ]
+  for (const table of PG_DUMP_EXCLUDE_TABLES) {
+    args.push('--exclude-table', table)
+  }
+  await runPgDump(args, pgDumpEnv(cfg))
+}
+
+export async function insertRowsMatchingSchema(
+  db: Knex,
+  table: string,
+  rows: Record<string, unknown>[]
+) {
+  if (!rows.length) return 0
+  const info = await db(table).columnInfo()
+  const columns = new Set(Object.keys(info))
+  let inserted = 0
+  const chunkSize = 100
+  for (let i = 0; i < rows.length; i += chunkSize) {
+    const chunk = rows.slice(i, i + chunkSize).map((row) => {
+      const cleaned: Record<string, unknown> = {}
+      for (const [key, value] of Object.entries(row)) {
+        if (columns.has(key)) cleaned[key] = value
+      }
+      return cleaned
+    })
+    if (!chunk.length) continue
+    await db(table).insert(chunk)
+    inserted += chunk.length
+  }
+  return inserted
+}
+
+/** Delete scheduled (non-manual) snapshots older than 7 days; keep at most 7. */
+export async function pruneScheduledSnapshots(companyName: string, companyId: string) {
+  const dir = companySnapshotDir(companyName)
+  let files: string[] = []
+  try {
+    files = await fs.readdir(dir)
+  } catch {
+    return { deleted: [] as string[] }
+  }
+
+  const scheduled = files.filter(
+    (f) => f.startsWith(`${companyId}-`) && f.endsWith('.sql') && !isManualSnapshotFilename(f)
+  )
+
+  const cutoff = new Date()
+  cutoff.setHours(0, 0, 0, 0)
+  cutoff.setDate(cutoff.getDate() - (SCHEDULED_RETENTION_DAYS - 1))
+
+  const keep = new Set<string>()
+  const escapedId = companyId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const dateRe = new RegExp(`^${escapedId}-(\\d{2})-(\\d{2})-(\\d{4})\\.sql$`)
+
+  const dated: Array<{ filename: string; time: number }> = []
+  for (const filename of scheduled) {
+    const match = filename.match(dateRe)
+    if (!match) continue
+    const day = Number(match[1])
+    const month = Number(match[2])
+    const year = Number(match[3])
+    dated.push({ filename, time: new Date(year, month - 1, day).getTime() })
+  }
+
+  dated.sort((a, b) => b.time - a.time)
+  for (const item of dated) {
+    if (keep.size >= SCHEDULED_RETENTION_DAYS) break
+    if (item.time >= cutoff.getTime()) keep.add(item.filename)
+  }
+
+  // Cap at 7 even within the window (e.g. odd renames)
+  if (keep.size > SCHEDULED_RETENTION_DAYS) {
+    const ordered = dated.filter((d) => keep.has(d.filename))
+    keep.clear()
+    for (const item of ordered.slice(0, SCHEDULED_RETENTION_DAYS)) keep.add(item.filename)
+  }
+
+  const deleted: string[] = []
+  for (const filename of scheduled) {
+    if (keep.has(filename)) continue
+    await fs.unlink(path.join(dir, filename)).catch(() => {})
+    deleted.push(filename)
+  }
+
+  return { deleted }
 }
 
 export async function updateCompanyPlatformSettings(
@@ -155,60 +361,106 @@ export async function impersonateCompanyUser(
   }
 }
 
-export async function createCompanySnapshot(controlDb: Knex, companyId: string) {
+export async function createCompanySnapshot(
+  controlDb: Knex,
+  companyId: string,
+  options?: { kind?: SnapshotKind }
+) {
+  const kind: SnapshotKind = options?.kind || 'manual'
   const company = await controlDb('companies').where({ id: companyId }).first()
   if (!company) throw new Error('Company not found')
 
-  const dir = snapshotDir()
-  await fs.mkdir(dir, { recursive: true })
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-  const filename = `${company.db_name}-${stamp}.sql`
-  const filePath = path.join(dir, filename)
-
+  const companyName = company.name as string
+  const dbName = company.db_name as string
   const cfg = parseConnectionUrl(adminUrl())
-  await execFileAsync(
-    'pg_dump',
-    [
-      '-h', cfg.host,
-      '-p', String(cfg.port),
-      '-U', cfg.user,
-      '-d', company.db_name as string,
-      '-F', 'p',
-      '--no-owner',
-      '--no-acl',
-      '-f', filePath
-    ],
-    { env: { ...process.env, PGPASSWORD: cfg.password } }
-  )
+  const now = new Date()
+  const createdAt = now.toISOString()
+
+  const dir = companySnapshotDir(companyName)
+  await fs.mkdir(dir, { recursive: true })
+  const filename = buildSnapshotFilename(companyId, now, kind)
+  const filePath = path.join(dir, filename)
+  const tmpPath = `${filePath}.pgdump.tmp`
+  let tableCount = 0
+
+  try {
+    await dumpCompanyWithPgDump(cfg, dbName, tmpPath)
+    const body = augmentPgDumpSql(await fs.readFile(tmpPath, 'utf8'))
+    tableCount = (body.match(/^CREATE TABLE IF NOT EXISTS /gm) || []).length
+    const header = buildSnapshotHeader({
+      companyId,
+      companyName,
+      dbName,
+      kind,
+      createdAt
+    })
+    await fs.writeFile(filePath, `${header}\n${body}`, 'utf8')
+  } finally {
+    await fs.unlink(tmpPath).catch(() => {})
+  }
+
+  if (kind === 'scheduled') {
+    await pruneScheduledSnapshots(companyName, companyId)
+  }
 
   const stat = await fs.stat(filePath)
   return {
     filename,
+    folder: companySnapshotFolderName(companyName),
     size: stat.size,
-    createdAt: new Date().toISOString()
+    createdAt,
+    kind,
+    tableCount,
+    engine: 'pg_dump' as const
   }
 }
 
 export async function listCompanySnapshots(controlDb: Knex, companyId: string) {
   const company = await controlDb('companies').where({ id: companyId }).first()
   if (!company) throw new Error('Company not found')
-  const dir = snapshotDir()
+  const dir = companySnapshotDir(company.name as string)
   try {
     const files = await fs.readdir(dir)
-    const prefix = `${company.db_name}-`
     const items = []
-    for (const filename of files.filter((f) => f.startsWith(prefix) && f.endsWith('.sql'))) {
+    for (const filename of files.filter(
+      (f) => f.startsWith(`${companyId}-`) && f.endsWith('.sql')
+    )) {
       const stat = await fs.stat(path.join(dir, filename))
       items.push({
         filename,
+        folder: companySnapshotFolderName(company.name as string),
         size: stat.size,
-        createdAt: stat.mtime.toISOString()
+        createdAt: stat.mtime.toISOString(),
+        kind: isManualSnapshotFilename(filename) ? ('manual' as const) : ('scheduled' as const)
       })
     }
     items.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     return items
   } catch {
     return []
+  }
+}
+
+function assertSafeSnapshotFilename(companyId: string, filename: string) {
+  if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+    throw new Error('Invalid snapshot filename')
+  }
+  if (!filename.startsWith(`${companyId}-`) || !filename.endsWith('.sql')) {
+    throw new Error('Snapshot does not belong to this company')
+  }
+}
+
+async function executeSqlScript(db: Knex, sql: string) {
+  const withoutLineComments = sql
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('--'))
+    .join('\n')
+  const statements = withoutLineComments
+    .split(';')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  for (const statement of statements) {
+    await db.raw(statement)
   }
 }
 
@@ -219,37 +471,81 @@ export async function restoreCompanySnapshot(
 ) {
   const company = await controlDb('companies').where({ id: companyId }).first()
   if (!company) throw new Error('Company not found')
-  if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
-    throw new Error('Invalid snapshot filename')
-  }
-  if (!filename.startsWith(`${company.db_name}-`)) {
-    throw new Error('Snapshot does not belong to this company')
-  }
+  assertSafeSnapshotFilename(companyId, filename)
 
-  const filePath = path.join(snapshotDir(), filename)
-  await fs.access(filePath)
-
+  const filePath = path.join(companySnapshotDir(company.name as string), filename)
+  const sql = await fs.readFile(filePath, 'utf8')
   const cfg = parseConnectionUrl(adminUrl())
+  const dbName = company.db_name as string
+  const env = pgDumpEnv(cfg)
+
   await companyDbPool.evict(companyId)
-
-  // Recreate empty DB then restore dump
   await teardownCompanyDatabase(adminUrl(), companyId)
-  await createDatabase(cfg, company.db_name as string)
+  await createDatabase(cfg, dbName)
 
-  await execFileAsync(
-    'psql',
-    [
-      '-h', cfg.host,
-      '-p', String(cfg.port),
-      '-U', cfg.user,
-      '-d', company.db_name as string,
-      '-v', 'ON_ERROR_STOP=1',
-      '-f', filePath
-    ],
-    { env: { ...process.env, PGPASSWORD: cfg.password } }
-  )
+  if (sql.includes(SNAPSHOT_FORMAT_PG)) {
+    await runPsql(
+      ['-h', cfg.host, '-p', String(cfg.port), '-U', cfg.user, '-d', dbName, '-v', 'ON_ERROR_STOP=1', '-f', filePath],
+      env
+    )
+  } else if (sql.includes(SNAPSHOT_FORMAT_LEGACY)) {
+    const companyKnex = createCompanyKnex({ ...cfg, database: dbName }, dbName)
+    try {
+      await runCompanyMigrations(companyKnex)
+      await executeSqlScript(companyKnex, sql)
+    } finally {
+      await companyKnex.destroy()
+    }
+  } else {
+    throw new Error('Unsupported snapshot format')
+  }
 
-  return { ok: true }
+  clearSyncAuthority(companyId)
+  const liveDb = await getCompanyDb(companyId, { forOps: true })
+  const enqueued = await bootstrapCompanySync(companyId, liveDb)
+  return { ok: true, enqueued }
+}
+
+/** Daily scheduled snapshots for active/inactive companies; prunes to last 7 days. */
+export async function runScheduledCompanySnapshots(controlDb: Knex) {
+  const companies = await controlDb('companies')
+    .whereIn('status', ['active', 'inactive'])
+    .select('id', 'name')
+    .orderBy('created_at', 'asc')
+
+  const results: Array<{
+    companyId: string
+    name: string
+    ok: boolean
+    filename?: string
+    error?: string
+  }> = []
+
+  for (const company of companies) {
+    try {
+      const snap = await createCompanySnapshot(controlDb, company.id as string, { kind: 'scheduled' })
+      results.push({
+        companyId: company.id as string,
+        name: company.name as string,
+        ok: true,
+        filename: snap.filename
+      })
+    } catch (err) {
+      results.push({
+        companyId: company.id as string,
+        name: company.name as string,
+        ok: false,
+        error: err instanceof Error ? err.message : String(err)
+      })
+    }
+  }
+
+  return {
+    total: results.length,
+    succeeded: results.filter((r) => r.ok).length,
+    failed: results.filter((r) => !r.ok).length,
+    results
+  }
 }
 
 export async function cloneCompany(
@@ -292,10 +588,7 @@ export async function cloneCompany(
     await companyDbPool.evict(sourceCompanyId)
     await cloneDatabase(cfg, source.db_name as string, dbName)
 
-    const companyKnex = createCompanyKnex(
-      { ...cfg, database: dbName },
-      dbName
-    )
+    const companyKnex = createCompanyKnex({ ...cfg, database: dbName }, dbName)
     try {
       await remapClonedCompanyIds(companyKnex, sourceCompanyId, newId, newName)
       await resetClonedCompanySync(companyKnex)
@@ -320,4 +613,4 @@ export async function cloneCompany(
   }
 }
 
-export { snapshotDir }
+export { snapshotRootDir as snapshotDir }

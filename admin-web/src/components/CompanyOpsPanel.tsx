@@ -5,6 +5,7 @@ import {
   Descriptions,
   Input,
   Modal,
+  Space,
   Table,
   Tag,
   Typography,
@@ -13,6 +14,7 @@ import {
 import {
   bootstrapSync,
   deleteCompany,
+  flushCompany,
   getCompanyOps,
   migrateCompany,
   reseedPermissions,
@@ -39,7 +41,9 @@ export default function CompanyOpsPanel({
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [flushOpen, setFlushOpen] = useState(false)
   const [confirmName, setConfirmName] = useState('')
+  const [flushConfirmName, setFlushConfirmName] = useState('')
 
   const load = async () => {
     setLoading(true)
@@ -173,17 +177,32 @@ export default function CompanyOpsPanel({
         <div className="madix-ops-card madix-danger-zone">
           <h3>Danger zone</h3>
           <p className="madix-ops-card__desc">
-            Permanently delete this company, users, devices, and online database.
+            Flush resets demo/operational data for a clean production start. Delete removes the
+            company entirely.
           </p>
-          <Button
-            danger
-            onClick={() => {
-              setConfirmName('')
-              setDeleteOpen(true)
-            }}
-          >
-            Delete company
-          </Button>
+          <Space direction="vertical" style={{ width: '100%' }}>
+            <Button
+              danger
+              block
+              onClick={() => {
+                setFlushConfirmName('')
+                setFlushOpen(true)
+              }}
+            >
+              Flush company data
+            </Button>
+            <Button
+              danger
+              block
+              type="primary"
+              onClick={() => {
+                setConfirmName('')
+                setDeleteOpen(true)
+              }}
+            >
+              Delete company
+            </Button>
+          </Space>
         </div>
       </div>
 
@@ -234,6 +253,53 @@ export default function CompanyOpsPanel({
           ]}
         />
       </div>
+
+      <Modal
+        title="Flush company data"
+        open={flushOpen}
+        okText="Flush database"
+        okButtonProps={{
+          danger: true,
+          disabled: flushConfirmName.trim() !== companyName,
+          loading: busy === 'flush'
+        }}
+        onCancel={() => setFlushOpen(false)}
+        onOk={async () => {
+          setBusy('flush')
+          try {
+            const result = await flushCompany(token, companyId, flushConfirmName)
+            message.success(
+              `Flushed. Snapshot ${result.snapshot?.filename || 'saved'}; devices unbound.`
+            )
+            setFlushOpen(false)
+            await load()
+            onChanged?.()
+          } catch (err: any) {
+            message.error(err.message)
+          } finally {
+            setBusy(null)
+          }
+        }}
+      >
+        <Typography.Paragraph>
+          This drops the company database and recreates it empty. Control-plane logins stay
+          intact. Branches, roles, and user profiles are reinserted with the same IDs. Sales,
+          inventory, customers, and catalog are wiped. Sync starts clean. All POS devices are
+          unbound and must sign in again.
+        </Typography.Paragraph>
+        <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
+          A JSON snapshot is written first. If flush fails after the drop, the company stays in
+          provisioning until repaired.
+        </Typography.Paragraph>
+        <Typography.Paragraph>
+          Type <Typography.Text code>{companyName}</Typography.Text> to confirm.
+        </Typography.Paragraph>
+        <Input
+          value={flushConfirmName}
+          onChange={(e) => setFlushConfirmName(e.target.value)}
+          placeholder={companyName}
+        />
+      </Modal>
 
       <Modal
         title="Delete company"

@@ -6,6 +6,8 @@
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "build": "tsc",
+    "ensure-pg-dump": "node scripts/ensure-pg-dump.js",
+    "postinstall": "node scripts/ensure-pg-dump.js || true",
     "migrate": "npx knex migrate:latest --knexfile knexfile.ts",
     "migrate:control": "npx knex migrate:latest --knexfile knexfile.ts",
     "migrate:rollback": "npx knex migrate:rollback --knexfile knexfile.ts"

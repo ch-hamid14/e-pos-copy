@@ -191,6 +191,8 @@ export type AuditLog = {
 
 export type SnapshotInfo = {
   filename: string
+  folder?: string
   size: number
   createdAt: string
+  kind?: 'manual' | 'scheduled'
 }

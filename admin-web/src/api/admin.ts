@@ -131,6 +131,22 @@ export function deleteCompany(token: string, id: string, confirmName: string) {
   })
 }
 
+export function flushCompany(token: string, id: string, confirmName: string) {
+  return api<{
+    ok: boolean
+    companyId: string
+    snapshot: SnapshotInfo & { tableCount?: number; rowCount?: number }
+    restored: Record<string, number>
+    branchCount: number
+    enqueued: Record<string, number>
+    devicesUnbound: boolean
+  }>(`/admin/companies/${id}/flush`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ confirmName })
+  })
+}
+
 export function cloneCompany(token: string, id: string, name?: string) {
   return api<Company>(`/admin/companies/${id}/clone`, {
     method: 'POST',

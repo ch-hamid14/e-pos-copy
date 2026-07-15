@@ -218,7 +218,8 @@ export default function CompanySettingsPanel({ company, token, onChanged }: Prop
         <div className="madix-ops-card">
           <h3>Snapshots</h3>
           <p className="madix-ops-card__desc">
-            Requires pg_dump/psql on the backend host. Creates a SQL dump of the company DB.
+            pg_dump SQL in snapshots/{company.name}/. Manual files include &quot;manual&quot; in the name. Nightly cron keeps at
+            most 7 scheduled files.
           </p>
           <Button
             type="primary"
@@ -228,7 +229,7 @@ export default function CompanySettingsPanel({ company, token, onChanged }: Prop
               setBusy('snap')
               try {
                 await createSnapshot(token, company.id)
-                message.success('Snapshot created')
+                message.success('Manual snapshot created')
                 loadSnaps()
               } catch (err: any) {
                 message.error(err.message)
@@ -247,6 +248,13 @@ export default function CompanySettingsPanel({ company, token, onChanged }: Prop
             locale={{ emptyText: 'No snapshots yet' }}
             columns={[
               { title: 'File', dataIndex: 'filename', ellipsis: true },
+              {
+                title: 'Kind',
+                dataIndex: 'kind',
+                width: 100,
+                render: (k: string | undefined, row: SnapshotInfo) =>
+                  k || (row.filename.includes('manual') ? 'manual' : 'scheduled')
+              },
               {
                 title: 'Size',
                 dataIndex: 'size',

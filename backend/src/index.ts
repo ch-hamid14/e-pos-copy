@@ -5,6 +5,7 @@ import { adminRouter } from './modules/admin/routes'
 import { syncRouter } from './modules/sync/routes'
 import { requestLogger } from './middleware/request-logger'
 import { controlDb } from './db'
+import { startSnapshotCron } from './jobs/snapshotCron'
 
 const app = express()
 const port = process.env.PORT || 4000
@@ -23,6 +24,10 @@ app.use('/api/sync', syncRouter(controlDb))
 
 app.listen(port, () => {
   console.log(`Backend running on http://localhost:${port}`)
+  startSnapshotCron(controlDb)
+  console.log(
+    `Snapshot cron armed (daily at hour ${process.env.SNAPSHOT_CRON_HOUR ?? 2} local, retention 7 days)`
+  )
 })
 
 export { controlDb }
