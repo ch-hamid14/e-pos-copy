@@ -28,7 +28,7 @@ export const DueSales = () => {
 
   const load = () => {
     setLoading(true)
-    saleAPI.due(companyId, branchId, audit()).then(setData).finally(() => setLoading(false))
+    saleAPI.due(companyId, branchId).then(setData).finally(() => setLoading(false))
   }
 
   useEffect(() => {
