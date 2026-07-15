@@ -48,19 +48,25 @@ export function mapSaleDetailToThermalReceipt(detail: any, companyName: string):
     customerPhone: sale.customer?.phone,
     customerCnic: sale.customer?.cnic,
     customerAddress: sale.customer?.address,
-    lines: (detail.lines || []).map((line: any) => ({
-      serialNumber: line.serialNumber,
-      motorNumber: line.motorNumber,
-      productName: line.productName,
-      categoryName: line.categoryName,
-      productDescription: line.productDescription,
-      colorName: line.colorName,
-      salePrice: Number(line.salePrice ?? 0),
-      taxPercent: Number(line.taxPercent ?? 0),
-      taxAmount: Number(line.taxAmount ?? 0),
-      whtAmount: Number(line.whtAmount ?? 0),
-      lineTotal: Number(line.lineTotal ?? 0)
-    })),
+    lines: (detail.lines || []).map((line: any) => {
+      const quantity = Math.max(1, Number(line.quantity || 1))
+      const unitPrice = Number(line.salePrice ?? 0)
+      return {
+        lineType: line.lineType === 'part' ? 'part' : 'product',
+        serialNumber: line.serialNumber,
+        motorNumber: line.motorNumber,
+        productName: line.productName,
+        categoryName: line.categoryName,
+        productDescription: line.productDescription,
+        colorName: line.colorName,
+        quantity,
+        salePrice: unitPrice * quantity,
+        taxPercent: Number(line.taxPercent ?? 0),
+        taxAmount: Number(line.taxAmount ?? 0),
+        whtAmount: Number(line.whtAmount ?? 0),
+        lineTotal: Number(line.lineTotal ?? 0)
+      }
+    }),
     subtotal: Number(sale.subtotal ?? 0),
     totalTax: Number(sale.totalTax ?? 0),
     totalWht: Number(sale.totalWht ?? 0),
@@ -104,12 +110,18 @@ export function ThermalReceipt({ data }: { data: ThermalReceiptData }) {
         {data.lines.map((line, index) => {
           const title = [line.categoryName, line.productName].filter(Boolean).join(' · ')
           return (
-            <article key={`${line.serialNumber}-${index}`} className="thermal-item">
+            <article key={`${line.serialNumber || line.productName}-${index}`} className="thermal-item">
               <div className="thermal-item__head">
                 <span className="thermal-item__index">{String(index + 1).padStart(2, '0')}</span>
                 <span className="thermal-item__name">{title || 'Item'}</span>
                 <span className="thermal-item__total">{fmt(line.lineTotal)}</span>
               </div>
+              {line.lineType === 'part' && (
+                <div className="thermal-item__detail">
+                  <span>Qty</span>
+                  <span>{Math.max(1, Number(line.quantity || 1))}</span>
+                </div>
+              )}
               {line.serialNumber && (
                 <div className="thermal-item__detail">
                   <span>Chassis</span>

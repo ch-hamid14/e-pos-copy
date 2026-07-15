@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { App_Routes } from '@/common'
 import { categoryAPI, partAPI, partStockAPI, supplierAPI } from '@/renderer/services'
 import { useSession } from '@/renderer/hooks/useSession'
-import { PageHeader } from '../shared/page-ui'
+import { formatRs, PageHeader } from '../shared/page-ui'
 
 const { Text } = Typography
 const { RangePicker } = DatePicker
@@ -174,6 +174,18 @@ export const PartStock = () => {
               dataIndex: 'quantityOnHand',
               align: 'right' as const,
               render: (v) => <Text strong>{Number(v || 0)}</Text>
+            },
+            {
+              title: 'Retail price',
+              dataIndex: 'sellingPrice',
+              align: 'right' as const,
+              render: (v) => formatRs(Number(v || 0))
+            },
+            {
+              title: 'Avg cost',
+              dataIndex: 'averageCost',
+              align: 'right' as const,
+              render: (v) => formatRs(Number(v || 0))
             },
             {
               title: '',

@@ -3,12 +3,14 @@ import { amountInWords } from '@/renderer/utils/amountInWords'
 import { formatInvoiceAmount, formatInvoicePrice, roundInvoiceAmount } from '@/renderer/utils/invoiceFormat'
 
 export type SaleInvoiceLine = {
-  serialNumber: string
+  lineType?: 'product' | 'part'
+  serialNumber?: string
   motorNumber?: string
   productName?: string
   categoryName?: string
   productDescription?: string
   colorName?: string
+  quantity?: number
   salePrice: number
   taxPercent: number
   taxAmount: number
@@ -63,26 +65,31 @@ export function mapSaleDetailToInvoice(detail: any, companyName: string): SaleIn
   if (!detail?.sale) return null
   const sale = detail.sale
   const lines: SaleInvoiceLine[] = (detail.lines || []).map((line: any) => {
-    const salePrice = roundInvoiceAmount(line.salePrice ?? 0)
+    const quantity = Math.max(1, Number(line.quantity || 1))
+    const unitPrice = Number(line.salePrice ?? 0)
+    const extended = roundInvoiceAmount(unitPrice * quantity)
     const taxAmount = roundInvoiceAmount(line.taxAmount ?? 0)
     const whtAmount = roundInvoiceAmount(line.whtAmount ?? 0)
 
     return {
-      serialNumber: line.serialNumber,
+      lineType: line.lineType === 'part' ? 'part' : 'product',
+      serialNumber: line.serialNumber || undefined,
       motorNumber: line.motorNumber,
       productName: line.productName,
       categoryName: line.categoryName,
       productDescription: line.productDescription,
       colorName: line.colorName,
-      salePrice,
+      quantity,
+      salePrice: extended,
       taxPercent: Number(line.taxPercent ?? 0),
       taxAmount,
       whtAmount,
-      lineTotal: roundInvoiceAmount(salePrice + taxAmount + whtAmount)
+      lineTotal: roundInvoiceAmount(extended + taxAmount + whtAmount)
     }
   })
 
   const netTotal = lines.reduce((sum, line) => sum + line.lineTotal, 0)
+  const productLines = lines.filter((l) => l.lineType !== 'part')
 
   return {
     billNo: sale.billNo ?? '—',
@@ -91,10 +98,10 @@ export function mapSaleDetailToInvoice(detail: any, companyName: string): SaleIn
     customerAddress: sale.customer?.address,
     customerCnic: sale.customer?.cnic,
     customerPhone: sale.customer?.phone,
-    motorNumber: joinUnique(lines.map((l) => l.motorNumber)),
-    chassisNumber: joinUnique(lines.map((l) => l.serialNumber)),
-    model: joinUnique(lines.map((l) => l.productName)),
-    colour: joinUnique(lines.map((l) => l.colorName)),
+    motorNumber: joinUnique(productLines.map((l) => l.motorNumber)),
+    chassisNumber: joinUnique(productLines.map((l) => l.serialNumber)),
+    model: joinUnique(productLines.map((l) => l.productName)),
+    colour: joinUnique(productLines.map((l) => l.colorName)),
     notes: sale.notes || undefined,
     lines,
     netTotal,
@@ -103,7 +110,7 @@ export function mapSaleDetailToInvoice(detail: any, companyName: string): SaleIn
 }
 
 export function SaleInvoice({ data }: { data: SaleInvoiceData }) {
-  const totalQty = data.lines.length
+  const totalQty = data.lines.reduce((sum, line) => sum + Math.max(1, Number(line.quantity || 1)), 0)
   const dated = dayjs(data.saleDate).format('DD-MMM-YYYY')
 
   return (
@@ -150,9 +157,10 @@ export function SaleInvoice({ data }: { data: SaleInvoiceData }) {
                 line.taxPercent % 1 === 0
                   ? `Sale Tax S.T @ ${line.taxPercent}%`
                   : `Sale Tax S.T @ ${line.taxPercent}%`
+              const qty = Math.max(1, Number(line.quantity || 1))
 
               return (
-                <tr key={`${line.serialNumber}-${index}`}>
+                <tr key={`${line.serialNumber || line.productName}-${index}`}>
                   <td className="col-sr">{String(index + 1).padStart(2, '0')}</td>
                   <td className="col-particulars">
                     <div className="sale-invoice-particulars">
@@ -174,7 +182,7 @@ export function SaleInvoice({ data }: { data: SaleInvoiceData }) {
                       <div className="sale-invoice-particulars-desc">{description}</div>
                     </div>
                   </td>
-                  <td className="col-qty">01</td>
+                  <td className="col-qty">{String(qty).padStart(2, '0')}</td>
                   <td className="col-amount">{formatInvoiceAmount(line.lineTotal)}</td>
                 </tr>
               )

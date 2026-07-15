@@ -13,6 +13,14 @@ export type ApplyPartStockDeltaParams = {
   referenceId?: string
   notes?: string
   ctx: AuditContext
+  /** Net unit cost for this movement (used on PURCHASE to update average_cost). */
+  unitCost?: number
+  /** Retail / selling price set on PURCHASE. */
+  sellingPrice?: number
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100
 }
 
 /** Upserts part_stocks and appends a part_stock_movements row. Returns quantity after change. */
@@ -29,7 +37,9 @@ export async function applyPartStockDelta(
     referenceType,
     referenceId,
     notes,
-    ctx
+    ctx,
+    unitCost,
+    sellingPrice
   } = params
 
   if (!Number.isFinite(deltaQty) || deltaQty === 0) {
@@ -50,6 +60,8 @@ export async function applyPartStockDelta(
         branch_id: branchId,
         part_id: partId,
         quantity_on_hand: deltaQty,
+        average_cost: round2(Number(unitCost || 0)),
+        selling_price: round2(Number(sellingPrice ?? unitCost ?? 0)),
         ...auditCreate(ctx),
         created_at: now,
         updated_at: now
@@ -57,14 +69,29 @@ export async function applyPartStockDelta(
       .returning('*')
     stock = created
   } else {
-    const nextQty = Number(stock.quantity_on_hand) + deltaQty
+    const prevQty = Number(stock.quantity_on_hand)
+    const nextQty = prevQty + deltaQty
     if (nextQty < 0) throw new Error('Insufficient part stock')
+
+    const patch: Record<string, unknown> = {
+      quantity_on_hand: nextQty,
+      ...auditUpdate(ctx)
+    }
+
+    if (deltaQty > 0 && unitCost !== undefined) {
+      const prevCost = Number(stock.average_cost || 0)
+      const incoming = Number(unitCost || 0)
+      patch.average_cost =
+        nextQty <= 0 ? 0 : round2((prevQty * prevCost + deltaQty * incoming) / nextQty)
+    }
+
+    if (sellingPrice !== undefined) {
+      patch.selling_price = round2(Number(sellingPrice || 0))
+    }
+
     const [updated] = await trx('part_stocks')
       .where({ id: stock.id })
-      .update({
-        quantity_on_hand: nextQty,
-        ...auditUpdate(ctx)
-      })
+      .update(patch)
       .returning('*')
     stock = updated
   }

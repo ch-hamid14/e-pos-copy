@@ -8,6 +8,7 @@ import {
 import { getDb, withTransaction } from '../../db'
 import { generateId } from '../../../common/utils/uuid'
 import { computeCustomerBalance } from '../customer/customer.service'
+import { applyPartStockDelta } from '../part/part-stock.helpers'
 import {
   AUDIT_USER_SELECT,
   type AuditContext,
@@ -20,8 +21,13 @@ import {
 } from '../shared/audit.helpers'
 import { asJson, asJsonList } from '../shared/json.helpers'
 
+export type SaleLineType = 'product' | 'part'
+
 export type SaleLineInput = {
-  productItemId: string
+  lineType?: SaleLineType
+  productItemId?: string
+  partId?: string
+  quantity?: number
   salePrice: number
   taxPercent?: number
   whtPercent?: number
@@ -62,14 +68,51 @@ function round2(n: number): number {
   return Math.round(Number(n) || 0)
 }
 
+function normalizeLineType(line: SaleLineInput): SaleLineType {
+  if (line.lineType === 'part' || line.partId) return 'part'
+  return 'product'
+}
+
 function calcLine(line: SaleLineInput) {
-  const salePrice = Number(line.salePrice || 0)
+  const quantity = Math.max(1, Math.floor(Number(line.quantity || 1)))
+  const unitPrice = Number(line.salePrice || 0)
+  const extended = unitPrice * quantity
   const taxPercent = Number(line.taxPercent || 0)
   const whtPercent = Number(line.whtPercent || 0)
-  const taxAmount = round2((salePrice * taxPercent) / 100)
-  const whtAmount = round2((salePrice * whtPercent) / 100)
-  const lineTotal = round2(salePrice + taxAmount + whtAmount)
-  return { salePrice, taxPercent, whtPercent, taxAmount, whtAmount, lineTotal }
+  const taxAmount = round2((extended * taxPercent) / 100)
+  const whtAmount = round2((extended * whtPercent) / 100)
+  const lineTotal = round2(extended + taxAmount + whtAmount)
+  return {
+    quantity,
+    unitPrice,
+    extended,
+    taxPercent,
+    whtPercent,
+    taxAmount,
+    whtAmount,
+    lineTotal
+  }
+}
+
+type LineCalc = {
+  lineType: SaleLineType
+  line: SaleLineInput
+  productItem?: Record<string, unknown>
+  partId?: string
+  productName: string
+  categoryName: string
+  colorName: string
+  serialNumber: string | null
+  warrantyActive: boolean
+  warrantyExpiry: Date | null
+  quantity: number
+  unitPrice: number
+  extended: number
+  taxPercent: number
+  whtPercent: number
+  taxAmount: number
+  whtAmount: number
+  lineTotal: number
 }
 
 class SaleService {
@@ -111,6 +154,7 @@ class SaleService {
             lineBuilder
               .whereILike('sl.serial_number', term)
               .orWhereILike('pi.motor_number', term)
+              .orWhereILike('sl.product_name', term)
           })
       )
     }
@@ -184,8 +228,14 @@ class SaleService {
     const lines = await getDb()('sale_lines as sl')
       .leftJoin('product_items as pi', 'pi.id', 'sl.product_item_id')
       .leftJoin('products as pr', 'pr.id', 'pi.product_id')
+      .leftJoin('parts as pt', 'pt.id', 'sl.part_id')
       .where({ 'sl.sale_id': id })
-      .select('sl.*', 'pi.motor_number', 'pr.description as product_description')
+      .select(
+        'sl.*',
+        'pi.motor_number',
+        'pr.description as product_description',
+        'pt.description as part_description'
+      )
       .orderBy('sl.created_at', 'asc')
     const payments = await getDb()('payments').where({ sale_id: id }).orderBy('payment_date', 'asc')
 
@@ -200,7 +250,13 @@ class SaleService {
           cnic: sale.customer_cnic
         }
       },
-      lines: asJsonList(lines),
+      lines: lines.map((line) => ({
+        ...asJson(line)!,
+        productDescription:
+          line.line_type === 'part'
+            ? line.part_description || line.product_description
+            : line.product_description
+      })),
       payments: asJsonList(payments)
     }
   }
@@ -211,7 +267,7 @@ class SaleService {
     ctx: AuditContext,
     payload: CreateSalePayload
   ): Promise<unknown> {
-    if (!payload.lines?.length) throw new Error('Add at least one unit')
+    if (!payload.lines?.length) throw new Error('Add at least one line')
     if (!payload.customerId) throw new Error('Select a customer')
 
     const customer = await getDb()('customers')
@@ -220,65 +276,101 @@ class SaleService {
       .first()
     if (!customer) throw new Error('Customer not found')
 
-    const itemIds = payload.lines.map((l) => l.productItemId)
-    if (new Set(itemIds).size !== itemIds.length) throw new Error('Duplicate units in this sale')
+    const productIds = payload.lines
+      .filter((l) => normalizeLineType(l) === 'product')
+      .map((l) => l.productItemId)
+      .filter(Boolean) as string[]
+    if (new Set(productIds).size !== productIds.length) {
+      throw new Error('Duplicate product units in this sale')
+    }
 
     return withTransaction(async (transaction) => {
-      type LineCalc = {
-        line: SaleLineInput
-        item: Record<string, unknown>
-        productName: string
-        categoryName: string
-        colorName: string
-        warrantyActive: boolean
-        warrantyExpiry: Date | null
-        salePrice: number
-        taxPercent: number
-        whtPercent: number
-        taxAmount: number
-        whtAmount: number
-        lineTotal: number
-      }
       const lineCalcs: LineCalc[] = []
 
       for (const line of payload.lines) {
-        const item = await getDb()('product_items as pi')
-          .transacting(transaction)
-          .leftJoin('products as pr', 'pi.product_id', 'pr.id')
-          .leftJoin('categories as c', 'pi.category_id', 'c.id')
-          .leftJoin('colors as co', 'pi.color_id', 'co.id')
-          .where({ 'pi.id': line.productItemId })
-          .select('pi.*', 'pr.name as product_name', 'c.name as category_name', 'co.name as color_name')
-          .first()
+        const lineType = normalizeLineType(line)
+        const amounts = calcLine(line)
 
-        if (!item || item.company_id !== companyId) throw new Error('Unit not found')
-        if (item.current_branch_id !== branchId) {
-          throw new Error(`Serial ${item.serial_number} is not at this branch`)
-        }
-        if (item.status !== ProductItemStatus.IN_STOCK) {
-          throw new Error(`Serial ${item.serial_number} is not available for sale`)
-        }
+        if (lineType === 'product') {
+          if (!line.productItemId) throw new Error('Select a product unit for every product line')
+          if (amounts.quantity !== 1) throw new Error('Product lines must have quantity 1')
 
-        const warrantyActive = Boolean(line.warrantyActive)
-        const warrantyExpiry =
-          warrantyActive && line.warrantyExpiryDate ? new Date(line.warrantyExpiryDate) : null
-        if (warrantyActive && !warrantyExpiry) {
-          throw new Error(`Warranty expiry required for serial ${item.serial_number}`)
-        }
+          const item = await getDb()('product_items as pi')
+            .transacting(transaction)
+            .leftJoin('products as pr', 'pi.product_id', 'pr.id')
+            .leftJoin('categories as c', 'pi.category_id', 'c.id')
+            .leftJoin('colors as co', 'pi.color_id', 'co.id')
+            .where({ 'pi.id': line.productItemId })
+            .select('pi.*', 'pr.name as product_name', 'c.name as category_name', 'co.name as color_name')
+            .first()
 
-        lineCalcs.push({
-          line,
-          item,
-          productName: (item.product_name as string) || '',
-          categoryName: (item.category_name as string) || '',
-          colorName: (item.color_name as string) || '',
-          warrantyActive,
-          warrantyExpiry,
-          ...calcLine(line)
-        })
+          if (!item || item.company_id !== companyId) throw new Error('Unit not found')
+          if (item.current_branch_id !== branchId) {
+            throw new Error(`Serial ${item.serial_number} is not at this branch`)
+          }
+          if (item.status !== ProductItemStatus.IN_STOCK) {
+            throw new Error(`Serial ${item.serial_number} is not available for sale`)
+          }
+
+          const warrantyActive = Boolean(line.warrantyActive)
+          const warrantyExpiry =
+            warrantyActive && line.warrantyExpiryDate ? new Date(line.warrantyExpiryDate) : null
+          if (warrantyActive && !warrantyExpiry) {
+            throw new Error(`Warranty expiry required for serial ${item.serial_number}`)
+          }
+
+          lineCalcs.push({
+            lineType,
+            line,
+            productItem: item,
+            productName: (item.product_name as string) || '',
+            categoryName: (item.category_name as string) || '',
+            colorName: (item.color_name as string) || '',
+            serialNumber: (item.serial_number as string) || null,
+            warrantyActive,
+            warrantyExpiry,
+            ...amounts
+          })
+        } else {
+          if (!line.partId) throw new Error('Select a part for every part line')
+          if (amounts.quantity <= 0) throw new Error('Part quantity must be a positive whole number')
+
+          const part = await getDb()('parts as p')
+            .transacting(transaction)
+            .leftJoin('categories as c', 'p.category_id', 'c.id')
+            .where({ 'p.id': line.partId, 'p.company_id': companyId })
+            .whereNull('p.deleted_at')
+            .select('p.*', 'c.name as category_name')
+            .first()
+          if (!part) throw new Error('Part not found')
+
+          const stock = await getDb()('part_stocks')
+            .transacting(transaction)
+            .where({ company_id: companyId, branch_id: branchId, part_id: line.partId })
+            .first()
+          const available = Number(stock?.quantity_on_hand || 0)
+          if (available < amounts.quantity) {
+            throw new Error(
+              `Insufficient stock for ${part.name}: available ${available}, requested ${amounts.quantity}`
+            )
+          }
+
+          lineCalcs.push({
+            lineType,
+            line,
+            partId: line.partId,
+            productName: (part.name as string) || '',
+            categoryName: (part.category_name as string) || '',
+            colorName: '',
+            serialNumber: null,
+            warrantyActive: false,
+            warrantyExpiry: null,
+            ...amounts
+          })
+        }
       }
 
-      const subtotal = round2(lineCalcs.reduce((s, l) => s + l.salePrice, 0))
+      const subtotal = round2(lineCalcs.reduce((s, l) => s + l.extended, 0))
       const totalTax = round2(lineCalcs.reduce((s, l) => s + l.taxAmount, 0))
       const totalWht = round2(lineCalcs.reduce((s, l) => s + l.whtAmount, 0))
       const discount = round2(Number(payload.discount || 0))
@@ -296,25 +388,27 @@ class SaleService {
         dueAmount > 0 && payload.dueReminderDate ? new Date(payload.dueReminderDate) : null
       const [sale] = await getDb()('sales')
         .transacting(transaction)
-        .insert(withAuditCreateWithDevice(ctx, {
-          id: generateId(),
-          company_id: companyId,
-          branch_id: branchId,
-          customer_id: payload.customerId,
-          sale_date: saleDate,
-          subtotal,
-          discount,
-          total_tax: totalTax,
-          total_wht: totalWht,
-          net_total: netTotal,
-          paid_amount: paidAmount,
-          due_amount: dueAmount,
-          due_reminder_date: dueReminderDate,
-          notes: payload.notes?.trim() || null,
-          status: SaleStatus.COMPLETED,
-          created_at: new Date(),
-          updated_at: new Date()
-        }))
+        .insert(
+          withAuditCreateWithDevice(ctx, {
+            id: generateId(),
+            company_id: companyId,
+            branch_id: branchId,
+            customer_id: payload.customerId,
+            sale_date: saleDate,
+            subtotal,
+            discount,
+            total_tax: totalTax,
+            total_wht: totalWht,
+            net_total: netTotal,
+            paid_amount: paidAmount,
+            due_amount: dueAmount,
+            due_reminder_date: dueReminderDate,
+            notes: payload.notes?.trim() || null,
+            status: SaleStatus.COMPLETED,
+            created_at: new Date(),
+            updated_at: new Date()
+          })
+        )
         .returning('*')
 
       const saleId = sale.id as string
@@ -322,53 +416,97 @@ class SaleService {
       const lineAudit = auditCreate(ctx)
 
       for (const row of lineCalcs) {
-        const item = row.item
-        const [saleLine] = await getDb()('sale_lines')
-          .transacting(transaction)
-          .insert({
-            id: generateId(),
-            sale_id: saleId,
-            product_item_id: item.id,
-            serial_number: item.serial_number,
-            product_name: row.productName,
-            category_name: row.categoryName,
-            color_name: row.colorName,
-            sale_price: row.salePrice,
-            tax_percent: row.taxPercent,
-            tax_amount: row.taxAmount,
-            wht_percent: row.whtPercent,
-            wht_amount: row.whtAmount,
-            line_total: row.lineTotal,
+        if (row.lineType === 'product') {
+          const item = row.productItem!
+          const [saleLine] = await getDb()('sale_lines')
+            .transacting(transaction)
+            .insert({
+              id: generateId(),
+              sale_id: saleId,
+              line_type: 'product',
+              product_item_id: item.id,
+              part_id: null,
+              quantity: 1,
+              serial_number: item.serial_number,
+              product_name: row.productName,
+              category_name: row.categoryName,
+              color_name: row.colorName,
+              sale_price: row.unitPrice,
+              tax_percent: row.taxPercent,
+              tax_amount: row.taxAmount,
+              wht_percent: row.whtPercent,
+              wht_amount: row.whtAmount,
+              line_total: row.lineTotal,
+              warranty_active: row.warrantyActive,
+              warranty_expiry_date: row.warrantyExpiry,
+              ...lineAudit,
+              created_at: new Date()
+            })
+            .returning('*')
+
+          await getDb()('product_items').transacting(transaction).where({ id: item.id }).update({
+            status: ProductItemStatus.SOLD,
+            selling_price: row.unitPrice,
             warranty_active: row.warrantyActive,
             warranty_expiry_date: row.warrantyExpiry,
+            sold_at: new Date(),
+            version: Number(item.version || 1) + 1,
+            ...auditUpdate(ctx)
+          })
+
+          await getDb()('inventory_movements').transacting(transaction).insert({
+            id: generateId(),
+            company_id: companyId,
+            product_item_id: item.id,
+            movement_type: MovementType.SALE,
+            from_branch_id: branchId,
+            reference_type: 'sale',
+            reference_id: saleId,
             ...lineAudit,
             created_at: new Date()
           })
-          .returning('*')
 
-        await getDb()('product_items').transacting(transaction).where({ id: item.id }).update({
-          status: ProductItemStatus.SOLD,
-          selling_price: row.salePrice,
-          warranty_active: row.warrantyActive,
-          warranty_expiry_date: row.warrantyExpiry,
-          sold_at: new Date(),
-          version: Number(item.version || 1) + 1,
-          ...auditUpdate(ctx)
-        })
+          createdLines.push(asJson(saleLine)!)
+        } else {
+          const [saleLine] = await getDb()('sale_lines')
+            .transacting(transaction)
+            .insert({
+              id: generateId(),
+              sale_id: saleId,
+              line_type: 'part',
+              product_item_id: null,
+              part_id: row.partId,
+              quantity: row.quantity,
+              serial_number: null,
+              product_name: row.productName,
+              category_name: row.categoryName,
+              color_name: null,
+              sale_price: row.unitPrice,
+              tax_percent: row.taxPercent,
+              tax_amount: row.taxAmount,
+              wht_percent: row.whtPercent,
+              wht_amount: row.whtAmount,
+              line_total: row.lineTotal,
+              warranty_active: false,
+              warranty_expiry_date: null,
+              ...lineAudit,
+              created_at: new Date()
+            })
+            .returning('*')
 
-        await getDb()('inventory_movements').transacting(transaction).insert({
-          id: generateId(),
-          company_id: companyId,
-          product_item_id: item.id,
-          movement_type: MovementType.SALE,
-          from_branch_id: branchId,
-          reference_type: 'sale',
-          reference_id: saleId,
-          ...lineAudit,
-          created_at: new Date()
-        })
+          await applyPartStockDelta(transaction, {
+            companyId,
+            branchId,
+            partId: row.partId!,
+            deltaQty: -row.quantity,
+            movementType: MovementType.SALE,
+            referenceType: 'sale',
+            referenceId: saleId,
+            ctx
+          })
 
-        createdLines.push(asJson(saleLine)!)
+          createdLines.push(asJson(saleLine)!)
+        }
       }
 
       let balance = await computeCustomerBalance(payload.customerId, transaction)

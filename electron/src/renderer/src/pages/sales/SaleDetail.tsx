@@ -146,12 +146,28 @@ export const SaleDetail = () => {
           dataSource={detail.lines || []}
           pagination={false}
           columns={[
-            { title: 'Chassis Number', dataIndex: 'serialNumber' },
+            {
+              title: 'Type',
+              dataIndex: 'lineType',
+              width: 90,
+              render: (v: string) => (v === 'part' ? <Tag color="blue">Part</Tag> : <Tag>Product</Tag>)
+            },
+            {
+              title: 'Chassis',
+              dataIndex: 'serialNumber',
+              render: (v: string) => v || '—'
+            },
             { title: 'Motor', dataIndex: 'motorNumber', render: (v) => v || '—' },
-            { title: 'Product', dataIndex: 'productName' },
+            { title: 'Name', dataIndex: 'productName' },
             { title: 'Category', dataIndex: 'categoryName', render: (v) => v || '—' },
+            {
+              title: 'Qty',
+              dataIndex: 'quantity',
+              align: 'right' as const,
+              render: (v) => Number(v || 1)
+            },
             { title: 'Color', dataIndex: 'colorName', render: (v) => v || '—' },
-            { title: 'Price', dataIndex: 'salePrice', align: 'right' as const, render: formatRs },
+            { title: 'Unit price', dataIndex: 'salePrice', align: 'right' as const, render: formatRs },
             { title: 'Tax', dataIndex: 'taxAmount', align: 'right' as const, render: formatRs },
             { title: 'WHT', dataIndex: 'whtAmount', align: 'right' as const, render: formatRs },
             { title: 'Total', dataIndex: 'lineTotal', align: 'right' as const, render: formatRs }

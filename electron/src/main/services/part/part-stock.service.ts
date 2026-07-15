@@ -69,6 +69,7 @@ class PartStockService {
         'ps.*',
         'p.name as part_name',
         'p.category_id as part_category_id',
+        'p.default_sale_price as part_default_sale_price',
         'c.name as category_name'
       )
       .orderBy('p.name', 'asc')
@@ -79,8 +80,17 @@ class PartStockService {
       total,
       items: rows.map((r) => ({
         ...asJson(r)!,
-        part: r.part_name ? { id: r.part_id, name: r.part_name, categoryId: r.part_category_id } : null,
-        category: r.category_name ? { name: r.category_name } : null
+        part: r.part_name
+          ? {
+              id: r.part_id,
+              name: r.part_name,
+              categoryId: r.part_category_id,
+              defaultSalePrice: Number(r.part_default_sale_price || 0)
+            }
+          : null,
+        category: r.category_name ? { name: r.category_name } : null,
+        sellingPrice: Number(r.selling_price || r.part_default_sale_price || 0),
+        averageCost: Number(r.average_cost || 0)
       }))
     }
   }
@@ -109,12 +119,18 @@ class PartStockService {
         category: part.category_name ? { name: part.category_name } : null
       },
       stock: stock
-        ? asJson(stock)
+        ? {
+            ...asJson(stock)!,
+            sellingPrice: Number(stock.selling_price || 0),
+            averageCost: Number(stock.average_cost || 0)
+          }
         : {
             companyId,
             branchId,
             partId,
-            quantityOnHand: 0
+            quantityOnHand: 0,
+            sellingPrice: Number(part.default_sale_price || 0),
+            averageCost: Number(part.default_purchase_price || 0)
           },
       movements: movements.map((m) => asJson(m)!)
     }

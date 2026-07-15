@@ -143,13 +143,19 @@ export const PartPurchaseDetail = () => {
             },
             { title: 'Units', dataIndex: 'quantity', align: 'right' as const },
             {
-              title: 'Unit cost',
+              title: 'Retail',
+              dataIndex: 'unitSalePrice',
+              align: 'right' as const,
+              render: (v: number, r: any) => formatRs(Number(v ?? r.unitCost ?? 0))
+            },
+            {
+              title: 'Net cost',
               dataIndex: 'unitCost',
               align: 'right' as const,
               render: formatRs
             },
             {
-              title: 'Line total',
+              title: 'Line total (cost)',
               align: 'right' as const,
               render: (_: unknown, r: any) =>
                 formatRs(Number(r.quantity || 0) * Number(r.unitCost || 0))

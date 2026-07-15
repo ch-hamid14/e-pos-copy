@@ -19,7 +19,12 @@ export type PartPurchaseLineInput = {
   id?: string
   partId: string
   quantity: number
+  /** Net unit cost after discounts (what we pay). */
   unitCost: number
+  /** Retail / selling unit price. */
+  unitSalePrice?: number
+  specialDiscount?: number
+  specialDiscountType?: 'pkr' | 'percent'
 }
 
 export type CreatePartPurchasePayload = {
@@ -48,10 +53,17 @@ function normalizeLines(lines: PartPurchaseLineInput[]): PartPurchaseLineInput[]
     if (!Number.isFinite(quantity) || quantity <= 0) {
       throw new Error('Quantity must be a positive whole number')
     }
+    const unitCost = Number(line.unitCost || 0)
+    const unitSalePrice = Number(
+      line.unitSalePrice !== undefined ? line.unitSalePrice : unitCost
+    )
     return {
       ...line,
       quantity,
-      unitCost: Number(line.unitCost || 0)
+      unitCost,
+      unitSalePrice,
+      specialDiscount: Number(line.specialDiscount || 0),
+      specialDiscountType: line.specialDiscountType === 'percent' ? 'percent' : 'pkr'
     }
   })
 }
@@ -222,6 +234,9 @@ class PartPurchaseService {
             category_id: part.category_id,
             quantity: line.quantity,
             unit_cost: line.unitCost,
+            unit_sale_price: line.unitSalePrice ?? line.unitCost,
+            special_discount: line.specialDiscount || 0,
+            special_discount_type: line.specialDiscountType || 'pkr',
             ...lineAudit,
             created_at: new Date(),
             updated_at: new Date()
@@ -236,8 +251,20 @@ class PartPurchaseService {
           movementType: MovementType.PURCHASE,
           referenceType: 'part_purchase',
           referenceId: purchaseId,
+          unitCost: line.unitCost,
+          sellingPrice: line.unitSalePrice ?? line.unitCost,
           ctx
         })
+
+        await getDb()('parts')
+          .transacting(transaction)
+          .where({ id: line.partId })
+          .update(
+            withAuditUpdate(ctx, {
+              default_purchase_price: line.unitCost,
+              default_sale_price: line.unitSalePrice ?? line.unitCost
+            })
+          )
 
         createdLines.push(created)
       }
@@ -332,6 +359,8 @@ class PartPurchaseService {
               referenceType: 'part_purchase',
               referenceId: id,
               notes: 'Part changed on purchase line',
+              unitCost: line.unitCost,
+              sellingPrice: line.unitSalePrice ?? line.unitCost,
               ctx
             })
           } else {
@@ -346,8 +375,20 @@ class PartPurchaseService {
                 referenceType: 'part_purchase',
                 referenceId: id,
                 notes: 'Updated parts purchase quantity',
+                unitCost: qtyDiff > 0 ? line.unitCost : undefined,
+                sellingPrice: line.unitSalePrice ?? line.unitCost,
                 ctx
               })
+            } else {
+              // Price-only change — refresh retail without qty / cost average churn
+              await getDb()('part_stocks')
+                .transacting(transaction)
+                .where({ company_id: companyId, branch_id: branchId, part_id: line.partId })
+                .update(
+                  withAuditUpdate(ctx, {
+                    selling_price: line.unitSalePrice ?? line.unitCost
+                  })
+                )
             }
           }
 
@@ -359,7 +400,20 @@ class PartPurchaseService {
                 part_id: line.partId,
                 category_id: part.category_id,
                 quantity: line.quantity,
-                unit_cost: line.unitCost
+                unit_cost: line.unitCost,
+                unit_sale_price: line.unitSalePrice ?? line.unitCost,
+                special_discount: line.specialDiscount || 0,
+                special_discount_type: line.specialDiscountType || 'pkr'
+              })
+            )
+
+          await getDb()('parts')
+            .transacting(transaction)
+            .where({ id: line.partId })
+            .update(
+              withAuditUpdate(ctx, {
+                default_purchase_price: line.unitCost,
+                default_sale_price: line.unitSalePrice ?? line.unitCost
               })
             )
         } else {
@@ -373,6 +427,9 @@ class PartPurchaseService {
               category_id: part.category_id,
               quantity: line.quantity,
               unit_cost: line.unitCost,
+              unit_sale_price: line.unitSalePrice ?? line.unitCost,
+              special_discount: line.specialDiscount || 0,
+              special_discount_type: line.specialDiscountType || 'pkr',
               ...lineAudit,
               created_at: new Date(),
               updated_at: new Date()
@@ -386,8 +443,20 @@ class PartPurchaseService {
             movementType: MovementType.PURCHASE,
             referenceType: 'part_purchase',
             referenceId: id,
+            unitCost: line.unitCost,
+            sellingPrice: line.unitSalePrice ?? line.unitCost,
             ctx
           })
+
+          await getDb()('parts')
+            .transacting(transaction)
+            .where({ id: line.partId })
+            .update(
+              withAuditUpdate(ctx, {
+                default_purchase_price: line.unitCost,
+                default_sale_price: line.unitSalePrice ?? line.unitCost
+              })
+            )
         }
       }
 

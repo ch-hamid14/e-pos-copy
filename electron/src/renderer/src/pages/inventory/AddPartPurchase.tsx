@@ -19,6 +19,13 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { App_Routes } from '@/common'
 import { partAPI, partPurchaseAPI, supplierAPI } from '@/renderer/services'
 import { useSession } from '@/renderer/hooks/useSession'
+import {
+  applySupplierDiscount,
+  formatSupplierDiscount,
+  round2,
+  SUPPLIER_DISCOUNT_TYPE_OPTIONS,
+  type SupplierDiscountType
+} from '@/renderer/utils/supplierDiscount'
 import { formatRs, PageHeader } from '../shared/page-ui'
 
 const { Text } = Typography
@@ -30,7 +37,23 @@ type PartPurchaseLine = {
   partName: string
   categoryName: string
   quantity: number
+  /** Retail (list) unit price entered by user. */
+  listPrice: number
+  /** Net unit cost after supplier + special discounts. */
   unitCost: number
+  specialDiscount: number
+  specialDiscountType: SupplierDiscountType
+}
+
+function computeNetPrice(
+  listPrice: number,
+  supplierDiscount: number,
+  supplierDiscountType: SupplierDiscountType,
+  specialDiscount: number,
+  specialDiscountType: SupplierDiscountType
+): number {
+  const afterSupplier = applySupplierDiscount(listPrice, supplierDiscount, supplierDiscountType)
+  return applySupplierDiscount(afterSupplier, specialDiscount, specialDiscountType)
 }
 
 export const AddPartPurchase = () => {
@@ -47,13 +70,22 @@ export const AddPartPurchase = () => {
   const [headerForm] = Form.useForm()
   const [lineForm] = Form.useForm()
 
+  const lineSpecialDiscount = Number(Form.useWatch('specialDiscount', lineForm) || 0)
+  const lineSpecialDiscountType: SupplierDiscountType =
+    Form.useWatch('specialDiscountType', lineForm) === 'percent' ? 'percent' : 'pkr'
+
   useEffect(() => {
     if (!companyId) return
     supplierAPI.list(companyId).then(setSuppliers)
     partAPI.list(companyId).then(setParts)
     if (!isEdit) {
       headerForm.setFieldsValue({ purchaseDate: dayjs() })
-      lineForm.setFieldsValue({ quantity: 1, unitCost: 0 })
+      lineForm.setFieldsValue({
+        quantity: 1,
+        purchasePrice: 0,
+        specialDiscount: 0,
+        specialDiscountType: 'pkr'
+      })
     }
   }, [companyId, headerForm, lineForm, isEdit])
 
@@ -84,7 +116,10 @@ export const AddPartPurchase = () => {
             partName: line.part?.name || '—',
             categoryName: line.category?.name || '—',
             quantity: Number(line.quantity || 0),
-            unitCost: Number(line.unitCost || 0)
+            listPrice: Number(line.unitSalePrice ?? line.unitCost ?? 0),
+            unitCost: Number(line.unitCost || 0),
+            specialDiscount: Number(line.specialDiscount || 0),
+            specialDiscountType: line.specialDiscountType === 'percent' ? 'percent' : 'pkr'
           }))
         )
       })
@@ -96,18 +131,60 @@ export const AddPartPurchase = () => {
   }, [id, isEdit, navigate, headerForm])
 
   const partMap = useMemo(() => new Map(parts.map((p) => [p.id, p])), [parts])
+  const supplierMap = useMemo(() => new Map(suppliers.map((s) => [s.id, s])), [suppliers])
   const partOptions = parts.map((p) => ({
     value: p.id,
     label: `${p.name}${p.category?.name ? ` · ${p.category.name}` : ''}`
   }))
   const supplierOptions = suppliers.map((s) => ({ value: s.id, label: s.name }))
 
+  const selectedSupplierId = Form.useWatch('supplierId', headerForm)
+  const selectedSupplier = selectedSupplierId ? supplierMap.get(selectedSupplierId) : undefined
+  const supplierDiscount = Number(selectedSupplier?.discount || 0)
+  const supplierDiscountType: SupplierDiscountType =
+    selectedSupplier?.discountType === 'percent' ? 'percent' : 'pkr'
+  const hasSupplierDiscount = supplierDiscount > 0
+  const hasSpecialDiscount = lines.some((l) => l.specialDiscount > 0)
+  const hasDiscount = hasSupplierDiscount || hasSpecialDiscount
+  const showNetPreview = hasSupplierDiscount || lineSpecialDiscount > 0
+
+  const enteredListPrice = Number(Form.useWatch('purchasePrice', lineForm) || 0)
+  const previewNetPrice = computeNetPrice(
+    enteredListPrice,
+    supplierDiscount,
+    supplierDiscountType,
+    lineSpecialDiscount,
+    lineSpecialDiscountType
+  )
+
   const selectedPartId = Form.useWatch('partId', lineForm)
   const categoryPreview = selectedPartId ? partMap.get(selectedPartId)?.category?.name || '—' : '—'
 
+  const recalcLines = (supplier?: { discount?: number; discountType?: string }) => {
+    const sDiscount = Number(supplier?.discount || 0)
+    const sType: SupplierDiscountType = supplier?.discountType === 'percent' ? 'percent' : 'pkr'
+    setLines((prev) =>
+      prev.map((line) => ({
+        ...line,
+        unitCost: computeNetPrice(
+          line.listPrice,
+          sDiscount,
+          sType,
+          line.specialDiscount,
+          line.specialDiscountType
+        )
+      }))
+    )
+  }
+
   const resetLineForm = () => {
     lineForm.resetFields()
-    lineForm.setFieldsValue({ quantity: 1, unitCost: 0 })
+    lineForm.setFieldsValue({
+      quantity: 1,
+      purchasePrice: 0,
+      specialDiscount: 0,
+      specialDiscountType: 'pkr'
+    })
     setEditingKey(null)
   }
 
@@ -125,6 +202,11 @@ export const AddPartPurchase = () => {
         return
       }
 
+      const listPrice = Number(values.purchasePrice || 0)
+      const specialDiscount = Number(values.specialDiscount || 0)
+      const specialDiscountType: SupplierDiscountType =
+        values.specialDiscountType === 'percent' ? 'percent' : 'pkr'
+
       const nextLine: PartPurchaseLine = {
         key: editingKey || `${values.partId}-${Date.now()}`,
         id: editingKey ? lines.find((l) => l.key === editingKey)?.id : undefined,
@@ -132,7 +214,16 @@ export const AddPartPurchase = () => {
         partName: part.name,
         categoryName: part.category?.name || '—',
         quantity,
-        unitCost: Number(values.unitCost || 0)
+        listPrice,
+        specialDiscount,
+        specialDiscountType,
+        unitCost: computeNetPrice(
+          listPrice,
+          supplierDiscount,
+          supplierDiscountType,
+          specialDiscount,
+          specialDiscountType
+        )
       }
 
       setLines((prev) =>
@@ -149,7 +240,9 @@ export const AddPartPurchase = () => {
     lineForm.setFieldsValue({
       partId: line.partId,
       quantity: line.quantity,
-      unitCost: line.unitCost
+      purchasePrice: line.listPrice,
+      specialDiscount: line.specialDiscount,
+      specialDiscountType: line.specialDiscountType
     })
   }
 
@@ -159,7 +252,8 @@ export const AddPartPurchase = () => {
   }
 
   const totalUnits = lines.reduce((sum, l) => sum + l.quantity, 0)
-  const totalValue = lines.reduce((sum, l) => sum + l.quantity * l.unitCost, 0)
+  const grossTotal = round2(lines.reduce((sum, l) => sum + l.quantity * l.listPrice, 0))
+  const netTotal = round2(lines.reduce((sum, l) => sum + l.quantity * l.unitCost, 0))
 
   const handleSubmit = async () => {
     try {
@@ -177,7 +271,10 @@ export const AddPartPurchase = () => {
           id: l.id,
           partId: l.partId,
           quantity: l.quantity,
-          unitCost: l.unitCost
+          unitCost: l.unitCost,
+          unitSalePrice: l.listPrice,
+          specialDiscount: l.specialDiscount,
+          specialDiscountType: l.specialDiscountType
         }))
       }
 
@@ -224,7 +321,7 @@ export const AddPartPurchase = () => {
 
       <PageHeader
         title={isEdit ? 'Edit Parts Purchase' : 'Add Parts Purchase'}
-        subtitle="Receive spare parts by quantity — stock is tracked as available units."
+        subtitle="Receive spare parts by quantity — set retail price (same discount flow as products)."
       />
 
       <Card bordered={false} className="shadow-sm mb-4">
@@ -235,7 +332,13 @@ export const AddPartPurchase = () => {
               label="Supplier"
               rules={[{ required: true, message: 'Select a supplier' }]}
             >
-              <Select options={supplierOptions} placeholder="Select supplier" showSearch optionFilterProp="label" />
+              <Select
+                options={supplierOptions}
+                placeholder="Select supplier"
+                showSearch
+                optionFilterProp="label"
+                onChange={(supplierId) => recalcLines(supplierMap.get(supplierId))}
+              />
             </Form.Item>
             <Form.Item
               name="purchaseDate"
@@ -248,6 +351,11 @@ export const AddPartPurchase = () => {
               <Input placeholder="Optional notes" />
             </Form.Item>
           </div>
+          {hasSupplierDiscount && (
+            <Text type="secondary">
+              Supplier discount: {formatSupplierDiscount(supplierDiscount, supplierDiscountType)}
+            </Text>
+          )}
         </Form>
       </Card>
 
@@ -265,19 +373,39 @@ export const AddPartPurchase = () => {
             <Form.Item label="Category">
               <Input value={categoryPreview} disabled />
             </Form.Item>
-            <Form.Item
-              name="quantity"
-              label="Units"
-              rules={[{ required: true, message: 'Enter units' }]}
-            >
+            <Form.Item name="quantity" label="Units" rules={[{ required: true, message: 'Enter units' }]}>
               <InputNumber min={1} step={1} precision={0} className="w-full" />
             </Form.Item>
-            <Form.Item name="unitCost" label="Unit cost" rules={[{ required: true, message: 'Enter cost' }]}>
+            <Form.Item name="purchasePrice" label="Retail price" rules={[{ required: true }]}>
               <InputNumber min={0} className="w-full" />
             </Form.Item>
+            <Form.Item name="specialDiscountType" label="Special Discount Type">
+              <Select options={[...SUPPLIER_DISCOUNT_TYPE_OPTIONS]} />
+            </Form.Item>
+            <Form.Item
+              name="specialDiscount"
+              label={lineSpecialDiscountType === 'percent' ? 'Special Discount %' : 'Special Discount (PKR)'}
+              rules={[
+                { type: 'number', min: 0, message: 'Discount cannot be negative' },
+                ...(lineSpecialDiscountType === 'percent'
+                  ? [{ type: 'number' as const, max: 100, message: 'Discount must be between 0 and 100' }]
+                  : [])
+              ]}
+            >
+              <InputNumber
+                className="w-full"
+                min={0}
+                max={lineSpecialDiscountType === 'percent' ? 100 : undefined}
+              />
+            </Form.Item>
+            {showNetPreview && (
+              <Form.Item label="Net cost / unit">
+                <Input value={formatRs(previewNetPrice)} disabled />
+              </Form.Item>
+            )}
           </div>
           <Space>
-            <Button type="primary" icon={<PlusOutlined />} onClick={addLine}>
+            <Button type="primary" icon={editingKey ? <EditOutlined /> : <PlusOutlined />} onClick={addLine}>
               {editingKey ? 'Update line' : 'Add line'}
             </Button>
             {editingKey && <Button onClick={resetLineForm}>Cancel edit</Button>}
@@ -295,21 +423,44 @@ export const AddPartPurchase = () => {
             { title: 'Part', dataIndex: 'partName', render: (v) => <Text strong>{v}</Text> },
             { title: 'Category', dataIndex: 'categoryName' },
             { title: 'Units', dataIndex: 'quantity', align: 'right' as const },
+            ...(hasDiscount
+              ? [
+                  {
+                    title: 'Retail Price',
+                    dataIndex: 'listPrice',
+                    align: 'right' as const,
+                    render: formatRs
+                  },
+                  {
+                    title: 'Special Disc.',
+                    key: 'specialDiscount',
+                    render: (_: unknown, r: PartPurchaseLine) =>
+                      formatSupplierDiscount(r.specialDiscount, r.specialDiscountType)
+                  },
+                  {
+                    title: 'Net Cost',
+                    dataIndex: 'unitCost',
+                    align: 'right' as const,
+                    render: formatRs
+                  }
+                ]
+              : [
+                  {
+                    title: 'Purchase Price',
+                    dataIndex: 'unitCost',
+                    align: 'right' as const,
+                    render: formatRs
+                  }
+                ]),
             {
-              title: 'Unit cost',
-              dataIndex: 'unitCost',
+              title: 'Line total (cost)',
               align: 'right' as const,
-              render: formatRs
-            },
-            {
-              title: 'Line total',
-              align: 'right' as const,
-              render: (_, r) => formatRs(r.quantity * r.unitCost)
+              render: (_: unknown, r: PartPurchaseLine) => formatRs(r.quantity * r.unitCost)
             },
             {
               title: '',
               width: 100,
-              render: (_, r) => (
+              render: (_: unknown, r: PartPurchaseLine) => (
                 <Space size={0}>
                   <Button type="text" icon={<EditOutlined />} onClick={() => startEditLine(r)} />
                   <Button type="text" danger icon={<DeleteOutlined />} onClick={() => removeLine(r.key)} />
@@ -326,9 +477,15 @@ export const AddPartPurchase = () => {
                 <Table.Summary.Cell index={2} align="right">
                   <Text strong>{totalUnits}</Text>
                 </Table.Summary.Cell>
-                <Table.Summary.Cell index={3} />
+                <Table.Summary.Cell index={3} colSpan={hasDiscount ? 3 : 1} align="right">
+                  {hasDiscount ? (
+                    <Text type="secondary">
+                      Retail {formatRs(grossTotal)} → Net {formatRs(netTotal)}
+                    </Text>
+                  ) : null}
+                </Table.Summary.Cell>
                 <Table.Summary.Cell index={4} align="right">
-                  <Text strong>{formatRs(totalValue)}</Text>
+                  <Text strong>{formatRs(netTotal)}</Text>
                 </Table.Summary.Cell>
                 <Table.Summary.Cell index={5} />
               </Table.Summary.Row>

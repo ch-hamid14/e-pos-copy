@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Button, Card, Descriptions, Spin, Statistic, Table, Tag, Typography } from 'antd'
+import { Button, Card, Descriptions, Spin, Table, Tag, Typography } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { App_Routes } from '@/common'
 import { partStockAPI } from '@/renderer/services'
 import { useSession } from '@/renderer/hooks/useSession'
-import { PageHeader } from '../shared/page-ui'
+import { formatRs, PageHeader } from '../shared/page-ui'
 
 const { Text } = Typography
 
@@ -78,7 +78,17 @@ export const PartStockDetail = () => {
       </Card>
 
       <Card bordered={false} className="shadow-sm mb-4">
-        <Statistic title="Available units" value={Number(stock.quantityOnHand || 0)} />
+        <Descriptions column={{ xs: 1, sm: 3 }} size="small">
+          <Descriptions.Item label="Available units">
+            <Text strong>{Number(stock.quantityOnHand || 0)}</Text>
+          </Descriptions.Item>
+          <Descriptions.Item label="Retail price">
+            {formatRs(Number(stock.sellingPrice || 0))}
+          </Descriptions.Item>
+          <Descriptions.Item label="Avg cost">
+            {formatRs(Number(stock.averageCost || 0))}
+          </Descriptions.Item>
+        </Descriptions>
       </Card>
 
       <Card bordered={false} className="shadow-sm" title="Movements">
