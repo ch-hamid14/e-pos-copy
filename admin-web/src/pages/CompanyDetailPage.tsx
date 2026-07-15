@@ -30,7 +30,6 @@ import {
   createUser,
   getCompany,
   getCompanyOps,
-  impersonateUser,
   resetUserPassword,
   updateCompany,
   updateRole,
@@ -43,13 +42,20 @@ import CompanySyncPanel from '../components/CompanySyncPanel'
 import StatusTag from '../components/StatusTag'
 import { useAuth } from '../context/AuthContext'
 import type {
+  ActiveOtp,
   Branch,
   CompanyDetail,
   CompanyOps,
   CompanyRole,
   CompanyUser,
+  OtpPurpose,
   Permission
 } from '../types'
+
+const OTP_PURPOSE_LABELS: Record<OtpPurpose, string> = {
+  email_verify: 'Email verify',
+  device_reset: 'Device reset'
+}
 
 const USER_ROLES = [
   { value: 'company_owner', label: 'Company Owner' },
@@ -358,10 +364,51 @@ export default function CompanyDetailPage() {
                       render: (_, r) => `${r.firstName} ${r.lastName}`
                     },
                     { title: 'Email', dataIndex: 'email' },
-                    { title: 'Role', dataIndex: 'role' },
+                    {
+                      title: 'Branch',
+                      dataIndex: 'branchId',
+                      render: (branchId: string | null) => {
+                        if (!branchId) return <Typography.Text type="secondary">—</Typography.Text>
+                        const branch = detail.branches.find((b) => b.id === branchId)
+                        return branch?.name || branchId
+                      }
+                    },
                     {
                       title: 'RBAC',
                       render: (_, r) => r.roles?.map((x) => <Tag key={x.id}>{x.name}</Tag>)
+                    },
+                    {
+                      title: 'OTP',
+                      dataIndex: 'otps',
+                      width: 180,
+                      render: (otps?: ActiveOtp[]) => {
+                        if (!otps?.length) {
+                          return <Typography.Text type="secondary">—</Typography.Text>
+                        }
+                        return (
+                          <Space direction="vertical" size={2}>
+                            {otps.map((otp) => (
+                              <div key={otp.id}>
+                                <Typography.Text
+                                  copyable={{ text: otp.code }}
+                                  style={{
+                                    fontFamily: 'ui-monospace, monospace',
+                                    letterSpacing: 1
+                                  }}
+                                >
+                                  {otp.code}
+                                </Typography.Text>
+                                <Typography.Text
+                                  type="secondary"
+                                  style={{ display: 'block', fontSize: 11 }}
+                                >
+                                  {OTP_PURPOSE_LABELS[otp.purpose] || otp.purpose}
+                                </Typography.Text>
+                              </div>
+                            ))}
+                          </Space>
+                        )
+                      }
                     },
                     {
                       title: 'Verified',
@@ -380,7 +427,7 @@ export default function CompanyDetailPage() {
                     },
                     {
                       title: '',
-                      width: 200,
+                      width: 160,
                       render: (_, r) => (
                         <Space size={4}>
                           <Button
@@ -426,43 +473,6 @@ export default function CompanyDetailPage() {
                             }}
                           >
                             Reset PW
-                          </Button>
-                          <Button
-                            size="small"
-                            loading={busy === `impersonate-${r.id}`}
-                            onClick={async () => {
-                              if (!token || !id) return
-                              setBusy(`impersonate-${r.id}`)
-                              try {
-                                const session = await impersonateUser(token, id, r.id)
-                                Modal.info({
-                                  title: 'Support session (1 hour)',
-                                  width: 560,
-                                  content: (
-                                    <div>
-                                      <Typography.Paragraph>
-                                        Signed in as {session.user.email}. Copy this token for
-                                        support tooling / API calls.
-                                      </Typography.Paragraph>
-                                      <Input.TextArea
-                                        readOnly
-                                        value={session.token}
-                                        autoSize={{ minRows: 3, maxRows: 6 }}
-                                      />
-                                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                                        Expires {new Date(session.tokenExpiresAt).toLocaleString()}
-                                      </Typography.Text>
-                                    </div>
-                                  )
-                                })
-                              } catch (err: any) {
-                                message.error(err.message)
-                              } finally {
-                                setBusy(null)
-                              }
-                            }}
-                          >
-                            Impersonate
                           </Button>
                         </Space>
                       )

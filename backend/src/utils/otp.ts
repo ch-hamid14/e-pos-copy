@@ -58,3 +58,29 @@ export async function verifyOtp(
   await db('otp_codes').where({ id: row.id }).update({ used: true })
   return true
 }
+
+export type ActiveOtp = {
+  id: string
+  email: string
+  code: string
+  purpose: OtpPurpose
+  expiresAt: string
+  createdAt: string
+}
+
+export async function listActiveOtps(db: Knex, email: string): Promise<ActiveOtp[]> {
+  const rows = await db('otp_codes')
+    .where({ email: email.toLowerCase(), used: false })
+    .where('expires_at', '>', new Date())
+    .orderBy('created_at', 'desc')
+    .select('id', 'email', 'code', 'purpose', 'expires_at', 'created_at')
+
+  return rows.map((row: Record<string, unknown>) => ({
+    id: row.id as string,
+    email: row.email as string,
+    code: row.code as string,
+    purpose: row.purpose as OtpPurpose,
+    expiresAt: new Date(row.expires_at as string | Date).toISOString(),
+    createdAt: new Date(row.created_at as string | Date).toISOString()
+  }))
+}
