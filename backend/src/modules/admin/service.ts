@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto'
 import { parseConnectionUrl } from '@madix/database'
 import { companyDbName, getCompanyDb, provisionCompanyDatabase, companyDbPool, teardownCompanyDatabase } from '../../db'
 import { bootstrapCompanySync } from '../sync/bootstrap'
+import { listActiveOtps } from '../../utils/otp'
 
 function normalizeCompanyEmail(email?: string): string | null {
   const trimmed = email?.trim()
@@ -300,7 +301,8 @@ export async function getCompanyDetail(controlDb: Knex, companyId: string) {
         .join('roles as r', 'ur.role_id', 'r.id')
         .where('ur.user_id', u.id)
         .select('r.id', 'r.name')
-      return { ...mapUser(u), roles: userRoles }
+      const otps = await listActiveOtps(controlDb, String(u.email))
+      return { ...mapUser(u), roles: userRoles, otps }
     })
   )
 

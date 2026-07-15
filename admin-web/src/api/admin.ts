@@ -155,13 +155,6 @@ export function cloneCompany(token: string, id: string, name?: string) {
   })
 }
 
-export function impersonateUser(token: string, companyId: string, userId: string) {
-  return api<{ token: string; tokenExpiresAt: string; user: CompanyUser }>(
-    `/admin/companies/${companyId}/impersonate`,
-    { method: 'POST', token, body: JSON.stringify({ userId }) }
-  )
-}
-
 export function resetUserPassword(token: string, companyId: string, userId: string, password: string) {
   return api(`/admin/companies/${companyId}/users/${userId}/reset-password`, {
     method: 'POST',

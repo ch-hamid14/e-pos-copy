@@ -50,7 +50,6 @@ import {
   updateCompanyPlatformSettings,
   unbindAllDevices,
   resetUserPassword,
-  impersonateCompanyUser,
   createCompanySnapshot,
   listCompanySnapshots,
   restoreCompanySnapshot,
@@ -62,11 +61,6 @@ import { getCompanyDb } from '../../db'
 export function adminRouter(db: Knex): Router {
   const router = Router()
   router.use(requireAuth, requireSuperAdmin)
-
-  const actor = (req: AuthRequest) => ({
-    userId: req.auth!.userId,
-    email: req.auth!.email
-  })
 
   router.get('/overview', async (_req, res) => {
     try {
@@ -208,23 +202,6 @@ export function adminRouter(db: Knex): Router {
         action: 'company.unbind_all_devices',
         resource: 'devices',
         companyId: req.params.id
-      })
-      res.json(result)
-    } catch (err: any) {
-      res.status(400).json({ error: err.message })
-    }
-  })
-
-  router.post('/companies/:id/impersonate', async (req: AuthRequest, res) => {
-    try {
-      const { userId } = req.body as { userId?: string }
-      if (!userId) return res.status(400).json({ error: 'userId is required' })
-      const result = await impersonateCompanyUser(db, req.params.id, userId, actor(req))
-      await writeAudit(db, req, {
-        action: 'company.impersonate',
-        resource: 'user',
-        companyId: req.params.id,
-        detail: { userId }
       })
       res.json(result)
     } catch (err: any) {

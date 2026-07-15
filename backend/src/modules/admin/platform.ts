@@ -18,7 +18,6 @@ import { companyDbPool, getCompanyDb } from '../../db'
 import { bootstrapCompanySync } from '../sync/bootstrap'
 import { clearSyncAuthority } from '../sync/authority'
 import { runPgDump, runPsql } from '../../lib/pgDump'
-import { signToken } from '../../utils/jwt'
 import { mapCompany } from './service'
 
 export const DEFAULT_FEATURE_FLAGS: Record<string, boolean> = {
@@ -306,59 +305,6 @@ export async function resetUserPassword(
   const hashed = await bcrypt.hash(password, 10)
   await controlDb('users').where({ id: userId }).update({ password: hashed, updated_at: new Date() })
   return { ok: true }
-}
-
-export async function impersonateCompanyUser(
-  controlDb: Knex,
-  companyId: string,
-  userId: string,
-  impersonator: { userId: string; email: string }
-) {
-  const user = await controlDb('users')
-    .where({ id: userId, company_id: companyId, is_active: true })
-    .first()
-  if (!user) throw new Error('User not found or inactive')
-
-  const companyDb = await getCompanyDb(companyId, { forOps: true })
-  const roleRows = await companyDb('user_roles as ur')
-    .join('role_permissions as rp', 'ur.role_id', 'rp.role_id')
-    .join('permissions as p', 'rp.permission_id', 'p.id')
-    .where('ur.user_id', userId)
-    .select('p.key')
-  const permissions = [...new Set(roleRows.map((r: { key: string }) => r.key))]
-
-  const tokenExpiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString()
-  const token = signToken(
-    {
-      userId: user.id,
-      email: user.email,
-      companyId: user.company_id,
-      branchId: user.branch_id,
-      role: user.role,
-      permissions,
-      deviceId: 'support-session',
-      tokenExpiresAt,
-      offlineAllowedUntil: tokenExpiresAt,
-      impersonatorId: impersonator.userId,
-      impersonatorEmail: impersonator.email
-    },
-    '1h'
-  )
-
-  return {
-    token,
-    tokenExpiresAt,
-    user: {
-      id: user.id,
-      email: user.email,
-      firstName: user.first_name,
-      lastName: user.last_name,
-      companyId: user.company_id,
-      branchId: user.branch_id,
-      role: user.role,
-      permissions
-    }
-  }
 }
 
 export async function createCompanySnapshot(

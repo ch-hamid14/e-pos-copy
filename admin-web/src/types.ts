@@ -41,6 +41,17 @@ export type Branch = {
   isActive: boolean
 }
 
+export type OtpPurpose = 'email_verify' | 'device_reset'
+
+export type ActiveOtp = {
+  id: string
+  email: string
+  code: string
+  purpose: OtpPurpose
+  expiresAt: string
+  createdAt: string
+}
+
 export type CompanyUser = {
   id: string
   email: string
@@ -51,6 +62,7 @@ export type CompanyUser = {
   emailVerified: boolean
   isActive: boolean
   roles: { id: string; name: string }[]
+  otps?: ActiveOtp[]
 }
 
 export type CompanyRole = {
