@@ -30,6 +30,7 @@ export default function CompanyDataPanel({ companyId, token }: Props) {
   const [page, setPage] = useState(1)
   const [data, setData] = useState<DataBrowseResult | null>(null)
   const [loading, setLoading] = useState(false)
+  const [busy, setBusy] = useState<string | null>(null)
   const [editRow, setEditRow] = useState<Record<string, unknown> | null>(null)
   const [form] = Form.useForm()
 
@@ -151,28 +152,38 @@ export default function CompanyDataPanel({ companyId, token }: Props) {
                 {row.deleted_at ? (
                   <Button
                     size="small"
-                    onClick={() =>
-                      restoreDataRow(token, companyId, table, String(row.id))
-                        .then(() => {
-                          message.success('Restored')
-                          load()
-                        })
-                        .catch((e: Error) => message.error(e.message))
-                    }
+                    loading={busy === `restore-${row.id}`}
+                    onClick={async () => {
+                      setBusy(`restore-${row.id}`)
+                      try {
+                        await restoreDataRow(token, companyId, table, String(row.id))
+                        message.success('Restored')
+                        load()
+                      } catch (e: any) {
+                        message.error(e.message)
+                      } finally {
+                        setBusy(null)
+                      }
+                    }}
                   >
                     Restore
                   </Button>
                 ) : (
                   <Button
                     size="small"
-                    onClick={() =>
-                      softDeleteDataRow(token, companyId, table, String(row.id))
-                        .then(() => {
-                          message.success('Soft deleted')
-                          load()
-                        })
-                        .catch((e: Error) => message.error(e.message))
-                    }
+                    loading={busy === `soft-${row.id}`}
+                    onClick={async () => {
+                      setBusy(`soft-${row.id}`)
+                      try {
+                        await softDeleteDataRow(token, companyId, table, String(row.id))
+                        message.success('Soft deleted')
+                        load()
+                      } catch (e: any) {
+                        message.error(e.message)
+                      } finally {
+                        setBusy(null)
+                      }
+                    }}
                   >
                     Soft delete
                   </Button>
@@ -180,15 +191,24 @@ export default function CompanyDataPanel({ companyId, token }: Props) {
                 <Button
                   size="small"
                   danger
+                  loading={busy === `hard-${row.id}`}
                   onClick={() =>
                     Modal.confirm({
                       title: 'Hard delete this row?',
                       okType: 'danger',
-                      onOk: () =>
-                        hardDeleteDataRow(token, companyId, table, String(row.id)).then(() => {
+                      onOk: async () => {
+                        setBusy(`hard-${row.id}`)
+                        try {
+                          await hardDeleteDataRow(token, companyId, table, String(row.id))
                           message.success('Deleted')
                           load()
-                        })
+                        } catch (e: any) {
+                          message.error(e.message)
+                          throw e
+                        } finally {
+                          setBusy(null)
+                        }
+                      }
                     })
                   }
                 >
@@ -213,6 +233,7 @@ export default function CompanyDataPanel({ companyId, token }: Props) {
           layout="vertical"
           onFinish={async (values) => {
             if (!editRow) return
+            setBusy('save')
             try {
               await updateDataRow(token, companyId, table, String(editRow.id), values)
               message.success('Row updated')
@@ -220,6 +241,8 @@ export default function CompanyDataPanel({ companyId, token }: Props) {
               load()
             } catch (err: any) {
               message.error(err.message)
+            } finally {
+              setBusy(null)
             }
           }}
         >
@@ -231,8 +254,10 @@ export default function CompanyDataPanel({ companyId, token }: Props) {
             ))}
           </div>
           <div className="madix-modal-actions">
-            <Button onClick={() => setEditRow(null)}>Cancel</Button>
-            <Button type="primary" htmlType="submit">
+            <Button onClick={() => setEditRow(null)} disabled={busy === 'save'}>
+              Cancel
+            </Button>
+            <Button type="primary" htmlType="submit" loading={busy === 'save'}>
               Save
             </Button>
           </div>

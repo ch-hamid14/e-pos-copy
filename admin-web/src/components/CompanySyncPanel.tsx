@@ -322,14 +322,23 @@ export default function CompanySyncPanel({ companyId, token }: Props) {
                   <h2 className="madix-panel__title">Authority sync queue</h2>
                   <Button
                     danger
+                    loading={busy === 'clear-queue'}
                     onClick={() =>
                       Modal.confirm({
                         title: 'Clear entire sync queue?',
                         okType: 'danger',
                         onOk: async () => {
-                          await clearSyncQueue(token, companyId)
-                          message.success('Queue cleared')
-                          loadQueue(1)
+                          setBusy('clear-queue')
+                          try {
+                            await clearSyncQueue(token, companyId)
+                            message.success('Queue cleared')
+                            loadQueue(1)
+                          } catch (err: any) {
+                            message.error(err.message)
+                            throw err
+                          } finally {
+                            setBusy(null)
+                          }
                         }
                       })
                     }
@@ -369,10 +378,18 @@ export default function CompanySyncPanel({ companyId, token }: Props) {
                         <Button
                           size="small"
                           danger
+                          loading={busy === `remove-${row.id}`}
                           onClick={async () => {
-                            await deleteSyncQueueItem(token, companyId, row.id)
-                            message.success('Removed')
-                            loadQueue(queuePage)
+                            setBusy(`remove-${row.id}`)
+                            try {
+                              await deleteSyncQueueItem(token, companyId, row.id)
+                              message.success('Removed')
+                              loadQueue(queuePage)
+                            } catch (err: any) {
+                              message.error(err.message)
+                            } finally {
+                              setBusy(null)
+                            }
                           }}
                         >
                           Remove

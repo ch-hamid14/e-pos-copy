@@ -69,6 +69,7 @@ export default function CompanyDetailPage() {
   const [editUser, setEditUser] = useState<CompanyUser | null>(null)
   const [roleOpen, setRoleOpen] = useState(false)
   const [editRole, setEditRole] = useState<CompanyRole | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
   const [branchForm] = Form.useForm()
   const [userForm] = Form.useForm()
   const [roleForm] = Form.useForm()
@@ -99,12 +100,15 @@ export default function CompanyDetailPage() {
 
   const saveCompany = async (values: Record<string, string>) => {
     if (!token || !id) return
+    setBusy('profile')
     try {
       await updateCompany(token, id, values)
       message.success('Company updated')
       load()
     } catch (err: any) {
       message.error(err.message)
+    } finally {
+      setBusy(null)
     }
   }
 
@@ -281,7 +285,7 @@ export default function CompanyDetailPage() {
                           ]}
                         />
                       </Form.Item>
-                      <Button type="primary" htmlType="submit">
+                      <Button type="primary" htmlType="submit" loading={busy === 'profile'}>
                         Save profile
                       </Button>
                     </Form>
@@ -425,8 +429,10 @@ export default function CompanyDetailPage() {
                           </Button>
                           <Button
                             size="small"
+                            loading={busy === `impersonate-${r.id}`}
                             onClick={async () => {
                               if (!token || !id) return
+                              setBusy(`impersonate-${r.id}`)
                               try {
                                 const session = await impersonateUser(token, id, r.id)
                                 Modal.info({
@@ -451,6 +457,8 @@ export default function CompanyDetailPage() {
                                 })
                               } catch (err: any) {
                                 message.error(err.message)
+                              } finally {
+                                setBusy(null)
                               }
                             }}
                           >
@@ -586,6 +594,7 @@ export default function CompanyDetailPage() {
           requiredMark="optional"
           onFinish={async (values) => {
             if (!token || !id) return
+            setBusy('branch')
             try {
               await createBranch(token, id, values)
               message.success('Branch created')
@@ -594,6 +603,8 @@ export default function CompanyDetailPage() {
               load()
             } catch (err: any) {
               message.error(err.message)
+            } finally {
+              setBusy(null)
             }
           }}
         >
@@ -611,8 +622,10 @@ export default function CompanyDetailPage() {
             </Form.Item>
           </div>
           <div className="madix-modal-actions">
-            <Button onClick={() => setBranchOpen(false)}>Cancel</Button>
-            <Button type="primary" htmlType="submit">
+            <Button onClick={() => setBranchOpen(false)} disabled={busy === 'branch'}>
+              Cancel
+            </Button>
+            <Button type="primary" htmlType="submit" loading={busy === 'branch'}>
               Add branch
             </Button>
           </div>
@@ -637,6 +650,7 @@ export default function CompanyDetailPage() {
           requiredMark="optional"
           onFinish={async (values) => {
             if (!token || !id) return
+            setBusy('user')
             try {
               if (editUser) {
                 await updateUser(token, editUser.id, {
@@ -659,6 +673,8 @@ export default function CompanyDetailPage() {
               load()
             } catch (err: any) {
               message.error(err.message)
+            } finally {
+              setBusy(null)
             }
           }}
         >
@@ -717,6 +733,7 @@ export default function CompanyDetailPage() {
           </div>
           <div className="madix-modal-actions">
             <Button
+              disabled={busy === 'user'}
               onClick={() => {
                 setUserOpen(false)
                 setEditUser(null)
@@ -725,7 +742,7 @@ export default function CompanyDetailPage() {
             >
               Cancel
             </Button>
-            <Button type="primary" htmlType="submit">
+            <Button type="primary" htmlType="submit" loading={busy === 'user'}>
               {editUser ? 'Save changes' : 'Create user'}
             </Button>
           </div>
@@ -750,6 +767,7 @@ export default function CompanyDetailPage() {
           requiredMark="optional"
           onFinish={async (values) => {
             if (!token || !id) return
+            setBusy('role')
             try {
               if (editRole) {
                 await updateRole(token, editRole.id, { ...values, companyId: id })
@@ -764,6 +782,8 @@ export default function CompanyDetailPage() {
               load()
             } catch (err: any) {
               message.error(err.message)
+            } finally {
+              setBusy(null)
             }
           }}
         >
@@ -791,6 +811,7 @@ export default function CompanyDetailPage() {
           </div>
           <div className="madix-modal-actions">
             <Button
+              disabled={busy === 'role'}
               onClick={() => {
                 setRoleOpen(false)
                 setEditRole(null)
@@ -799,7 +820,7 @@ export default function CompanyDetailPage() {
             >
               Cancel
             </Button>
-            <Button type="primary" htmlType="submit">
+            <Button type="primary" htmlType="submit" loading={busy === 'role'}>
               {editRole ? 'Save changes' : 'Create role'}
             </Button>
           </div>

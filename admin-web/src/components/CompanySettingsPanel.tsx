@@ -260,15 +260,24 @@ export default function CompanySettingsPanel({ company, token, onChanged }: Prop
                   <Button
                     size="small"
                     danger
+                    loading={busy === `restore-${row.filename}`}
                     onClick={() =>
                       Modal.confirm({
                         title: 'Restore this snapshot?',
                         content: 'Replaces the live company database.',
                         okType: 'danger',
                         onOk: async () => {
-                          await restoreSnapshot(token, company.id, row.filename)
-                          message.success('Restored')
-                          onChanged()
+                          setBusy(`restore-${row.filename}`)
+                          try {
+                            await restoreSnapshot(token, company.id, row.filename)
+                            message.success('Restored')
+                            onChanged()
+                          } catch (err: any) {
+                            message.error(err.message)
+                            throw err
+                          } finally {
+                            setBusy(null)
+                          }
                         }
                       })
                     }
