@@ -18,4 +18,13 @@ export function getSyncAuthority(companyId: string, companyDb: Knex): SyncAuthor
   return authority
 }
 
+/** Drop cached authority after schema migrations so setup re-attaches new tables. */
+export function clearSyncAuthority(companyId?: string): void {
+  if (companyId) {
+    authorityCache.delete(companyId)
+    return
+  }
+  authorityCache.clear()
+}
+
 export { SYNC_CONFIG }

@@ -6,6 +6,7 @@ import {
 } from '@madix/database'
 import { companyDbPool, getCompanyDb, teardownCompanyDatabase } from '../../db'
 import { bootstrapCompanySync } from '../sync/bootstrap'
+import { clearSyncAuthority } from '../sync/authority'
 import { mapCompany } from './service'
 
 async function requireCompany(controlDb: Knex, companyId: string) {
@@ -89,6 +90,8 @@ export async function migrateCompany(controlDb: Knex, companyId: string) {
   const before = await getCompanyMigrationStatus(companyDb)
   const result = await runCompanyMigrations(companyDb)
   const after = await getCompanyMigrationStatus(companyDb)
+  // Rebuild sync authority so newly created tables get metadata columns/triggers.
+  clearSyncAuthority(companyId)
   return {
     companyId,
     applied: result.migrations,

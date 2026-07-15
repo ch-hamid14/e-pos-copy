@@ -150,6 +150,16 @@ END;
 $$ LANGUAGE plpgsql;
 `;
 
+/** Returns true when `table` exists in the given schema. */
+async function tableExists(db, table, schema = 'public') {
+  const row = await db
+    .select('table_name')
+    .from('information_schema.tables')
+    .where({ table_schema: schema, table_name: table, table_type: 'BASE TABLE' })
+    .first();
+  return Boolean(row);
+}
+
 /** Adds the sync metadata columns to a tracked table (idempotent). */
 async function addMetadataColumns(db, table) {
   await db.raw(
@@ -206,10 +216,17 @@ async function setup(db, { role, schema = 'public', tables, nodeId } = {}) {
       .ignore();
   }
 
-  const tracked = await resolveTables(db, { schema, tables });
-  for (const table of tracked) {
+  const resolved = await resolveTables(db, { schema, tables });
+  const tracked = [];
+  for (const table of resolved) {
+    // SYNC_TABLES can be ahead of company migrations; skip until the table exists.
+    if (!(await tableExists(db, table, schema))) {
+      console.warn(`sync setup: skipping missing table "${table}"`);
+      continue;
+    }
     await addMetadataColumns(db, table);
     await installTrigger(db, table);
+    tracked.push(table);
   }
 
   return { nodeId: nid, tables: tracked };
@@ -256,6 +273,7 @@ module.exports = {
   backfill,
   resolveTables,
   listTrackedTables,
+  tableExists,
   ensureNodeIdentity,
   addMetadataColumns,
   installTrigger,

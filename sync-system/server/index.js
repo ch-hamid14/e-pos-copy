@@ -40,7 +40,12 @@ function createAuthority({ db, config = {} } = {}) {
   }
 
   function ensureReady() {
-    if (!ready) ready = setup();
+    if (!ready) {
+      ready = setup().catch((err) => {
+        ready = null;
+        throw err;
+      });
+    }
     return ready;
   }
 

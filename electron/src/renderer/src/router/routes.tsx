@@ -12,6 +12,7 @@ export const LazyPages = {
   Suppliers: lazy(() => import('@/renderer/pages/setup/Suppliers').then((m) => ({ default: m.Suppliers }))),
   Categories: lazy(() => import('@/renderer/pages/setup/Categories').then((m) => ({ default: m.Categories }))),
   Products: lazy(() => import('@/renderer/pages/setup/Products').then((m) => ({ default: m.Products }))),
+  Parts: lazy(() => import('@/renderer/pages/setup/Parts').then((m) => ({ default: m.Parts }))),
   Customers: lazy(() => import('@/renderer/pages/customers/Customers').then((m) => ({ default: m.Customers }))),
   AddPurchase: lazy(() => import('@/renderer/pages/inventory/AddPurchase').then((m) => ({ default: m.AddPurchase }))),
   PurchaseList: lazy(() => import('@/renderer/pages/inventory/PurchaseList').then((m) => ({ default: m.PurchaseList }))),
@@ -19,8 +20,24 @@ export const LazyPages = {
     import('@/renderer/pages/inventory/PurchaseDetail').then((m) => ({ default: m.PurchaseDetail }))
   ),
   PurchaseEdit: lazy(() => import('@/renderer/pages/inventory/AddPurchase').then((m) => ({ default: m.AddPurchase }))),
+  AddPartPurchase: lazy(() =>
+    import('@/renderer/pages/inventory/AddPartPurchase').then((m) => ({ default: m.AddPartPurchase }))
+  ),
+  PartPurchaseList: lazy(() =>
+    import('@/renderer/pages/inventory/PartPurchaseList').then((m) => ({ default: m.PartPurchaseList }))
+  ),
+  PartPurchaseDetail: lazy(() =>
+    import('@/renderer/pages/inventory/PartPurchaseDetail').then((m) => ({ default: m.PartPurchaseDetail }))
+  ),
+  PartPurchaseEdit: lazy(() =>
+    import('@/renderer/pages/inventory/AddPartPurchase').then((m) => ({ default: m.AddPartPurchase }))
+  ),
   Stock: lazy(() => import('@/renderer/pages/inventory/Stock').then((m) => ({ default: m.Stock }))),
   StockDetail: lazy(() => import('@/renderer/pages/inventory/StockDetail').then((m) => ({ default: m.StockDetail }))),
+  PartStock: lazy(() => import('@/renderer/pages/inventory/PartStock').then((m) => ({ default: m.PartStock }))),
+  PartStockDetail: lazy(() =>
+    import('@/renderer/pages/inventory/PartStockDetail').then((m) => ({ default: m.PartStockDetail }))
+  ),
   Transfer: lazy(() => import('@/renderer/pages/inventory/Transfer').then((m) => ({ default: m.Transfer }))),
   Adjustment: lazy(() => import('@/renderer/pages/inventory/Adjustment').then((m) => ({ default: m.Adjustment }))),
   NewSale: lazy(() => import('@/renderer/pages/sales/NewSale').then((m) => ({ default: m.NewSale }))),
@@ -51,13 +68,20 @@ export const AppRoutes: IAppRoutes[] = [
   { path: App_Routes.SETUP_SUPPLIERS, component: LazyPages.Suppliers, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
   { path: App_Routes.SETUP_CATEGORIES, component: LazyPages.Categories, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
   { path: App_Routes.SETUP_PRODUCTS, component: LazyPages.Products, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
+  { path: App_Routes.SETUP_PARTS, component: LazyPages.Parts, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
   { path: App_Routes.CUSTOMERS, component: LazyPages.Customers, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN, Roles.STAFF] },
   { path: App_Routes.ADD_PURCHASE, component: LazyPages.AddPurchase, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
   { path: App_Routes.PURCHASE_LIST, component: LazyPages.PurchaseList, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
   { path: App_Routes.PURCHASE_EDIT, component: LazyPages.PurchaseEdit, roles: [Roles.COMPANY_OWNER] },
   { path: App_Routes.PURCHASE_DETAIL, component: LazyPages.PurchaseDetail, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
+  { path: App_Routes.ADD_PART_PURCHASE, component: LazyPages.AddPartPurchase, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
+  { path: App_Routes.PART_PURCHASE_LIST, component: LazyPages.PartPurchaseList, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
+  { path: App_Routes.PART_PURCHASE_EDIT, component: LazyPages.PartPurchaseEdit, roles: [Roles.COMPANY_OWNER] },
+  { path: App_Routes.PART_PURCHASE_DETAIL, component: LazyPages.PartPurchaseDetail, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
   { path: App_Routes.STOCK, component: LazyPages.Stock, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
   { path: App_Routes.STOCK_DETAIL, component: LazyPages.StockDetail, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
+  { path: App_Routes.PART_STOCK, component: LazyPages.PartStock, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
+  { path: App_Routes.PART_STOCK_DETAIL, component: LazyPages.PartStockDetail, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
   { path: App_Routes.TRANSFERS, component: LazyPages.Transfer, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
   { path: App_Routes.ADJUSTMENTS, component: LazyPages.Adjustment, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
   { path: App_Routes.NEW_SALE, component: LazyPages.NewSale, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN, Roles.STAFF] },

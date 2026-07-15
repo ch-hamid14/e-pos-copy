@@ -39,6 +39,17 @@ export const productAPI = {
     ipcCall(`DELETE:${Channels.PRODUCTS}`, { params: { id }, body: auditBody(audit, { companyId }) })
 }
 
+export const partAPI = {
+  list: (companyId: string, search?: string, categoryId?: string) =>
+    ipcCall(`GET:${Channels.PARTS}`, { query: { companyId, search, categoryId } }),
+  create: (companyId: string, audit: SessionAudit, data: Record<string, unknown>) =>
+    ipcCall(`POST:${Channels.PARTS}`, { body: auditBody(audit, { companyId, data }) }),
+  update: (id: string, companyId: string, audit: SessionAudit, data: Record<string, unknown>) =>
+    ipcCall(`PUT:${Channels.PARTS}`, { params: { id }, body: auditBody(audit, { companyId, data }) }),
+  remove: (id: string, companyId: string, audit: SessionAudit) =>
+    ipcCall(`DELETE:${Channels.PARTS}`, { params: { id }, body: auditBody(audit, { companyId }) })
+}
+
 export const branchAPI = {
   list: (companyId: string) => ipcCall(`GET:${Channels.BRANCHES}`, { query: { companyId } })
 }
@@ -86,6 +97,52 @@ export const inventoryAPI = {
     ipcCall(`POST:${Channels.TRANSFERS}`, { body: auditBody(audit, { companyId, payload }) }),
   adjust: (companyId: string, audit: SessionAudit, payload: Record<string, unknown>) =>
     ipcCall(`POST:${Channels.INVENTORY}:adjust`, { body: auditBody(audit, { companyId, payload }) })
+}
+
+export const partPurchaseAPI = {
+  list: (
+    companyId: string,
+    branchId: string,
+    filters?: {
+      supplierId?: string
+      search?: string
+      fromDate?: string
+      toDate?: string
+      sortField?: string
+      sortOrder?: 'asc' | 'desc'
+    }
+  ) => ipcCall(`GET:${Channels.PART_PURCHASES}`, { query: { companyId, branchId, ...filters } }),
+  create: (
+    companyId: string,
+    branchId: string,
+    audit: SessionAudit,
+    payload: Record<string, unknown>
+  ) =>
+    ipcCall(`POST:${Channels.PART_PURCHASES}`, {
+      body: auditBody(audit, { companyId, branchId, payload })
+    }),
+  update: (
+    id: string,
+    companyId: string,
+    branchId: string,
+    audit: SessionAudit,
+    payload: Record<string, unknown>
+  ) =>
+    ipcCall(`PUT:${Channels.PART_PURCHASES}`, {
+      params: { id },
+      body: auditBody(audit, { companyId, branchId, payload })
+    }),
+  get: (id: string) => ipcCall(`GET:${Channels.PART_PURCHASES}:detail`, { params: { id } })
+}
+
+export const partStockAPI = {
+  list: (companyId: string, branchId: string, filters?: Record<string, unknown>) =>
+    ipcCall(`GET:${Channels.PART_STOCKS}`, { query: { companyId, branchId, ...filters } }),
+  detail: (companyId: string, branchId: string, partId: string) =>
+    ipcCall(`GET:${Channels.PART_STOCKS}:detail`, {
+      params: { id: partId },
+      query: { companyId, branchId }
+    })
 }
 
 export const saleAPI = {

@@ -1,0 +1,46 @@
+import { IRequest } from '../../../common'
+import { partPurchaseService } from '../../services'
+import { auditFromListQuery, auditFromRequest } from '../shared/audit'
+
+class PartPurchaseController {
+  async list(_: Electron.IpcMainInvokeEvent, req: IRequest) {
+    return partPurchaseService.list(
+      req.query?.companyId as string,
+      req.query?.branchId as string,
+      auditFromListQuery(req),
+      {
+        supplierId: req.query?.supplierId as string,
+        search: req.query?.search as string,
+        fromDate: req.query?.fromDate as string,
+        toDate: req.query?.toDate as string,
+        sortField: req.query?.sortField as string,
+        sortOrder: req.query?.sortOrder as string
+      }
+    )
+  }
+
+  async create(_: Electron.IpcMainInvokeEvent, req: IRequest) {
+    return partPurchaseService.create(
+      req.body?.companyId as string,
+      req.body?.branchId as string,
+      auditFromRequest(req),
+      req.body?.payload as any
+    )
+  }
+
+  async get(_: Electron.IpcMainInvokeEvent, req: IRequest) {
+    return partPurchaseService.get(req.params?.id as string)
+  }
+
+  async update(_: Electron.IpcMainInvokeEvent, req: IRequest) {
+    return partPurchaseService.update(
+      req.params?.id as string,
+      req.body?.companyId as string,
+      req.body?.branchId as string,
+      auditFromRequest(req),
+      req.body?.payload as any
+    )
+  }
+}
+
+export const partPurchaseController = new PartPurchaseController()

@@ -30,7 +30,8 @@ export const Menus: IMenu[] = [
       { key: App_Routes.SETUP_COLORS, label: 'Colors', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
       { key: App_Routes.SETUP_SUPPLIERS, label: 'Suppliers', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
       { key: App_Routes.SETUP_CATEGORIES, label: 'Categories', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
-      { key: App_Routes.SETUP_PRODUCTS, label: 'Products', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] }
+      { key: App_Routes.SETUP_PRODUCTS, label: 'Products', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
+      { key: App_Routes.SETUP_PARTS, label: 'Parts', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] }
     ]
   },
   {
@@ -43,6 +44,9 @@ export const Menus: IMenu[] = [
       { key: App_Routes.ADD_PURCHASE, label: 'Add Purchase', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
       { key: App_Routes.PURCHASE_LIST, label: 'Purchase List', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
       { key: App_Routes.STOCK, label: 'Stock', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
+      { key: App_Routes.ADD_PART_PURCHASE, label: 'Add Parts Purchase', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
+      { key: App_Routes.PART_PURCHASE_LIST, label: 'Parts Purchase List', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
+      { key: App_Routes.PART_STOCK, label: 'Parts Stock', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
       // { key: App_Routes.TRANSFERS, label: 'Transfer', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
       // { key: App_Routes.ADJUSTMENTS, label: 'Adjustment', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] }
     ]

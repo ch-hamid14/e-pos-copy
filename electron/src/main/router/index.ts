@@ -7,6 +7,9 @@ import {
   supplierController,
   categoryController,
   productController,
+  partController,
+  partPurchaseController,
+  partStockController,
   purchaseController,
   inventoryController,
   customerController,
@@ -49,16 +52,29 @@ ipcMain.handle(`POST:${Channels.PRODUCTS}`, catchIpcHandler(productController.cr
 ipcMain.handle(`PUT:${Channels.PRODUCTS}`, catchIpcHandler(productController.update))
 ipcMain.handle(`DELETE:${Channels.PRODUCTS}`, catchIpcHandler(productController.remove))
 
+ipcMain.handle(`GET:${Channels.PARTS}`, catchIpcHandler(partController.list))
+ipcMain.handle(`POST:${Channels.PARTS}`, catchIpcHandler(partController.create))
+ipcMain.handle(`PUT:${Channels.PARTS}`, catchIpcHandler(partController.update))
+ipcMain.handle(`DELETE:${Channels.PARTS}`, catchIpcHandler(partController.remove))
+
 ipcMain.handle(`GET:${Channels.PURCHASES}`, catchIpcHandler(purchaseController.list))
 ipcMain.handle(`POST:${Channels.PURCHASES}`, catchIpcHandler(purchaseController.create))
 ipcMain.handle(`PUT:${Channels.PURCHASES}`, catchIpcHandler(purchaseController.update))
 ipcMain.handle(`GET:${Channels.PURCHASES}:detail`, catchIpcHandler(purchaseController.get))
+
+ipcMain.handle(`GET:${Channels.PART_PURCHASES}`, catchIpcHandler(partPurchaseController.list))
+ipcMain.handle(`POST:${Channels.PART_PURCHASES}`, catchIpcHandler(partPurchaseController.create))
+ipcMain.handle(`PUT:${Channels.PART_PURCHASES}`, catchIpcHandler(partPurchaseController.update))
+ipcMain.handle(`GET:${Channels.PART_PURCHASES}:detail`, catchIpcHandler(partPurchaseController.get))
 
 ipcMain.handle(`GET:${Channels.PRODUCT_ITEMS}`, catchIpcHandler(inventoryController.list))
 ipcMain.handle(`GET:${Channels.INVENTORY}:search`, catchIpcHandler(inventoryController.search))
 ipcMain.handle(`GET:${Channels.INVENTORY}:detail`, catchIpcHandler(inventoryController.detail))
 ipcMain.handle(`POST:${Channels.INVENTORY}:adjust`, catchIpcHandler(inventoryController.adjust))
 ipcMain.handle(`POST:${Channels.TRANSFERS}`, catchIpcHandler(inventoryController.transfer))
+
+ipcMain.handle(`GET:${Channels.PART_STOCKS}`, catchIpcHandler(partStockController.list))
+ipcMain.handle(`GET:${Channels.PART_STOCKS}:detail`, catchIpcHandler(partStockController.detail))
 
 ipcMain.handle(`POST:${Channels.SALES}`, catchIpcHandler(saleController.create))
 ipcMain.handle(`POST:${Channels.SALES}:payment`, catchIpcHandler(saleController.recordPayment))

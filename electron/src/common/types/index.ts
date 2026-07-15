@@ -101,6 +101,28 @@ export type IProduct = {
   updatedAt: string
 }
 
+export type IPart = {
+  id: string
+  companyId: string
+  categoryId: string
+  name: string
+  description?: string
+  defaultPurchasePrice: number
+  defaultSalePrice: number
+  createdAt: string
+  updatedAt: string
+}
+
+export type IPartStock = {
+  id: string
+  companyId: string
+  branchId: string
+  partId: string
+  quantityOnHand: number
+  createdAt: string
+  updatedAt: string
+}
+
 export type IProductItem = {
   id: string
   companyId: string
