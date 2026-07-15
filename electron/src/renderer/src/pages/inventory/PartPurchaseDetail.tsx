@@ -55,9 +55,9 @@ export const PartPurchaseDetail = () => {
           type="link"
           icon={<ArrowLeftOutlined />}
           className="!px-0 mb-4"
-          onClick={() => navigate(App_Routes.PART_PURCHASE_LIST)}
+          onClick={() => navigate(App_Routes.PURCHASE_LIST)}
         >
-          Back to Parts Purchase List
+          Back to Purchase List
         </Button>
         <Text type="secondary">Parts purchase not found.</Text>
       </div>
@@ -72,9 +72,9 @@ export const PartPurchaseDetail = () => {
         type="link"
         icon={<ArrowLeftOutlined />}
         className="!px-0 mb-2"
-        onClick={() => navigate(App_Routes.PART_PURCHASE_LIST)}
+        onClick={() => navigate(App_Routes.PURCHASE_LIST)}
       >
-        Back to Parts Purchase List
+        Back to Purchase List
       </Button>
 
       <PageHeader

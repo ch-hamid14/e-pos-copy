@@ -11,6 +11,7 @@ import {
   Spin,
   Switch,
   Table,
+  Tabs,
   Tag,
   Tooltip,
   Typography,
@@ -24,6 +25,8 @@ import {
   colorAPI,
   productAPI,
   purchaseAPI,
+  partAPI,
+  partPurchaseAPI,
   supplierAPI
 } from '@/renderer/services'
 import { useSession } from '@/renderer/hooks/useSession'
@@ -39,25 +42,32 @@ import { STATUS_COLORS } from './inventory-ui'
 
 const { Text } = Typography
 
-type PurchaseLine = {
+type LineType = 'product' | 'part'
+
+type CartLine = {
   key: string
+  lineType: LineType
   id?: string
+  // product
   motorNumber?: string
-  serialNumber: string
-  productId: string
-  productName: string
-  categoryName: string
+  serialNumber?: string
+  productId?: string
   colorId?: string
   colorName?: string
+  warrantyActive?: boolean
+  warrantyExpiryDate?: string
+  locked?: boolean
+  status?: string
+  // part
+  partId?: string
+  quantity?: number
+  // shared
+  productName: string
+  categoryName: string
   listPrice: number
   purchasePrice: number
   specialDiscount: number
   specialDiscountType: SupplierDiscountType
-  warrantyActive: boolean
-  warrantyExpiryDate?: string
-  /** Sold / reserved / etc. — shown but not editable */
-  locked?: boolean
-  status?: string
 }
 
 function computeNetPrice(
@@ -71,6 +81,11 @@ function computeNetPrice(
   return applySupplierDiscount(afterSupplier, specialDiscount, specialDiscountType)
 }
 
+function lineQty(line: CartLine): number {
+  if (line.lineType === 'part') return Math.max(1, Number(line.quantity || 1))
+  return 1
+}
+
 export const AddPurchase = () => {
   const { id } = useParams()
   const isEdit = Boolean(id)
@@ -78,8 +93,10 @@ export const AddPurchase = () => {
   const { companyId, branchId, audit } = useSession()
   const [suppliers, setSuppliers] = useState<any[]>([])
   const [products, setProducts] = useState<any[]>([])
+  const [parts, setParts] = useState<any[]>([])
   const [colors, setColors] = useState<any[]>([])
-  const [lines, setLines] = useState<PurchaseLine[]>([])
+  const [lines, setLines] = useState<CartLine[]>([])
+  const [lineType, setLineType] = useState<LineType>('product')
   const [editingKey, setEditingKey] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [loadingDetail, setLoadingDetail] = useState(isEdit)
@@ -91,14 +108,22 @@ export const AddPurchase = () => {
   const lineSpecialDiscountType: SupplierDiscountType =
     Form.useWatch('specialDiscountType', lineForm) === 'percent' ? 'percent' : 'pkr'
 
+  const activeLineType: LineType = isEdit ? 'product' : lineType
+
   useEffect(() => {
     if (!companyId) return
     supplierAPI.list(companyId).then(setSuppliers)
     productAPI.list(companyId).then(setProducts)
     colorAPI.list(companyId).then(setColors)
     if (!isEdit) {
+      partAPI.list(companyId).then(setParts)
       headerForm.setFieldsValue({ purchaseDate: dayjs() })
-      lineForm.setFieldsValue({ specialDiscount: 0, specialDiscountType: 'pkr' })
+      lineForm.setFieldsValue({
+        specialDiscount: 0,
+        specialDiscountType: 'pkr',
+        quantity: 1,
+        warrantyActive: false
+      })
     }
   }, [companyId, headerForm, lineForm, isEdit])
 
@@ -129,6 +154,7 @@ export const AddPurchase = () => {
         setLines(
           (detail.items || []).map((item: any) => ({
             key: item.id,
+            lineType: 'product' as const,
             id: item.id,
             serialNumber: item.serialNumber,
             motorNumber: item.motorNumber || undefined,
@@ -158,6 +184,7 @@ export const AddPurchase = () => {
   }, [id, isEdit, navigate, headerForm])
 
   const productMap = useMemo(() => new Map(products.map((p) => [p.id, p])), [products])
+  const partMap = useMemo(() => new Map(parts.map((p) => [p.id, p])), [parts])
   const colorMap = useMemo(() => new Map(colors.map((c) => [c.id, c])), [colors])
   const supplierMap = useMemo(() => new Map(suppliers.map((s) => [s.id, s])), [suppliers])
 
@@ -205,13 +232,23 @@ export const AddPurchase = () => {
     value: p.id,
     label: `${p.name}${p.category?.name ? ` · ${p.category.name}` : ''}`
   }))
+  const partOptions = parts.map((p) => ({
+    value: p.id,
+    label: `${p.name}${p.category?.name ? ` · ${p.category.name}` : ''}`
+  }))
   const colorOptions = colors.map((c) => ({ value: c.id, label: c.name }))
   const supplierOptions = suppliers.map((s) => ({ value: s.id, label: s.name }))
 
   const selectedProductId = Form.useWatch('productId', lineForm)
-  const categoryPreview = selectedProductId
-    ? productMap.get(selectedProductId)?.category?.name || '—'
-    : '—'
+  const selectedPartId = Form.useWatch('partId', lineForm)
+  const categoryPreview =
+    activeLineType === 'product'
+      ? selectedProductId
+        ? productMap.get(selectedProductId)?.category?.name || '—'
+        : '—'
+      : selectedPartId
+        ? partMap.get(selectedPartId)?.category?.name || '—'
+        : '—'
 
   const handleSupplierChange = (supplierId: string) => {
     recalcLines(supplierMap.get(supplierId))
@@ -223,110 +260,195 @@ export const AddPurchase = () => {
       warrantyActive: false,
       motorNumber: '',
       serialNumber: '',
+      quantity: 1,
       specialDiscount: 0,
       specialDiscountType: 'pkr'
     })
   }
 
+  const handleTabChange = (key: string) => {
+    setLineType(key as LineType)
+    setEditingKey(null)
+    resetLineForm()
+  }
+
+  const addProductLine = async () => {
+    const values = await lineForm.validateFields()
+    const product = productMap.get(values.productId)
+    if (!product) {
+      message.error('Select a valid product')
+      return
+    }
+    const serial = String(values.serialNumber || '').trim()
+    if (
+      lines.some(
+        (l) =>
+          l.lineType === 'product' &&
+          l.serialNumber === serial &&
+          (!editingKey || l.key !== editingKey)
+      )
+    ) {
+      message.error('Chassis number already added to this purchase')
+      return
+    }
+    if (values.warrantyActive && !values.warrantyExpiryDate) {
+      message.error('Warranty expiry is required when warranty is active')
+      return
+    }
+
+    const color = values.colorId ? colorMap.get(values.colorId) : undefined
+    const listPrice = Number(values.purchasePrice || 0)
+    const specialDiscount = Number(values.specialDiscount || 0)
+    const specialDiscountType: SupplierDiscountType =
+      values.specialDiscountType === 'percent' ? 'percent' : 'pkr'
+    const nextLine: CartLine = {
+      key: editingKey || `${serial}-${Date.now()}`,
+      lineType: 'product',
+      serialNumber: serial,
+      motorNumber: values.motorNumber?.trim() || undefined,
+      productId: values.productId,
+      productName: product.name,
+      categoryName: product.category?.name || '—',
+      colorId: values.colorId,
+      colorName: color?.name,
+      listPrice,
+      specialDiscount,
+      specialDiscountType,
+      purchasePrice: computeNetPrice(
+        listPrice,
+        supplierDiscount,
+        supplierDiscountType,
+        specialDiscount,
+        specialDiscountType
+      ),
+      warrantyActive: Boolean(values.warrantyActive),
+      warrantyExpiryDate: values.warrantyActive
+        ? values.warrantyExpiryDate.format('YYYY-MM-DD')
+        : undefined
+    }
+
+    if (editingKey) {
+      const existing = lines.find((l) => l.key === editingKey)
+      if (!existing || existing.locked || existing.lineType !== 'product') {
+        message.error('This unit cannot be edited')
+        return
+      }
+      setLines((prev) =>
+        prev.map((l) =>
+          l.key === editingKey
+            ? {
+                ...nextLine,
+                id: existing.id,
+                locked: existing.locked,
+                status: existing.status || 'in_stock'
+              }
+            : l
+        )
+      )
+      setEditingKey(null)
+      message.success('Unit updated in list')
+    } else {
+      setLines((prev) => [...prev, nextLine])
+    }
+
+    resetLineForm()
+  }
+
+  const addPartLine = async () => {
+    const values = await lineForm.validateFields()
+    const part = partMap.get(values.partId)
+    if (!part) {
+      message.error('Select a valid part')
+      return
+    }
+    const quantity = Math.floor(Number(values.quantity))
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      message.error('Quantity must be a positive whole number')
+      return
+    }
+
+    const listPrice = Number(values.purchasePrice || 0)
+    const specialDiscount = Number(values.specialDiscount || 0)
+    const specialDiscountType: SupplierDiscountType =
+      values.specialDiscountType === 'percent' ? 'percent' : 'pkr'
+
+    const nextLine: CartLine = {
+      key: editingKey || `part-${values.partId}-${Date.now()}`,
+      lineType: 'part',
+      partId: values.partId,
+      productName: part.name,
+      categoryName: part.category?.name || '—',
+      quantity,
+      listPrice,
+      specialDiscount,
+      specialDiscountType,
+      purchasePrice: computeNetPrice(
+        listPrice,
+        supplierDiscount,
+        supplierDiscountType,
+        specialDiscount,
+        specialDiscountType
+      )
+    }
+
+    if (editingKey) {
+      const existing = lines.find((l) => l.key === editingKey)
+      if (!existing || existing.lineType !== 'part') {
+        message.error('This line cannot be edited')
+        return
+      }
+      setLines((prev) =>
+        prev.map((l) => (l.key === editingKey ? { ...nextLine, id: existing.id } : l))
+      )
+      setEditingKey(null)
+      message.success('Part line updated')
+    } else {
+      setLines((prev) => [...prev, nextLine])
+    }
+
+    resetLineForm()
+  }
+
   const addLine = async () => {
     try {
-      const values = await lineForm.validateFields()
-      const product = productMap.get(values.productId)
-      if (!product) {
-        message.error('Select a valid product')
-        return
-      }
-      const serial = values.serialNumber.trim()
-      if (
-        lines.some(
-          (l) => l.serialNumber === serial && (!editingKey || l.key !== editingKey)
-        )
-      ) {
-        message.error('Chassis number already added to this purchase')
-        return
-      }
-      if (values.warrantyActive && !values.warrantyExpiryDate) {
-        message.error('Warranty expiry is required when warranty is active')
-        return
-      }
-
-      const color = values.colorId ? colorMap.get(values.colorId) : undefined
-      const listPrice = Number(values.purchasePrice || 0)
-      const specialDiscount = Number(values.specialDiscount || 0)
-      const specialDiscountType: SupplierDiscountType =
-        values.specialDiscountType === 'percent' ? 'percent' : 'pkr'
-      const nextLine: PurchaseLine = {
-        key: editingKey || `${serial}-${Date.now()}`,
-        serialNumber: serial,
-        motorNumber: values.motorNumber?.trim() || undefined,
-        productId: values.productId,
-        productName: product.name,
-        categoryName: product.category?.name || '—',
-        colorId: values.colorId,
-        colorName: color?.name,
-        listPrice,
-        specialDiscount,
-        specialDiscountType,
-        purchasePrice: computeNetPrice(
-          listPrice,
-          supplierDiscount,
-          supplierDiscountType,
-          specialDiscount,
-          specialDiscountType
-        ),
-        warrantyActive: Boolean(values.warrantyActive),
-        warrantyExpiryDate: values.warrantyActive
-          ? values.warrantyExpiryDate.format('YYYY-MM-DD')
-          : undefined
-      }
-
-      if (editingKey) {
-        const existing = lines.find((l) => l.key === editingKey)
-        if (!existing || existing.locked) {
-          message.error('This unit cannot be edited')
-          return
-        }
-        setLines((prev) =>
-          prev.map((l) =>
-            l.key === editingKey
-              ? {
-                  ...nextLine,
-                  id: existing.id,
-                  locked: existing.locked,
-                  status: existing.status || 'in_stock'
-                }
-              : l
-          )
-        )
-        setEditingKey(null)
-        message.success('Unit updated in list')
-      } else {
-        setLines((prev) => [...prev, nextLine])
-      }
-
-      resetLineForm()
+      if (activeLineType === 'product') await addProductLine()
+      else await addPartLine()
     } catch {
       // validation shown by form
     }
   }
 
-  const startEditLine = (line: PurchaseLine) => {
+  const startEditLine = (line: CartLine) => {
     if (line.locked) {
       message.warning('Sold or not in stock units cannot be edited')
       return
     }
+    if (isEdit && line.lineType !== 'product') return
+
     setEditingKey(line.key)
-    lineForm.setFieldsValue({
-      serialNumber: line.serialNumber,
-      motorNumber: line.motorNumber || '',
-      productId: line.productId,
-      colorId: line.colorId,
-      purchasePrice: line.listPrice,
-      specialDiscount: line.specialDiscount,
-      specialDiscountType: line.specialDiscountType,
-      warrantyActive: line.warrantyActive,
-      warrantyExpiryDate: line.warrantyExpiryDate ? dayjs(line.warrantyExpiryDate) : undefined
-    })
+    if (!isEdit) setLineType(line.lineType)
+
+    if (line.lineType === 'product') {
+      lineForm.setFieldsValue({
+        serialNumber: line.serialNumber,
+        motorNumber: line.motorNumber || '',
+        productId: line.productId,
+        colorId: line.colorId,
+        purchasePrice: line.listPrice,
+        specialDiscount: line.specialDiscount,
+        specialDiscountType: line.specialDiscountType,
+        warrantyActive: line.warrantyActive,
+        warrantyExpiryDate: line.warrantyExpiryDate ? dayjs(line.warrantyExpiryDate) : undefined
+      })
+    } else {
+      lineForm.setFieldsValue({
+        partId: line.partId,
+        quantity: line.quantity ?? 1,
+        purchasePrice: line.listPrice,
+        specialDiscount: line.specialDiscount,
+        specialDiscountType: line.specialDiscountType
+      })
+    }
   }
 
   const cancelEditLine = () => {
@@ -341,18 +463,20 @@ export const AddPurchase = () => {
 
   const lockedCount = lines.filter((l) => l.locked).length
   const editableCount = lines.length - lockedCount
+  const productLines = lines.filter((l) => l.lineType === 'product')
+  const partLines = lines.filter((l) => l.lineType === 'part')
 
-  const grossTotal = lines.reduce((sum, l) => sum + l.listPrice, 0)
-  const netTotal = lines.reduce((sum, l) => sum + l.purchasePrice, 0)
+  const grossTotal = round2(lines.reduce((sum, l) => sum + l.listPrice * lineQty(l), 0))
+  const netTotal = round2(lines.reduce((sum, l) => sum + l.purchasePrice * lineQty(l), 0))
   const discountAmount = round2(grossTotal - netTotal)
 
-  const buildPayload = (header: any) => ({
+  const buildProductPayload = (header: any) => ({
     supplierId: header.supplierId,
     purchaseDate: header.purchaseDate.format('YYYY-MM-DD'),
     notes: header.notes,
     specialDiscount: 0,
     specialDiscountType: 'pkr' as const,
-    lines: lines.map((l) => ({
+    lines: productLines.map((l) => ({
       ...(l.id ? { id: l.id } : {}),
       serialNumber: l.serialNumber,
       motorNumber: l.motorNumber,
@@ -367,27 +491,53 @@ export const AddPurchase = () => {
     }))
   })
 
+  const buildPartPayload = (header: any) => ({
+    supplierId: header.supplierId,
+    purchaseDate: header.purchaseDate.format('YYYY-MM-DD'),
+    notes: header.notes || '',
+    lines: partLines.map((l) => ({
+      unitCost: l.purchasePrice,
+      unitSalePrice: l.listPrice,
+      quantity: lineQty(l),
+      partId: l.partId,
+      specialDiscount: l.specialDiscount,
+      specialDiscountType: l.specialDiscountType
+    }))
+  })
+
   const handleSubmit = async () => {
     if (!lines.length) {
-      message.error('Add at least one unit')
+      message.error('Add at least one line')
       return
     }
     const header = await headerForm.validateFields()
     setLoading(true)
     try {
       if (isEdit && id) {
-        await purchaseAPI.update(id, companyId, branchId, audit(), buildPayload(header))
+        await purchaseAPI.update(id, companyId, branchId, audit(), buildProductPayload(header))
         message.success(`Purchase updated — ${lines.length} unit(s)`)
         navigate(App_Routes.PURCHASE_DETAIL.replace(':id', id))
         return
       }
 
-      await purchaseAPI.create(companyId, branchId, audit(), buildPayload(header))
-      message.success(`Purchase saved — ${lines.length} unit(s) added to stock`)
+      const created: string[] = []
+      if (productLines.length) {
+        await purchaseAPI.create(companyId, branchId, audit(), buildProductPayload(header))
+        created.push(`${productLines.length} product unit(s)`)
+      }
+      if (partLines.length) {
+        await partPurchaseAPI.create(companyId, branchId, audit(), buildPartPayload(header))
+        created.push(`${partLines.length} part line(s)`)
+      }
+
+      message.success(`Purchase saved — ${created.join(' · ')}`)
       setLines([])
+      setEditingKey(null)
+      setLineType('product')
       headerForm.resetFields()
       headerForm.setFieldsValue({ purchaseDate: dayjs() })
       resetLineForm()
+      navigate(App_Routes.PURCHASE_LIST)
     } catch (err: any) {
       message.error(err.message || (isEdit ? 'Update failed' : 'Purchase failed'))
     } finally {
@@ -423,7 +573,7 @@ export const AddPurchase = () => {
             ? lockedCount
               ? `${lockedCount} unit(s) are locked (sold or not in stock). You can still edit the ${editableCount} in-stock unit(s).`
               : 'Update in-stock units on this purchase.'
-            : 'Receive serialized units into stock at this branch.'
+            : 'Receive products and spare parts into stock at this branch.'
         }
       />
 
@@ -454,37 +604,101 @@ export const AddPurchase = () => {
       </Card>
 
       <Card
-        title={editingKey ? 'Edit unit' : 'Add unit'}
+        title={editingKey ? (activeLineType === 'part' ? 'Edit part line' : 'Edit unit') : 'Add line'}
         bordered={false}
         className="shadow-sm mb-4"
       >
+        {!isEdit && (
+          <Tabs
+            activeKey={lineType}
+            onChange={handleTabChange}
+            items={[
+              { key: 'product', label: 'Product' },
+              { key: 'part', label: 'Part' }
+            ]}
+          />
+        )}
         <Form
           form={lineForm}
           layout="vertical"
-          initialValues={{ warrantyActive: false, specialDiscount: 0, specialDiscountType: 'pkr' }}
+          initialValues={{
+            warrantyActive: false,
+            specialDiscount: 0,
+            specialDiscountType: 'pkr',
+            quantity: 1
+          }}
         >
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
-            <Form.Item name="serialNumber" label="Chassis Number" rules={[{ required: true, whitespace: true }]}>
-              <Input placeholder="Chassis number" />
-            </Form.Item>
-            <Form.Item name="motorNumber" label="Motor Number">
-              <Input placeholder="Optional" />
-            </Form.Item>
-            <Form.Item name="productId" label="Product" rules={[{ required: true, message: 'Select product' }]}>
-              <Select showSearch optionFilterProp="label" placeholder="Select product" options={productOptions} />
-            </Form.Item>
-            <Form.Item label="Category">
-              <Input value={categoryPreview} disabled />
-            </Form.Item>
-            <Form.Item name="colorId" label="Color">
-              <Select
-                allowClear
-                showSearch
-                optionFilterProp="label"
-                placeholder="Select color"
-                options={colorOptions}
-              />
-            </Form.Item>
+            {activeLineType === 'product' ? (
+              <>
+                <Form.Item
+                  name="serialNumber"
+                  label="Chassis Number"
+                  rules={[{ required: true, whitespace: true }]}
+                >
+                  <Input placeholder="Chassis number" />
+                </Form.Item>
+                <Form.Item name="motorNumber" label="Motor Number">
+                  <Input placeholder="Optional" />
+                </Form.Item>
+                <Form.Item
+                  name="productId"
+                  label="Product"
+                  rules={[{ required: true, message: 'Select product' }]}
+                >
+                  <Select
+                    showSearch
+                    optionFilterProp="label"
+                    placeholder="Select product"
+                    options={productOptions}
+                  />
+                </Form.Item>
+                <Form.Item label="Category">
+                  <Input value={categoryPreview} disabled />
+                </Form.Item>
+                <Form.Item name="colorId" label="Color">
+                  <Select
+                    allowClear
+                    showSearch
+                    optionFilterProp="label"
+                    placeholder="Select color"
+                    options={colorOptions}
+                  />
+                </Form.Item>
+              </>
+            ) : (
+              <>
+                <Form.Item
+                  name="partId"
+                  label="Part"
+                  rules={[{ required: true, message: 'Select a part' }]}
+                  className="md:col-span-2"
+                >
+                  <Select
+                    showSearch
+                    optionFilterProp="label"
+                    placeholder="Select part"
+                    options={partOptions}
+                  />
+                </Form.Item>
+                <Form.Item label="Category">
+                  <Input value={categoryPreview} disabled />
+                </Form.Item>
+                <Form.Item
+                  name="quantity"
+                  label="Units"
+                  rules={[{ required: true, message: 'Enter units' }]}
+                >
+                  <InputNumber
+                    className="w-full"
+                    min={1}
+                    step={1}
+                    precision={0}
+                    style={{ width: '100%' }}
+                  />
+                </Form.Item>
+              </>
+            )}
             <Form.Item name="purchasePrice" label="Retail price" rules={[{ required: true }]}>
               <InputNumber className="w-full" min={0} style={{ width: '100%' }} />
             </Form.Item>
@@ -493,7 +707,9 @@ export const AddPurchase = () => {
             </Form.Item>
             <Form.Item
               name="specialDiscount"
-              label={lineSpecialDiscountType === 'percent' ? 'Special Discount %' : 'Special Discount (PKR)'}
+              label={
+                lineSpecialDiscountType === 'percent' ? 'Special Discount %' : 'Special Discount (PKR)'
+              }
               rules={[
                 { type: 'number', min: 0, message: 'Discount cannot be negative' },
                 ...(lineSpecialDiscountType === 'percent'
@@ -509,17 +725,25 @@ export const AddPurchase = () => {
               />
             </Form.Item>
             {showNetPreview && (
-              <Form.Item label="Net Price">
+              <Form.Item label={activeLineType === 'part' ? 'Net cost / unit' : 'Net Price'}>
                 <Input value={formatRs(previewNetPrice)} disabled />
               </Form.Item>
             )}
-            <Form.Item name="warrantyActive" label="Warranty Active" valuePropName="checked">
-              <Switch />
-            </Form.Item>
-            {warrantyActive && (
-              <Form.Item name="warrantyExpiryDate" label="Warranty Expiry" rules={[{ required: true }]}>
-                <DatePicker className="w-full" style={{ width: '100%' }} />
-              </Form.Item>
+            {activeLineType === 'product' && (
+              <>
+                <Form.Item name="warrantyActive" label="Warranty Active" valuePropName="checked">
+                  <Switch />
+                </Form.Item>
+                {warrantyActive && (
+                  <Form.Item
+                    name="warrantyExpiryDate"
+                    label="Warranty Expiry"
+                    rules={[{ required: true }]}
+                  >
+                    <DatePicker className="w-full" style={{ width: '100%' }} />
+                  </Form.Item>
+                )}
+              </>
             )}
           </div>
           <Space>
@@ -528,7 +752,11 @@ export const AddPurchase = () => {
               icon={editingKey ? <EditOutlined /> : <PlusOutlined />}
               onClick={addLine}
             >
-              {editingKey ? 'Update unit' : 'Add to purchase'}
+              {editingKey
+                ? activeLineType === 'part'
+                  ? 'Update line'
+                  : 'Update unit'
+                : 'Add to purchase'}
             </Button>
             {editingKey && <Button onClick={cancelEditLine}>Cancel edit</Button>}
           </Space>
@@ -540,13 +768,45 @@ export const AddPurchase = () => {
           rowKey="key"
           dataSource={lines}
           pagination={false}
-          locale={{ emptyText: 'No units added yet' }}
+          locale={{ emptyText: 'No lines added yet' }}
           columns={[
-            { title: 'Chassis Number', dataIndex: 'serialNumber', render: (v) => <Text strong>{v}</Text> },
-            { title: 'Motor No.', dataIndex: 'motorNumber', render: (v) => v || '—' },
-            { title: 'Product', dataIndex: 'productName' },
+            ...(!isEdit
+              ? [
+                  {
+                    title: 'Type',
+                    dataIndex: 'lineType',
+                    width: 90,
+                    render: (v: LineType) => (
+                      <Tag color={v === 'part' ? 'blue' : 'default'}>
+                        {v === 'part' ? 'Part' : 'Product'}
+                      </Tag>
+                    )
+                  }
+                ]
+              : []),
+            {
+              title: isEdit ? 'Chassis Number' : 'Chassis / Qty',
+              render: (_: unknown, r: CartLine) =>
+                r.lineType === 'product' ? (
+                  <Text strong>{r.serialNumber}</Text>
+                ) : (
+                  <Text strong>{r.quantity ?? 1}</Text>
+                )
+            },
+            ...(isEdit
+              ? [{ title: 'Motor No.', dataIndex: 'motorNumber', render: (v: string | undefined) => v || '—' }]
+              : []),
+            {
+              title: isEdit ? 'Product' : 'Name',
+              dataIndex: 'productName'
+            },
             { title: 'Category', dataIndex: 'categoryName' },
-            { title: 'Color', dataIndex: 'colorName', render: (v) => v || '—' },
+            {
+              title: 'Color',
+              dataIndex: 'colorName',
+              render: (v: string | undefined, r: CartLine) =>
+                r.lineType === 'product' ? v || '—' : '—'
+            },
             ...(hasDiscount
               ? [
                   {
@@ -558,7 +818,7 @@ export const AddPurchase = () => {
                   {
                     title: 'Special Disc.',
                     key: 'specialDiscount',
-                    render: (_: unknown, r: PurchaseLine) =>
+                    render: (_: unknown, r: CartLine) =>
                       formatSupplierDiscount(r.specialDiscount, r.specialDiscountType)
                   },
                   {
@@ -578,15 +838,19 @@ export const AddPurchase = () => {
                 ]),
             {
               title: 'Warranty',
-              render: (_: unknown, r: PurchaseLine) =>
-                r.warrantyActive ? `Yes · ${r.warrantyExpiryDate}` : 'No'
+              render: (_: unknown, r: CartLine) =>
+                r.lineType === 'product'
+                  ? r.warrantyActive
+                    ? `Yes · ${r.warrantyExpiryDate}`
+                    : 'No'
+                  : '—'
             },
             ...(isEdit
               ? [
                   {
                     title: 'Status',
                     dataIndex: 'status',
-                    render: (v: string | undefined, r: PurchaseLine) =>
+                    render: (v: string | undefined, r: CartLine) =>
                       r.locked ? (
                         <Tag color={STATUS_COLORS[v || ''] || 'default'}>
                           {(v || 'locked').replace(/_/g, ' ')}
@@ -600,7 +864,7 @@ export const AddPurchase = () => {
             {
               title: '',
               width: 88,
-              render: (_: unknown, r: PurchaseLine) =>
+              render: (_: unknown, r: CartLine) =>
                 r.locked ? (
                   <Space size={0}>
                     <Tooltip title="Sold or not in stock — cannot edit">
@@ -613,7 +877,12 @@ export const AddPurchase = () => {
                 ) : (
                   <Space size={0}>
                     <Button type="text" icon={<EditOutlined />} onClick={() => startEditLine(r)} />
-                    <Button type="text" danger icon={<DeleteOutlined />} onClick={() => removeLine(r.key)} />
+                    <Button
+                      type="text"
+                      danger
+                      icon={<DeleteOutlined />}
+                      onClick={() => removeLine(r.key)}
+                    />
                   </Space>
                 )
             }
@@ -622,9 +891,15 @@ export const AddPurchase = () => {
         <div className="flex flex-wrap justify-between items-center gap-3 mt-4 pt-4 border-t border-slate-100">
           <div className="space-y-1">
             <Text strong>
-              {lines.length} unit(s)
-              {isEdit && lockedCount > 0 && (
-                <Text type="secondary"> · {lockedCount} locked</Text>
+              {isEdit ? (
+                <>
+                  {lines.length} unit(s)
+                  {lockedCount > 0 && <Text type="secondary"> · {lockedCount} locked</Text>}
+                </>
+              ) : (
+                <>
+                  {productLines.length} product · {partLines.length} part
+                </>
               )}
               {hasDiscount && discountAmount > 0 ? (
                 <>
@@ -636,9 +911,8 @@ export const AddPurchase = () => {
                       · Supplier ({formatSupplierDiscount(supplierDiscount, supplierDiscountType)})
                     </>
                   )}
-                  {hasSpecialDiscount && <> · Special (per unit)</>}
-                  {' '}
-                  − {formatRs(discountAmount)} · Net {formatRs(netTotal)}
+                  {hasSpecialDiscount && <> · Special (per unit)</>} − {formatRs(discountAmount)} ·
+                  Net {formatRs(netTotal)}
                 </>
               ) : (
                 <> · Total {formatRs(netTotal)}</>
@@ -647,7 +921,9 @@ export const AddPurchase = () => {
           </div>
           <Space>
             {!isEdit && (
-              <Button onClick={() => setLines([])} disabled={!lines.length}>Clear</Button>
+              <Button onClick={() => setLines([])} disabled={!lines.length}>
+                Clear
+              </Button>
             )}
             {isEdit && (
               <Button onClick={() => navigate(App_Routes.PURCHASE_DETAIL.replace(':id', id!))}>

@@ -20,12 +20,6 @@ export const LazyPages = {
     import('@/renderer/pages/inventory/PurchaseDetail').then((m) => ({ default: m.PurchaseDetail }))
   ),
   PurchaseEdit: lazy(() => import('@/renderer/pages/inventory/AddPurchase').then((m) => ({ default: m.AddPurchase }))),
-  AddPartPurchase: lazy(() =>
-    import('@/renderer/pages/inventory/AddPartPurchase').then((m) => ({ default: m.AddPartPurchase }))
-  ),
-  PartPurchaseList: lazy(() =>
-    import('@/renderer/pages/inventory/PartPurchaseList').then((m) => ({ default: m.PartPurchaseList }))
-  ),
   PartPurchaseDetail: lazy(() =>
     import('@/renderer/pages/inventory/PartPurchaseDetail').then((m) => ({ default: m.PartPurchaseDetail }))
   ),
@@ -34,7 +28,6 @@ export const LazyPages = {
   ),
   Stock: lazy(() => import('@/renderer/pages/inventory/Stock').then((m) => ({ default: m.Stock }))),
   StockDetail: lazy(() => import('@/renderer/pages/inventory/StockDetail').then((m) => ({ default: m.StockDetail }))),
-  PartStock: lazy(() => import('@/renderer/pages/inventory/PartStock').then((m) => ({ default: m.PartStock }))),
   PartStockDetail: lazy(() =>
     import('@/renderer/pages/inventory/PartStockDetail').then((m) => ({ default: m.PartStockDetail }))
   ),
@@ -74,13 +67,15 @@ export const AppRoutes: IAppRoutes[] = [
   { path: App_Routes.PURCHASE_LIST, component: LazyPages.PurchaseList, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
   { path: App_Routes.PURCHASE_EDIT, component: LazyPages.PurchaseEdit, roles: [Roles.COMPANY_OWNER] },
   { path: App_Routes.PURCHASE_DETAIL, component: LazyPages.PurchaseDetail, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
-  { path: App_Routes.ADD_PART_PURCHASE, component: LazyPages.AddPartPurchase, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
-  { path: App_Routes.PART_PURCHASE_LIST, component: LazyPages.PartPurchaseList, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
+  // Legacy paths → unified purchase UI (tables remain separate)
+  { path: App_Routes.ADD_PART_PURCHASE, component: LazyPages.AddPurchase, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
+  { path: App_Routes.PART_PURCHASE_LIST, component: LazyPages.PurchaseList, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
   { path: App_Routes.PART_PURCHASE_EDIT, component: LazyPages.PartPurchaseEdit, roles: [Roles.COMPANY_OWNER] },
   { path: App_Routes.PART_PURCHASE_DETAIL, component: LazyPages.PartPurchaseDetail, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
   { path: App_Routes.STOCK, component: LazyPages.Stock, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
   { path: App_Routes.STOCK_DETAIL, component: LazyPages.StockDetail, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
-  { path: App_Routes.PART_STOCK, component: LazyPages.PartStock, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
+  // Legacy path → unified Stock (Product | Part tabs)
+  { path: App_Routes.PART_STOCK, component: LazyPages.Stock, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
   { path: App_Routes.PART_STOCK_DETAIL, component: LazyPages.PartStockDetail, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
   { path: App_Routes.TRANSFERS, component: LazyPages.Transfer, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
   { path: App_Routes.ADJUSTMENTS, component: LazyPages.Adjustment, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },

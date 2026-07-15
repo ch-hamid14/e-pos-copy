@@ -74,20 +74,16 @@ export const AddPartPurchase = () => {
   const lineSpecialDiscountType: SupplierDiscountType =
     Form.useWatch('specialDiscountType', lineForm) === 'percent' ? 'percent' : 'pkr'
 
+  // Create flow lives on unified Add Purchase; this page is edit-only.
   useEffect(() => {
-    if (!companyId) return
+    if (!isEdit) navigate(App_Routes.ADD_PURCHASE, { replace: true })
+  }, [isEdit, navigate])
+
+  useEffect(() => {
+    if (!companyId || !isEdit) return
     supplierAPI.list(companyId).then(setSuppliers)
     partAPI.list(companyId).then(setParts)
-    if (!isEdit) {
-      headerForm.setFieldsValue({ purchaseDate: dayjs() })
-      lineForm.setFieldsValue({
-        quantity: 1,
-        purchasePrice: 0,
-        specialDiscount: 0,
-        specialDiscountType: 'pkr'
-      })
-    }
-  }, [companyId, headerForm, lineForm, isEdit])
+  }, [companyId, isEdit])
 
   useEffect(() => {
     if (!isEdit || !id) return
@@ -97,7 +93,7 @@ export const AddPartPurchase = () => {
       .then((detail: any) => {
         if (!detail?.purchase) {
           message.error('Parts purchase not found')
-          navigate(App_Routes.PART_PURCHASE_LIST)
+          navigate(App_Routes.PURCHASE_LIST)
           return
         }
 
@@ -125,7 +121,7 @@ export const AddPartPurchase = () => {
       })
       .catch((err: any) => {
         message.error(err.message || 'Failed to load parts purchase')
-        navigate(App_Routes.PART_PURCHASE_LIST)
+        navigate(App_Routes.PURCHASE_LIST)
       })
       .finally(() => setLoadingDetail(false))
   }, [id, isEdit, navigate, headerForm])
@@ -289,7 +285,7 @@ export const AddPartPurchase = () => {
         navigate(
           newId
             ? App_Routes.PART_PURCHASE_DETAIL.replace(':id', newId)
-            : App_Routes.PART_PURCHASE_LIST
+            : App_Routes.PURCHASE_LIST
         )
       }
     } catch (err: any) {
@@ -308,20 +304,22 @@ export const AddPartPurchase = () => {
     )
   }
 
+  if (!isEdit) return null
+
   return (
     <div>
       <Button
         type="link"
         icon={<ArrowLeftOutlined />}
         className="!px-0 mb-2"
-        onClick={() => navigate(App_Routes.PART_PURCHASE_LIST)}
+        onClick={() => navigate(App_Routes.PURCHASE_LIST)}
       >
-        Back to Parts Purchase List
+        Back to Purchase List
       </Button>
 
       <PageHeader
-        title={isEdit ? 'Edit Parts Purchase' : 'Add Parts Purchase'}
-        subtitle="Receive spare parts by quantity — set retail price (same discount flow as products)."
+        title="Edit Parts Purchase"
+        subtitle="Update spare part quantities and unit costs for this purchase."
       />
 
       <Card bordered={false} className="shadow-sm mb-4">

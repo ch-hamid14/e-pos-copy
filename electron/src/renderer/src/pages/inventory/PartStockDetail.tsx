@@ -45,9 +45,9 @@ export const PartStockDetail = () => {
           type="link"
           icon={<ArrowLeftOutlined />}
           className="!px-0 mb-4"
-          onClick={() => navigate(App_Routes.PART_STOCK)}
+          onClick={() => navigate(App_Routes.STOCK)}
         >
-          Back to Parts Stock
+          Back to Stock
         </Button>
         <Text type="secondary">Part stock not found.</Text>
       </div>
@@ -63,9 +63,9 @@ export const PartStockDetail = () => {
         type="link"
         icon={<ArrowLeftOutlined />}
         className="!px-0 mb-2"
-        onClick={() => navigate(App_Routes.PART_STOCK)}
+        onClick={() => navigate(App_Routes.STOCK)}
       >
-        Back to Parts Stock
+        Back to Stock
       </Button>
 
       <PageHeader title={part.name} subtitle="Available units and stock movement history." />

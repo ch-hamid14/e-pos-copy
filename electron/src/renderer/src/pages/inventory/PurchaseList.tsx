@@ -1,24 +1,40 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Button, Card, DatePicker, Input, Select, Space, Table, Tooltip } from 'antd'
+import { Button, Card, DatePicker, Input, Select, Space, Table, Tag, Tooltip } from 'antd'
 import type { TableProps } from 'antd'
-import { EditOutlined, EyeOutlined } from '@ant-design/icons'
+import { EditOutlined, EyeOutlined, PlusOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { useNavigate } from 'react-router-dom'
 import { App_Routes, Roles } from '@/common'
-import { purchaseAPI, supplierAPI } from '@/renderer/services'
+import { partPurchaseAPI, purchaseAPI, supplierAPI } from '@/renderer/services'
 import { useSession } from '@/renderer/hooks/useSession'
 import { formatRs, formatAuditUser, PageHeader } from '../shared/page-ui'
 
 const { RangePicker } = DatePicker
 
+type PurchaseKind = 'product' | 'part' | 'all'
+
+type UnifiedRow = {
+  key: string
+  kind: 'product' | 'part'
+  id: string
+  purchaseDate: string
+  supplier?: { name?: string } | null
+  updatedByUser?: unknown
+  createdByUser?: unknown
+  itemCount: number
+  totalValue: number
+  editable: boolean
+}
+
 export const PurchaseList = () => {
   const navigate = useNavigate()
   const { companyId, branchId, user } = useSession()
   const canEditPurchases = user?.role === Roles.COMPANY_OWNER
-  const [data, setData] = useState<any[]>([])
+  const [data, setData] = useState<UnifiedRow[]>([])
   const [suppliers, setSuppliers] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [supplierId, setSupplierId] = useState<string>()
+  const [kind, setKind] = useState<PurchaseKind>('all')
   const [search, setSearch] = useState('')
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null)
   const [totalValueSort, setTotalValueSort] = useState<'asc' | 'desc'>()
@@ -29,30 +45,75 @@ export const PurchaseList = () => {
   }, [companyId])
 
   const load = () => {
+    if (!companyId || !branchId) return
     setLoading(true)
-    purchaseAPI
-      .list(companyId, branchId, {
-        supplierId,
-        search: search || undefined,
-        fromDate: dateRange?.[0]?.format('YYYY-MM-DD'),
-        toDate: dateRange?.[1]?.format('YYYY-MM-DD'),
-        sortField: totalValueSort ? 'totalValue' : undefined,
-        sortOrder: totalValueSort
+    const filters = {
+      supplierId,
+      search: search || undefined,
+      fromDate: dateRange?.[0]?.format('YYYY-MM-DD'),
+      toDate: dateRange?.[1]?.format('YYYY-MM-DD')
+    }
+
+    const productPromise =
+      kind === 'part'
+        ? Promise.resolve([])
+        : purchaseAPI.list(companyId, branchId, filters)
+
+    const partPromise =
+      kind === 'product'
+        ? Promise.resolve([])
+        : partPurchaseAPI.list(companyId, branchId, filters)
+
+    Promise.all([productPromise, partPromise])
+      .then(([products, parts]) => {
+        const productRows: UnifiedRow[] = ((products as any[]) || []).map((r) => ({
+          key: `product-${r.id}`,
+          kind: 'product',
+          id: r.id,
+          purchaseDate: r.purchaseDate,
+          supplier: r.supplier,
+          updatedByUser: r.updatedByUser,
+          createdByUser: r.createdByUser,
+          itemCount: Number(r.itemCount || 0),
+          totalValue: Number(r.totalValue || 0),
+          editable: Boolean(r.editable)
+        }))
+        const partRows: UnifiedRow[] = ((parts as any[]) || []).map((r) => ({
+          key: `part-${r.id}`,
+          kind: 'part',
+          id: r.id,
+          purchaseDate: r.purchaseDate,
+          supplier: r.supplier,
+          updatedByUser: r.updatedByUser,
+          createdByUser: r.createdByUser,
+          itemCount: Number(r.totalUnits ?? r.lineCount ?? 0),
+          totalValue: Number(r.totalValue || 0),
+          editable: Boolean(r.editable)
+        }))
+
+        let merged = [...productRows, ...partRows]
+        merged.sort((a, b) => dayjs(b.purchaseDate).valueOf() - dayjs(a.purchaseDate).valueOf())
+
+        if (totalValueSort) {
+          merged.sort((a, b) =>
+            totalValueSort === 'asc' ? a.totalValue - b.totalValue : b.totalValue - a.totalValue
+          )
+        }
+        setData(merged)
       })
-      .then(setData)
       .finally(() => setLoading(false))
   }
 
   useEffect(() => {
-    if (companyId && branchId) load()
-  }, [companyId, branchId, supplierId, search, dateRange, totalValueSort])
+    load()
+  }, [companyId, branchId, supplierId, search, dateRange, totalValueSort, kind])
 
   const supplierOptions = useMemo(
     () => suppliers.map((s) => ({ value: s.id, label: s.name })),
     [suppliers]
   )
 
-  const handleTableChange: TableProps<any>['onChange'] = (_pagination, _filters, sorter) => {
+  const handleTableChange: TableProps<UnifiedRow>['onChange'] = (_pagination, _filters, sorter) => {
     const active = Array.isArray(sorter) ? sorter[0] : sorter
     if (active?.field === 'totalValue' && active.order) {
       setTotalValueSort(active.order === 'ascend' ? 'asc' : 'desc')
@@ -63,7 +124,15 @@ export const PurchaseList = () => {
 
   return (
     <div>
-      <PageHeader title="Purchase List" subtitle="History of stock purchases at this branch." />
+      <PageHeader
+        title="Purchase List"
+        subtitle="Product and parts purchases at this branch."
+        extra={
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate(App_Routes.ADD_PURCHASE)}>
+            Add Purchase
+          </Button>
+        }
+      />
 
       <Card bordered={false} className="shadow-sm mb-4">
         <div className="flex flex-wrap gap-3">
@@ -79,11 +148,22 @@ export const PurchaseList = () => {
             value={supplierId}
             onChange={setSupplierId}
           />
+          <Select
+            placeholder="Type"
+            style={{ width: 140 }}
+            value={kind}
+            onChange={setKind}
+            options={[
+              { value: 'all', label: 'All' },
+              { value: 'product', label: 'Products' },
+              { value: 'part', label: 'Parts' }
+            ]}
+          />
           <Input.Search
-            placeholder="Search chassis or motor number…"
+            placeholder="Search chassis, motor, or part…"
             allowClear
             onSearch={setSearch}
-            style={{ width: 260 }}
+            style={{ width: 280 }}
           />
           <Button
             onClick={() => {
@@ -91,6 +171,7 @@ export const PurchaseList = () => {
               setSearch('')
               setDateRange(null)
               setTotalValueSort(undefined)
+              setKind('all')
             }}
           >
             Reset
@@ -100,12 +181,19 @@ export const PurchaseList = () => {
 
       <Card bordered={false} className="shadow-sm">
         <Table
-          rowKey="id"
+          rowKey="key"
           loading={loading}
           dataSource={data}
           onChange={handleTableChange}
           pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (t) => `${t} purchases` }}
           columns={[
+            {
+              title: 'Type',
+              dataIndex: 'kind',
+              width: 100,
+              render: (v: UnifiedRow['kind']) =>
+                v === 'part' ? <Tag color="blue">Part</Tag> : <Tag>Product</Tag>
+            },
             {
               title: 'Date',
               dataIndex: 'purchaseDate',
@@ -118,7 +206,7 @@ export const PurchaseList = () => {
             },
             {
               title: 'Updated by',
-              render: (_, r) => formatAuditUser(r.updatedByUser || r.createdByUser)
+              render: (_, r) => formatAuditUser((r.updatedByUser || r.createdByUser) as any)
             },
             {
               title: 'Units',
@@ -142,26 +230,26 @@ export const PurchaseList = () => {
               title: '',
               width: 88,
               render: (_, r) => {
+                const detail =
+                  r.kind === 'part'
+                    ? App_Routes.PART_PURCHASE_DETAIL.replace(':id', r.id)
+                    : App_Routes.PURCHASE_DETAIL.replace(':id', r.id)
+                const edit =
+                  r.kind === 'part'
+                    ? App_Routes.PART_PURCHASE_EDIT.replace(':id', r.id)
+                    : App_Routes.PURCHASE_EDIT.replace(':id', r.id)
                 const canEdit = Boolean(r.editable) && canEditPurchases
                 return (
                   <Space size={0}>
-                    <Button
-                      type="text"
-                      icon={<EyeOutlined />}
-                      onClick={() => navigate(App_Routes.PURCHASE_DETAIL.replace(':id', r.id))}
-                    />
+                    <Button type="text" icon={<EyeOutlined />} onClick={() => navigate(detail)} />
                     {canEdit ? (
-                      <Button
-                        type="text"
-                        icon={<EditOutlined />}
-                        onClick={() => navigate(App_Routes.PURCHASE_EDIT.replace(':id', r.id))}
-                      />
+                      <Button type="text" icon={<EditOutlined />} onClick={() => navigate(edit)} />
                     ) : (
                       <Tooltip
                         title={
                           !canEditPurchases
                             ? 'Only company owners can edit purchases'
-                            : 'No in-stock units left to edit'
+                            : 'Edit unavailable'
                         }
                       >
                         <Button type="text" icon={<EditOutlined />} disabled />
