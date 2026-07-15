@@ -314,9 +314,11 @@ export async function loginUser(controlDb: Knex, input: LoginInput): Promise<Log
 }
 
 export async function sendOtp(controlDb: Knex, email: string, purpose: OtpPurpose): Promise<void> {
-  const user = await controlDb('users').where({ email: email.toLowerCase(), is_active: true }).first()
+  const normalized = email.toLowerCase().trim()
+  const user = await controlDb('users').where({ email: normalized, is_active: true }).first()
   if (!user) return
-  await createOtp(controlDb, email, purpose)
+  // Explicit resend: rotate so the user gets a fresh code
+  await createOtp(controlDb, normalized, purpose, { rotate: true })
 }
 
 /**

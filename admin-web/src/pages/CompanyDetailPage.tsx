@@ -42,7 +42,6 @@ import CompanySyncPanel from '../components/CompanySyncPanel'
 import StatusTag from '../components/StatusTag'
 import { useAuth } from '../context/AuthContext'
 import type {
-  ActiveOtp,
   Branch,
   CompanyDetail,
   CompanyOps,
@@ -82,22 +81,23 @@ export default function CompanyDetailPage() {
   const [companyForm] = Form.useForm()
 
   const load = () => {
-    if (!token || !id) return
-    getCompany(token, id)
-      .then((d) => {
-        setDetail(d)
-        companyForm.setFieldsValue({
-          name: d.company.name,
-          email: d.company.email,
-          phone: d.company.phone,
-          status: d.company.status
+    if (!token || !id) return Promise.resolve()
+    return Promise.all([
+      getCompany(token, id)
+        .then((d) => {
+          setDetail(d)
+          companyForm.setFieldsValue({
+            name: d.company.name,
+            email: d.company.email,
+            phone: d.company.phone,
+            status: d.company.status
+          })
         })
-      })
-      .catch((err: Error) => message.error(err.message))
-
-    getCompanyOps(token, id)
-      .then(setOps)
-      .catch(() => setOps(null))
+        .catch((err: Error) => message.error(err.message)),
+      getCompanyOps(token, id)
+        .then(setOps)
+        .catch(() => setOps(null))
+    ])
   }
 
   useEffect(() => {
@@ -379,34 +379,30 @@ export default function CompanyDetailPage() {
                     },
                     {
                       title: 'OTP',
-                      dataIndex: 'otps',
                       width: 180,
-                      render: (otps?: ActiveOtp[]) => {
-                        if (!otps?.length) {
+                      render: (_, r) => {
+                        const latest = r.otps?.[0]
+                        if (!latest) {
                           return <Typography.Text type="secondary">—</Typography.Text>
                         }
                         return (
-                          <Space direction="vertical" size={2}>
-                            {otps.map((otp) => (
-                              <div key={otp.id}>
-                                <Typography.Text
-                                  copyable={{ text: otp.code }}
-                                  style={{
-                                    fontFamily: 'ui-monospace, monospace',
-                                    letterSpacing: 1
-                                  }}
-                                >
-                                  {otp.code}
-                                </Typography.Text>
-                                <Typography.Text
-                                  type="secondary"
-                                  style={{ display: 'block', fontSize: 11 }}
-                                >
-                                  {OTP_PURPOSE_LABELS[otp.purpose] || otp.purpose}
-                                </Typography.Text>
-                              </div>
-                            ))}
-                          </Space>
+                          <div>
+                            <Typography.Text
+                              copyable={{ text: latest.code }}
+                              style={{
+                                fontFamily: 'ui-monospace, monospace',
+                                letterSpacing: 1
+                              }}
+                            >
+                              {latest.code}
+                            </Typography.Text>
+                            <Typography.Text
+                              type="secondary"
+                              style={{ display: 'block', fontSize: 11 }}
+                            >
+                              {OTP_PURPOSE_LABELS[latest.purpose] || latest.purpose}
+                            </Typography.Text>
+                          </div>
                         )
                       }
                     },

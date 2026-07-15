@@ -4,7 +4,7 @@ import { randomUUID } from 'crypto'
 import { parseConnectionUrl } from '@madix/database'
 import { companyDbName, getCompanyDb, provisionCompanyDatabase, companyDbPool, teardownCompanyDatabase } from '../../db'
 import { bootstrapCompanySync } from '../sync/bootstrap'
-import { listActiveOtps } from '../../utils/otp'
+import { listActiveOtpsByEmails } from '../../utils/otp'
 
 function normalizeCompanyEmail(email?: string): string | null {
   const trimmed = email?.trim()
@@ -295,13 +295,19 @@ export async function getCompanyDetail(controlDb: Knex, companyId: string) {
   const roles = await companyDb('roles').where({ company_id: companyId }).whereNull('deleted_at').orderBy('name')
   const permissions = await companyDb('permissions').orderBy('key')
 
+  const otpsByEmail = await listActiveOtpsByEmails(
+    controlDb,
+    users.map((u) => String(u.email || ''))
+  )
+
   const usersWithRoles = await Promise.all(
     users.map(async (u) => {
       const userRoles = await companyDb('user_roles as ur')
         .join('roles as r', 'ur.role_id', 'r.id')
         .where('ur.user_id', u.id)
         .select('r.id', 'r.name')
-      const otps = await listActiveOtps(controlDb, String(u.email))
+      const emailKey = String(u.email || '').toLowerCase()
+      const otps = otpsByEmail.get(emailKey) || []
       return { ...mapUser(u), roles: userRoles, otps }
     })
   )
