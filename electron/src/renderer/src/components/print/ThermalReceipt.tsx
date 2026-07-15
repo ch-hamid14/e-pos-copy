@@ -196,8 +196,11 @@ export function ThermalReceipt({ data }: { data: ThermalReceiptData }) {
       <footer className="thermal-footer">
         <Divider />
         <p className="thermal-footer__thanks">Thank you for your business!</p>
-        <p className="thermal-footer__note">This is a computer-generated receipt.</p>
         <p className="thermal-footer__printed">Printed {printedAt}</p>
+        <div className="thermal-footer__brand">
+          <span className="thermal-footer__brand-label">Powered by</span>
+          <span className="thermal-footer__brand-name">MadixSoft</span>
+        </div>
         <div className="thermal-footer__bar" aria-hidden="true" />
       </footer>
     </div>
