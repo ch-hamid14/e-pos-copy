@@ -18,6 +18,11 @@ import {
 } from './offline-session'
 import { broadcastConnectivity } from './connectivity'
 import { startSyncAfterAuth, stopSync, syncService } from '../sync'
+import {
+  getLocalDataEpoch,
+  setLocalDataEpoch,
+  clearLocalDataEpoch
+} from './data-epoch'
 
 /** Tech factory-reset PIN (not shown in UI). */
 const TECH_RESET_PIN = '54321'
@@ -30,6 +35,7 @@ export type LoginResult = {
   token: string
   tokenExpiresAt: string
   offlineAllowedUntil?: string
+  dataEpoch?: number
 }
 
 export type CompanyMismatchResult = {
@@ -49,11 +55,21 @@ export type CompanySwitchBlockedResult = {
   message: string
 }
 
+export type DataEpochStaleResult = {
+  status: 'data_epoch_stale'
+  companyId: string
+  companyName: string
+  localEpoch: number
+  serverEpoch: number
+  message: string
+}
+
 export type LoginResponse =
   | ({ status: 'success' } & LoginResult)
   | { status: 'otp_required'; otpPurpose: OtpPurpose; message: string }
   | CompanyMismatchResult
   | CompanySwitchBlockedResult
+  | DataEpochStaleResult
 
 export type EnsureOnlineResult =
   | { status: 'idle' }
@@ -63,6 +79,8 @@ export type EnsureOnlineResult =
   | { status: 'session_ended'; reason: string }
 
 type CompanyGate = { status: 'ok' } | CompanyMismatchResult
+type DataEpochGate = { status: 'ok'; serverEpoch: number } | DataEpochStaleResult
+
 
 class AuthService {
   private reconnectTimer: ReturnType<typeof setInterval> | null = null
@@ -205,7 +223,8 @@ class AuthService {
     password: string,
     otp?: string,
     otpPurpose?: OtpPurpose,
-    confirmCompanySwitch = false
+    confirmCompanySwitch = false,
+    confirmDataEpochWipe = false
   ): Promise<LoginResponse> {
     const clientDeviceId = getClientDeviceId()
     const res = await apiFetch<any>('/auth/login', {
@@ -236,35 +255,26 @@ class AuthService {
         return gate
       }
 
-      await this.wipeAsFreshDevice(res.data.token as string)
+      await this.wipeAsFreshDevice(res.data.token as string, incomingCompanyId)
+      return this.login(email, password, otp, otpPurpose, true, confirmDataEpochWipe)
+    }
 
-      const freshRes = await apiFetch<any>('/auth/login', {
-        method: 'POST',
-        body: JSON.stringify({
-          email,
-          password,
-          clientDeviceId: getClientDeviceId(),
-          otp,
-          otpPurpose
-        })
-      })
-      if (!freshRes.ok) {
-        const data = freshRes.data as any
-        if (freshRes.status === 403 && data?.requiresOtp) {
-          return {
-            status: 'otp_required',
-            otpPurpose: data.otpPurpose,
-            message: data.message || 'OTP required'
-          }
-        }
-        throw new Error(freshRes.error || 'Login failed after wipe')
+    const serverEpoch = Number(res.data.dataEpoch ?? 1)
+    const epochGate = await this.evaluateDataEpochGate(
+      incomingCompanyId,
+      incomingCompanyName,
+      serverEpoch
+    )
+    if (epochGate.status === 'data_epoch_stale') {
+      if (!confirmDataEpochWipe) {
+        return epochGate
       }
-
-      const success = await this.handleAuthSuccess(freshRes.data, email)
-      return { status: 'success', ...success }
+      await this.wipeAsFreshDevice(res.data.token as string, incomingCompanyId)
+      return this.login(email, password, otp, otpPurpose, true, true)
     }
 
     const success = await this.handleAuthSuccess(res.data, email)
+    if (incomingCompanyId) setLocalDataEpoch(incomingCompanyId, serverEpoch)
     return { status: 'success', ...success }
   }
 
@@ -349,7 +359,11 @@ class AuthService {
     return result
   }
 
-  async refreshSession(token: string, email: string): Promise<LoginResult> {
+  async refreshSession(
+    token: string,
+    email: string,
+    confirmDataEpochWipe = false
+  ): Promise<LoginResponse> {
     const clientDeviceId = getClientDeviceId()
     const res = await apiFetch<any>('/auth/refresh', {
       method: 'POST',
@@ -371,7 +385,23 @@ class AuthService {
       )
     }
 
-    return this.handleAuthSuccess(res.data, email)
+    const serverEpoch = Number(res.data.dataEpoch ?? 1)
+    const epochGate = await this.evaluateDataEpochGate(
+      incomingCompanyId,
+      incomingCompanyName,
+      serverEpoch
+    )
+    if (epochGate.status === 'data_epoch_stale') {
+      if (!confirmDataEpochWipe) {
+        return epochGate
+      }
+      await this.wipeAsFreshDevice(res.data.token as string, incomingCompanyId)
+      return this.refreshSession(res.data.token as string, email, true)
+    }
+
+    const success = await this.handleAuthSuccess(res.data, email)
+    if (incomingCompanyId) setLocalDataEpoch(incomingCompanyId, serverEpoch)
+    return { status: 'success', ...success }
   }
 
   async resumeSync(token: string): Promise<void> {
@@ -464,6 +494,51 @@ class AuthService {
     }
   }
 
+  /**
+   * Same company, but server data_epoch advanced (flush/restore).
+   * If we have any local company profile / recorded epoch lower than server → stale.
+   */
+  private async evaluateDataEpochGate(
+    companyId: string,
+    companyName: string,
+    serverEpoch: number
+  ): Promise<DataEpochGate> {
+    if (!companyId) return { status: 'ok', serverEpoch }
+
+    const localEpoch = getLocalDataEpoch(companyId)
+    let hasLocalProfile = false
+    if (isDatabaseReady()) {
+      try {
+        const profile = await getDb()('company_profile').where({ id: companyId }).whereNull('deleted_at').first()
+        hasLocalProfile = Boolean(profile)
+      } catch {
+        hasLocalProfile = false
+      }
+    }
+
+    // Fresh machine / fresh local DB: adopt server epoch quietly.
+    if (localEpoch == null && !hasLocalProfile) {
+      return { status: 'ok', serverEpoch }
+    }
+
+    const effectiveLocal = localEpoch ?? 0
+    if (serverEpoch <= effectiveLocal) {
+      return { status: 'ok', serverEpoch }
+    }
+
+    return {
+      status: 'data_epoch_stale',
+      companyId,
+      companyName,
+      localEpoch: effectiveLocal,
+      serverEpoch,
+      message:
+        `Cloud data for "${companyName}" was reset (demo flush or snapshot restore). ` +
+        `This POS still has old local data and must wipe to continue. ` +
+        `Choose Continue to wipe local data and start fresh, or Logout to stop (tech can help).`
+    }
+  }
+
   private async assertOfflineCompanyMatch(sessionCompanyId: string | null): Promise<void> {
     if (!sessionCompanyId) return
     if (!isDatabaseReady()) {
@@ -486,7 +561,7 @@ class AuthService {
     )
   }
 
-  private async wipeAsFreshDevice(token: string): Promise<void> {
+  private async wipeAsFreshDevice(token: string, companyId?: string | null): Promise<void> {
     const oldDeviceId = getClientDeviceId()
     await stopSync()
 
@@ -502,6 +577,8 @@ class AuthService {
     } catch (err) {
       console.warn('release-device error during company wipe:', err)
     }
+
+    if (companyId) clearLocalDataEpoch(companyId)
 
     appState.clearSession()
     clearOfflineSession()
@@ -545,6 +622,9 @@ class AuthService {
         console.warn('release-device error during factory reset:', err)
       }
     }
+
+    const companyId = appState.getSession()?.user?.companyId
+    if (companyId) clearLocalDataEpoch(companyId)
 
     appState.clearSession()
     clearOfflineSession()

@@ -3,19 +3,22 @@ import { authService } from '../../services'
 
 class AuthController {
   async login(_: Electron.IpcMainInvokeEvent, req: IRequest) {
-    const { email, password, otp, otpPurpose, confirmCompanySwitch } = req.body as {
-      email: string
-      password: string
-      otp?: string
-      otpPurpose?: string
-      confirmCompanySwitch?: boolean
-    }
+    const { email, password, otp, otpPurpose, confirmCompanySwitch, confirmDataEpochWipe } =
+      req.body as {
+        email: string
+        password: string
+        otp?: string
+        otpPurpose?: string
+        confirmCompanySwitch?: boolean
+        confirmDataEpochWipe?: boolean
+      }
     return authService.login(
       email,
       password,
       otp,
       otpPurpose as any,
-      Boolean(confirmCompanySwitch)
+      Boolean(confirmCompanySwitch),
+      Boolean(confirmDataEpochWipe)
     )
   }
 
@@ -26,9 +29,12 @@ class AuthController {
   }
 
   async refreshSession(_: Electron.IpcMainInvokeEvent, req: IRequest) {
-    const { email, token } = req.body as { email: string; token: string }
-    const result = await authService.refreshSession(token, email)
-    return { status: 'success' as const, ...result }
+    const { email, token, confirmDataEpochWipe } = req.body as {
+      email: string
+      token: string
+      confirmDataEpochWipe?: boolean
+    }
+    return authService.refreshSession(token, email, Boolean(confirmDataEpochWipe))
   }
 
   async checkOnline(_: Electron.IpcMainInvokeEvent, _req: IRequest) {

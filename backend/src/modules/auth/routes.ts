@@ -52,6 +52,7 @@ export function authRouter(db: Knex): Router {
         branchName: result.branchName,
         companyName: result.companyName,
         dbName: result.dbName,
+        dataEpoch: result.dataEpoch,
         tokenExpiresAt: result.tokenExpiresAt,
         offlineAllowedUntil: result.offlineAllowedUntil,
         user: {
@@ -98,6 +99,7 @@ export function authRouter(db: Knex): Router {
         branchName: result.branchName,
         companyName: result.companyName,
         dbName: result.dbName,
+        dataEpoch: result.dataEpoch,
         tokenExpiresAt: result.tokenExpiresAt,
         offlineAllowedUntil: result.offlineAllowedUntil,
         user: {

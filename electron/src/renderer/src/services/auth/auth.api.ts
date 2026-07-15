@@ -7,15 +7,18 @@ export const authAPI = {
     password: string,
     otp?: string,
     otpPurpose?: string,
-    confirmCompanySwitch?: boolean
+    confirmCompanySwitch?: boolean,
+    confirmDataEpochWipe?: boolean
   ) =>
     ipcCall(`POST:${Channels.AUTH}`, {
-      body: { email, password, otp, otpPurpose, confirmCompanySwitch }
+      body: { email, password, otp, otpPurpose, confirmCompanySwitch, confirmDataEpochWipe }
     }),
   continueSession: (email: string, token: string) =>
     ipcCall(`POST:${Channels.AUTH}:continue`, { body: { email, token } }),
-  refreshSession: (email: string, token: string) =>
-    ipcCall(`POST:${Channels.AUTH}:refresh`, { body: { email, token } }),
+  refreshSession: (email: string, token: string, confirmDataEpochWipe?: boolean) =>
+    ipcCall(`POST:${Channels.AUTH}:refresh`, {
+      body: { email, token, confirmDataEpochWipe }
+    }),
   checkOnline: () => ipcCall<{ online: boolean }>(`GET:${Channels.AUTH}:online`),
   ensureOnline: () =>
     ipcCall<{

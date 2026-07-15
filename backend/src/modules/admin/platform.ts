@@ -500,10 +500,29 @@ export async function restoreCompanySnapshot(
     throw new Error('Unsupported snapshot format')
   }
 
+  // Snapshot rows keep real HLCs and omit sync meta. Reset to sentinel (with
+  // capture triggers disabled) so bootstrap can enqueue the full dataset.
   clearSyncAuthority(companyId)
   const liveDb = await getCompanyDb(companyId, { forOps: true })
+  await liveDb.raw(`SELECT set_config('session_replication_role', 'replica', true)`)
+  try {
+    await resetClonedCompanySync(liveDb)
+  } finally {
+    await liveDb.raw(`SELECT set_config('session_replication_role', 'origin', true)`)
+  }
+
+  clearSyncAuthority(companyId)
   const enqueued = await bootstrapCompanySync(companyId, liveDb)
-  return { ok: true, enqueued }
+  await unbindAllDevices(controlDb, companyId)
+  await controlDb('companies').where({ id: companyId }).increment('data_epoch', 1)
+  const epochRow = await controlDb('companies').where({ id: companyId }).first()
+
+  return {
+    ok: true,
+    enqueued,
+    devicesUnbound: true,
+    dataEpoch: Number(epochRow?.data_epoch ?? 1)
+  }
 }
 
 /** Daily scheduled snapshots for active/inactive companies; prunes to last 7 days. */

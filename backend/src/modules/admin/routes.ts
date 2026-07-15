@@ -316,7 +316,12 @@ export function adminRouter(db: Knex): Router {
         action: 'company.restore',
         resource: 'database',
         companyId: req.params.id,
-        detail: { filename }
+        detail: {
+          filename,
+          enqueued: result.enqueued,
+          devicesUnbound: result.devicesUnbound,
+          dataEpoch: result.dataEpoch
+        }
       })
       res.json(result)
     } catch (err: any) {
@@ -585,7 +590,8 @@ export function adminRouter(db: Knex): Router {
           restored: result.restored,
           branchCount: result.branchCount,
           enqueued: result.enqueued,
-          devicesUnbound: result.devicesUnbound
+          devicesUnbound: result.devicesUnbound,
+          dataEpoch: result.dataEpoch
         }
       })
       res.json(result)

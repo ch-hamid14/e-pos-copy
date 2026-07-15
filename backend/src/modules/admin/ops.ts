@@ -329,7 +329,9 @@ export async function flushCompany(controlDb: Knex, companyId: string, confirmNa
       branch_count: branchCount,
       updated_at: new Date()
     })
+    await controlDb('companies').where({ id: companyId }).increment('data_epoch', 1)
 
+    const epochRow = await controlDb('companies').where({ id: companyId }).first()
     return {
       ok: true,
       companyId,
@@ -339,7 +341,8 @@ export async function flushCompany(controlDb: Knex, companyId: string, confirmNa
       ),
       branchCount,
       enqueued,
-      devicesUnbound: true
+      devicesUnbound: true,
+      dataEpoch: Number(epochRow?.data_epoch ?? 1)
     }
   } catch (err) {
     await controlDb('companies')

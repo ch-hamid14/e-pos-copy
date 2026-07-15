@@ -272,13 +272,14 @@ export default function CompanySettingsPanel({ company, token, onChanged }: Prop
                     onClick={() =>
                       Modal.confirm({
                         title: 'Restore this snapshot?',
-                        content: 'Replaces the live company database.',
+                        content:
+                          'Replaces the live company database, resets sync so POS can re-pull, and unbinds all devices (they must sign in again).',
                         okType: 'danger',
                         onOk: async () => {
                           setBusy(`restore-${row.filename}`)
                           try {
                             await restoreSnapshot(token, company.id, row.filename)
-                            message.success('Restored')
+                            message.success('Restored — devices unbound; POS must re-login')
                             onChanged()
                           } catch (err: any) {
                             message.error(err.message)

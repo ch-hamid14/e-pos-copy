@@ -36,6 +36,8 @@ export type LoginResult =
       companyName?: string
       /** Logical Postgres database name for this company (local POS mirrors this name). */
       dbName?: string
+      /** Bumped on flush/restore — POS wipes local data when this advances. */
+      dataEpoch: number
       tokenExpiresAt: string
       offlineAllowedUntil: string
     }
@@ -130,6 +132,7 @@ async function issueSessionToken(
   let branchName: string | undefined
   let companyName: string | undefined
   let dbName: string | undefined
+  let dataEpoch = 1
 
   if (user.branch_id && companyDb) {
     const branch = await companyDb('branches').where({ id: user.branch_id }).first()
@@ -139,6 +142,7 @@ async function issueSessionToken(
     const company = await controlDb('companies').where({ id: user.company_id }).first()
     companyName = company?.name
     dbName = company?.db_name as string | undefined
+    dataEpoch = Number(company?.data_epoch ?? 1)
   }
 
   const authUser: AuthUserResponse = {
@@ -177,6 +181,7 @@ async function issueSessionToken(
     branchName,
     companyName,
     dbName,
+    dataEpoch,
     tokenExpiresAt,
     offlineAllowedUntil
   }

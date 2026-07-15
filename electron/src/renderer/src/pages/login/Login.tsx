@@ -21,6 +21,21 @@ type CompanyMismatch = {
   otpPurpose?: OtpPurpose
 }
 
+type DataEpochStale = {
+  status: 'data_epoch_stale'
+  companyId: string
+  companyName: string
+  localEpoch: number
+  serverEpoch: number
+  message: string
+  mode: 'login' | 'refresh'
+  email: string
+  password?: string
+  otp?: string
+  otpPurpose?: OtpPurpose
+  token?: string
+}
+
 export const Login = () => {
   const dispatch = useDispatch()
   const navigate = useNavigate()
@@ -33,6 +48,7 @@ export const Login = () => {
   const [otpStep, setOtpStep] = useState<{ purpose: OtpPurpose; email: string; password: string } | null>(null)
   const [otpCode, setOtpCode] = useState('')
   const [companyMismatch, setCompanyMismatch] = useState<CompanyMismatch | null>(null)
+  const [dataEpochStale, setDataEpochStale] = useState<DataEpochStale | null>(null)
   const [wipeConfirm, setWipeConfirm] = useState('')
   const [techResetOpen, setTechResetOpen] = useState(false)
   const [techPin, setTechPin] = useState('')
@@ -89,6 +105,15 @@ export const Login = () => {
 
         if (isOnline) {
           const result: any = await authAPI.refreshSession(cachedEmail!, token!)
+          if (result.status === 'data_epoch_stale') {
+            setDataEpochStale({
+              ...result,
+              mode: 'refresh',
+              email: cachedEmail!,
+              token: token!
+            })
+            return
+          }
           enterApp(result)
           return
         }
@@ -120,6 +145,7 @@ export const Login = () => {
     if (result.status === 'otp_required') {
       setOtpStep({ purpose: result.otpPurpose, email: credentials.email, password: credentials.password })
       setCompanyMismatch(null)
+      setDataEpochStale(null)
       message.info(result.message)
       return true
     }
@@ -135,7 +161,20 @@ export const Login = () => {
         otp: credentials.otp,
         otpPurpose: credentials.otpPurpose
       })
+      setDataEpochStale(null)
       setWipeConfirm('')
+      return true
+    }
+    if (result.status === 'data_epoch_stale') {
+      setDataEpochStale({
+        ...result,
+        mode: 'login',
+        email: credentials.email,
+        password: credentials.password,
+        otp: credentials.otp,
+        otpPurpose: credentials.otpPurpose
+      })
+      setCompanyMismatch(null)
       return true
     }
     return false
@@ -189,22 +228,15 @@ export const Login = () => {
         companyMismatch.otpPurpose,
         true
       )
-      if (result.status === 'company_switch_blocked') {
-        message.error(result.message)
-        return
-      }
-      if (result.status === 'company_mismatch') {
-        message.error(result.message || 'Could not switch company')
-        return
-      }
-      if (result.status === 'otp_required') {
-        setCompanyMismatch(null)
-        setOtpStep({
-          purpose: result.otpPurpose,
-          email: companyMismatch.email,
-          password: companyMismatch.password
-        })
-        message.info(result.message)
+      if (handleGateStatuses(result, {
+        email: companyMismatch.email,
+        password: companyMismatch.password,
+        otp: companyMismatch.otp,
+        otpPurpose: companyMismatch.otpPurpose
+      })) {
+        if (result.status !== 'company_mismatch') {
+          setCompanyMismatch(null)
+        }
         return
       }
       setCompanyMismatch(null)
@@ -213,6 +245,73 @@ export const Login = () => {
       enterApp(result)
     } catch (err: any) {
       message.error(err.message || 'Failed to wipe and switch company')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDataEpochContinue = async () => {
+    if (!dataEpochStale) return
+    setLoading(true)
+    try {
+      if (dataEpochStale.mode === 'refresh') {
+        const result: any = await authAPI.refreshSession(
+          dataEpochStale.email,
+          dataEpochStale.token!,
+          true
+        )
+        if (result.status === 'data_epoch_stale') {
+          message.error(result.message || 'Local data is still out of date')
+          return
+        }
+        setDataEpochStale(null)
+        enterApp(result)
+        return
+      }
+
+      const result: any = await authAPI.login(
+        dataEpochStale.email,
+        dataEpochStale.password!,
+        dataEpochStale.otp,
+        dataEpochStale.otpPurpose,
+        false,
+        true
+      )
+      if (handleGateStatuses(result, {
+        email: dataEpochStale.email,
+        password: dataEpochStale.password!,
+        otp: dataEpochStale.otp,
+        otpPurpose: dataEpochStale.otpPurpose
+      })) {
+        if (result.status !== 'data_epoch_stale') {
+          setDataEpochStale(null)
+        }
+        return
+      }
+      setDataEpochStale(null)
+      setOtpStep(null)
+      setOtpCode('')
+      enterApp(result)
+    } catch (err: any) {
+      message.error(err.message || 'Failed to wipe and continue')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDataEpochLogout = async () => {
+    setLoading(true)
+    try {
+      await authAPI.logout().catch(() => {})
+      dispatch(appActions.clearSession())
+      bootstrapStarted.current = false
+      setDataEpochStale(null)
+      setCompanyMismatch(null)
+      setOtpStep(null)
+      setOtpCode('')
+      setRefreshFailed(false)
+      setOfflineContinueFailed(false)
+      message.info('Signed out. Contact tech support before using this POS again.')
     } finally {
       setLoading(false)
     }
@@ -231,6 +330,7 @@ export const Login = () => {
       setTechPin('')
       setTechWipe('')
       setCompanyMismatch(null)
+      setDataEpochStale(null)
       setOtpStep(null)
       setRefreshFailed(false)
       setOfflineContinueFailed(false)
@@ -259,7 +359,7 @@ export const Login = () => {
 
   const passwordDisabled =
     bootstrapping ||
-    (hasCachedAuth && online && !refreshFailed) ||
+    (hasCachedAuth && online && !refreshFailed && !dataEpochStale) ||
     !online
 
   const emailDisabled = Boolean(cachedEmail) || bootstrapping
@@ -267,7 +367,7 @@ export const Login = () => {
   const submitDisabled =
     bootstrapping ||
     !online ||
-    (hasCachedAuth && online && !refreshFailed)
+    (hasCachedAuth && online && !refreshFailed && !dataEpochStale)
 
   if (techResetOpen) {
     return (
@@ -320,6 +420,42 @@ export const Login = () => {
             Cancel
           </Button>
         </Form>
+      </>
+    )
+  }
+
+  if (dataEpochStale) {
+    return (
+      <>
+        <h2>Cloud data was reset</h2>
+        <Alert
+          type="warning"
+          showIcon
+          className="mb-4"
+          message={dataEpochStale.message}
+          description={
+            <Typography.Paragraph className="mb-0 mt-2">
+              <strong>Continue</strong> wipes local data for{' '}
+              <strong>{dataEpochStale.companyName}</strong> and downloads a fresh copy.
+              Choose <strong>Logout</strong> if you are not sure — a technician can help.
+              This POS will not open with the old local data.
+            </Typography.Paragraph>
+          }
+        />
+        <Button
+          type="primary"
+          danger
+          block
+          size="large"
+          loading={loading}
+          onClick={handleDataEpochContinue}
+          className="mb-2"
+        >
+          Continue — wipe and start fresh
+        </Button>
+        <Button block size="large" loading={loading} onClick={handleDataEpochLogout}>
+          Logout
+        </Button>
       </>
     )
   }
