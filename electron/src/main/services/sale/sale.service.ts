@@ -113,6 +113,7 @@ type LineCalc = {
   taxAmount: number
   whtAmount: number
   lineTotal: number
+  unitCost?: number
 }
 
 class SaleService {
@@ -355,6 +356,8 @@ class SaleService {
             )
           }
 
+          const unitCost = round2(Number(stock?.average_cost || part.default_purchase_price || 0))
+
           lineCalcs.push({
             lineType,
             line,
@@ -365,6 +368,7 @@ class SaleService {
             serialNumber: null,
             warrantyActive: false,
             warrantyExpiry: null,
+            unitCost,
             ...amounts
           })
         }
@@ -487,6 +491,7 @@ class SaleService {
               wht_percent: row.whtPercent,
               wht_amount: row.whtAmount,
               line_total: row.lineTotal,
+              unit_cost: row.unitCost ?? null,
               warranty_active: false,
               warranty_expiry_date: null,
               ...lineAudit,

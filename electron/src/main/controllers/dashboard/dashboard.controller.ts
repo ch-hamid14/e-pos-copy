@@ -8,7 +8,8 @@ class DashboardController {
       from: q.from as string,
       to: q.to as string,
       supplierId: q.supplierId as string,
-      productId: q.productId as string
+      productId: q.productId as string,
+      partId: q.partId as string
     })
   }
 }

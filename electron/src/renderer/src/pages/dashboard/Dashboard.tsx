@@ -21,7 +21,7 @@ import { FaCartShopping, FaSackDollar, FaWarehouse } from 'react-icons/fa6'
 import { GiReceiveMoney } from 'react-icons/gi'
 import { IoStatsChart, IoTrendingDown, IoTrendingUp } from 'react-icons/io5'
 import { MdOutlineInventory2 } from 'react-icons/md'
-import { dashboardAPI, productAPI, supplierAPI } from '@/renderer/services'
+import { dashboardAPI, partAPI, productAPI, supplierAPI } from '@/renderer/services'
 import { useSession } from '@/renderer/hooks/useSession'
 import { formatCompact, formatCompactAxis, formatCompactRs, formatRs, PageHeader } from '../shared/page-ui'
 import './dashboard.scss'
@@ -147,8 +147,10 @@ export const Dashboard = () => {
   const [data, setData] = useState<DashboardData | null>(null)
   const [suppliers, setSuppliers] = useState<any[]>([])
   const [products, setProducts] = useState<any[]>([])
+  const [parts, setParts] = useState<any[]>([])
   const [supplierId, setSupplierId] = useState<string>()
   const [productId, setProductId] = useState<string>()
+  const [partId, setPartId] = useState<string>()
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs]>([
     dayjs().startOf('month'),
     dayjs().endOf('day')
@@ -162,6 +164,7 @@ export const Dashboard = () => {
     if (!companyId) return
     supplierAPI.list(companyId).then(setSuppliers)
     productAPI.list(companyId).then(setProducts)
+    partAPI.list(companyId).then(setParts)
   }, [companyId])
 
   useEffect(() => {
@@ -171,14 +174,14 @@ export const Dashboard = () => {
     setLoading(true)
 
     dashboardAPI
-      .analytics(companyId, branchId, { from, to, supplierId, productId })
+      .analytics(companyId, branchId, { from, to, supplierId, productId, partId })
       .then((res) => {
         if (requestId === requestIdRef.current) setData(res as DashboardData)
       })
       .finally(() => {
         if (requestId === requestIdRef.current) setLoading(false)
       })
-  }, [companyId, branchId, from, to, supplierId, productId])
+  }, [companyId, branchId, from, to, supplierId, productId, partId])
 
   const supplierOptions = useMemo(
     () => suppliers.map((s) => ({ value: s.id, label: s.name })),
@@ -187,6 +190,10 @@ export const Dashboard = () => {
   const productOptions = useMemo(
     () => products.map((p) => ({ value: p.id, label: p.name })),
     [products]
+  )
+  const partOptions = useMemo(
+    () => parts.map((p) => ({ value: p.id, label: p.name })),
+    [parts]
   )
 
   const kpis = data?.kpis || {}
@@ -252,10 +259,21 @@ export const Dashboard = () => {
                 value={productId}
                 onChange={setProductId}
               />
+              <Select
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                placeholder="Part"
+                style={{ width: 180 }}
+                options={partOptions}
+                value={partId}
+                onChange={setPartId}
+              />
               <Button
                 onClick={() => {
                   setSupplierId(undefined)
                   setProductId(undefined)
+                  setPartId(undefined)
                   setDateRange([dayjs().startOf('month'), dayjs().endOf('day')])
                 }}
               >
@@ -330,7 +348,7 @@ export const Dashboard = () => {
           label="In Stock"
           amount={kpis.inStockCount}
           displayValue={formatCompact(kpis.inStockCount)}
-          meta={formatCompactRs(kpis.inventoryValue)}
+          meta={`${formatCompact(kpis.partStockUnits || 0)} part units · ${formatCompactRs(kpis.inventoryValue)}`}
           icon={<FaWarehouse size={18} color="#475569" />}
           iconBg="#f8fafc"
         />
@@ -419,7 +437,7 @@ export const Dashboard = () => {
       </div>
 
       <div className="dashboard-section dashboard-section--charts">
-        <Card bordered={false} className="dashboard-chart-card shadow-sm" title="Top Products" loading={loading}>
+        <Card bordered={false} className="dashboard-chart-card shadow-sm" title="Top Sellers" loading={loading}>
           {topProducts.length === 0 ? (
             <div className="dashboard-chart-empty">No sales in this period.</div>
           ) : (

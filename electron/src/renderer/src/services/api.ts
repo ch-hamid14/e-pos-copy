@@ -224,7 +224,7 @@ export const dashboardAPI = {
   analytics: (
     companyId: string,
     branchId: string,
-    filters?: { from?: string; to?: string; supplierId?: string; productId?: string }
+    filters?: { from?: string; to?: string; supplierId?: string; productId?: string; partId?: string }
   ) =>
     ipcCall(`GET:${Channels.DASHBOARD}`, { query: { companyId, branchId, ...filters } })
 }
