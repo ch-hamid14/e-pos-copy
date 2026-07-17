@@ -44,6 +44,15 @@ const { Text } = Typography
 
 type LineType = 'product' | 'part'
 
+/** Which discounts are subtracted when computing net cost / unit. */
+type DiscountApplyMode = 'both' | 'supplier' | 'special'
+
+const DISCOUNT_APPLY_OPTIONS: { value: DiscountApplyMode; label: string }[] = [
+  { value: 'special', label: 'Special only' },
+  { value: 'supplier', label: 'Supplier only' },
+  { value: 'both', label: 'Supplier + Special' }
+]
+
 type CartLine = {
   key: string
   lineType: LineType
@@ -68,6 +77,17 @@ type CartLine = {
   purchasePrice: number
   specialDiscount: number
   specialDiscountType: SupplierDiscountType
+  discountApplyMode: DiscountApplyMode
+}
+
+function effectiveDiscounts(
+  supplierDiscount: number,
+  specialDiscount: number,
+  mode: DiscountApplyMode
+): { supplier: number; special: number } {
+  if (mode === 'supplier') return { supplier: supplierDiscount, special: 0 }
+  if (mode === 'special') return { supplier: 0, special: specialDiscount }
+  return { supplier: supplierDiscount, special: specialDiscount }
 }
 
 function computeNetPrice(
@@ -75,10 +95,16 @@ function computeNetPrice(
   supplierDiscount: number,
   supplierDiscountType: SupplierDiscountType,
   specialDiscount: number,
-  specialDiscountType: SupplierDiscountType
+  specialDiscountType: SupplierDiscountType,
+  discountApplyMode: DiscountApplyMode = 'special'
 ): number {
-  const afterSupplier = applySupplierDiscount(listPrice, supplierDiscount, supplierDiscountType)
-  return applySupplierDiscount(afterSupplier, specialDiscount, specialDiscountType)
+  const { supplier, special } = effectiveDiscounts(
+    supplierDiscount,
+    specialDiscount,
+    discountApplyMode
+  )
+  const afterSupplier = applySupplierDiscount(listPrice, supplier, supplierDiscountType)
+  return applySupplierDiscount(afterSupplier, special, specialDiscountType)
 }
 
 function resolveLineNetCost(
@@ -87,18 +113,30 @@ function resolveLineNetCost(
   supplierDiscountType: SupplierDiscountType,
   specialDiscount: number,
   specialDiscountType: SupplierDiscountType,
+  discountApplyMode: DiscountApplyMode = 'special',
   manualNetCost?: number
 ): number {
-  if (supplierDiscount > 0 || specialDiscount > 0) {
+  const { supplier, special } = effectiveDiscounts(
+    supplierDiscount,
+    specialDiscount,
+    discountApplyMode
+  )
+  if (supplier > 0 || special > 0) {
     return computeNetPrice(
       listPrice,
       supplierDiscount,
       supplierDiscountType,
       specialDiscount,
-      specialDiscountType
+      specialDiscountType,
+      discountApplyMode
     )
   }
   return round2(Number(manualNetCost ?? listPrice))
+}
+
+function parseDiscountApplyMode(value: unknown): DiscountApplyMode {
+  if (value === 'supplier' || value === 'special' || value === 'both') return value
+  return 'special'
 }
 
 function lineQty(line: CartLine): number {
@@ -127,6 +165,7 @@ export const AddPurchase = () => {
   const lineSpecialDiscount = Number(Form.useWatch('specialDiscount', lineForm) || 0)
   const lineSpecialDiscountType: SupplierDiscountType =
     Form.useWatch('specialDiscountType', lineForm) === 'percent' ? 'percent' : 'pkr'
+  const lineDiscountApplyMode = parseDiscountApplyMode(Form.useWatch('discountApplyMode', lineForm))
 
   const activeLineType: LineType = isEdit ? 'product' : lineType
 
@@ -141,6 +180,7 @@ export const AddPurchase = () => {
       lineForm.setFieldsValue({
         specialDiscount: 0,
         specialDiscountType: 'pkr',
+        discountApplyMode: 'special',
         quantity: 1,
         warrantyActive: false,
         netCost: 0
@@ -188,6 +228,8 @@ export const AddPurchase = () => {
             purchasePrice: Number(item.purchasePrice ?? 0),
             specialDiscount: Number(item.specialDiscount || 0),
             specialDiscountType: item.specialDiscountType === 'percent' ? 'percent' : 'pkr',
+            // Saved net cost already reflects how discounts were applied; default special for recalc.
+            discountApplyMode: 'special' as DiscountApplyMode,
             warrantyActive: Boolean(item.warrantyActive),
             warrantyExpiryDate: item.warrantyExpiryDate
               ? dayjs(item.warrantyExpiryDate).format('YYYY-MM-DD')
@@ -216,9 +258,9 @@ export const AddPurchase = () => {
     selectedSupplier?.discountType === 'percent' ? 'percent' : 'pkr'
   const hasSupplierDiscount = supplierDiscount > 0
   const hasSpecialDiscount = lines.some((l) => l.specialDiscount > 0)
-  const hasFormDiscount = hasSupplierDiscount || lineSpecialDiscount > 0
-  const showComputedNet = hasFormDiscount
-  const showEditableNetCost = !hasFormDiscount
+  const showDiscountApplyControl = hasSupplierDiscount || lineSpecialDiscount > 0
+  const showComputedNet = showDiscountApplyControl
+  const showEditableNetCost = !showDiscountApplyControl
   const partLines = lines.filter((l) => l.lineType === 'part')
 
   const enteredListPrice = Number(Form.useWatch('purchasePrice', lineForm) || 0)
@@ -227,7 +269,8 @@ export const AddPurchase = () => {
     supplierDiscount,
     supplierDiscountType,
     lineSpecialDiscount,
-    lineSpecialDiscountType
+    lineSpecialDiscountType,
+    lineDiscountApplyMode
   )
 
   const recalcLines = (supplier?: { discount?: number; discountType?: string }) => {
@@ -246,7 +289,8 @@ export const AddPurchase = () => {
             sDiscount,
             sType,
             line.specialDiscount,
-            line.specialDiscountType
+            line.specialDiscountType,
+            line.discountApplyMode
           )
         }
       })
@@ -288,6 +332,7 @@ export const AddPurchase = () => {
       quantity: 1,
       specialDiscount: 0,
       specialDiscountType: 'pkr',
+      discountApplyMode: 'special',
       netCost: 0
     })
   }
@@ -327,6 +372,7 @@ export const AddPurchase = () => {
     const specialDiscount = Number(values.specialDiscount || 0)
     const specialDiscountType: SupplierDiscountType =
       values.specialDiscountType === 'percent' ? 'percent' : 'pkr'
+    const discountApplyMode = parseDiscountApplyMode(values.discountApplyMode)
     const hasDiscountOnLine = supplierDiscount > 0 || specialDiscount > 0
     const netCost = Number(values.netCost ?? 0)
     if (!hasDiscountOnLine && netCost <= 0) {
@@ -347,12 +393,14 @@ export const AddPurchase = () => {
       listPrice,
       specialDiscount,
       specialDiscountType,
+      discountApplyMode,
       purchasePrice: resolveLineNetCost(
         listPrice,
         supplierDiscount,
         supplierDiscountType,
         specialDiscount,
         specialDiscountType,
+        discountApplyMode,
         hasDiscountOnLine ? undefined : netCost
       ),
       warrantyActive: Boolean(values.warrantyActive),
@@ -405,6 +453,7 @@ export const AddPurchase = () => {
     const specialDiscount = Number(values.specialDiscount || 0)
     const specialDiscountType: SupplierDiscountType =
       values.specialDiscountType === 'percent' ? 'percent' : 'pkr'
+    const discountApplyMode = parseDiscountApplyMode(values.discountApplyMode)
     const hasDiscountOnLine = supplierDiscount > 0 || specialDiscount > 0
     const netCost = Number(values.netCost ?? 0)
     if (!hasDiscountOnLine && netCost <= 0) {
@@ -422,12 +471,14 @@ export const AddPurchase = () => {
       listPrice,
       specialDiscount,
       specialDiscountType,
+      discountApplyMode,
       purchasePrice: resolveLineNetCost(
         listPrice,
         supplierDiscount,
         supplierDiscountType,
         specialDiscount,
         specialDiscountType,
+        discountApplyMode,
         hasDiscountOnLine ? undefined : netCost
       )
     }
@@ -479,6 +530,7 @@ export const AddPurchase = () => {
         netCost: line.purchasePrice,
         specialDiscount: line.specialDiscount,
         specialDiscountType: line.specialDiscountType,
+        discountApplyMode: line.discountApplyMode || 'special',
         warrantyActive: line.warrantyActive,
         warrantyExpiryDate: line.warrantyExpiryDate ? dayjs(line.warrantyExpiryDate) : undefined
       })
@@ -489,7 +541,8 @@ export const AddPurchase = () => {
         purchasePrice: line.listPrice,
         netCost: line.purchasePrice,
         specialDiscount: line.specialDiscount,
-        specialDiscountType: line.specialDiscountType
+        specialDiscountType: line.specialDiscountType,
+        discountApplyMode: line.discountApplyMode || 'special'
       })
     }
   }
@@ -667,6 +720,7 @@ export const AddPurchase = () => {
             warrantyActive: false,
             specialDiscount: 0,
             specialDiscountType: 'pkr',
+            discountApplyMode: 'special',
             quantity: 1
           }}
         >
@@ -766,6 +820,15 @@ export const AddPurchase = () => {
                 style={{ width: '100%' }}
               />
             </Form.Item>
+            {showDiscountApplyControl && (
+              <Form.Item
+                name="discountApplyMode"
+                label="Apply to net price"
+                tooltip="Special only: ignore supplier discount when a special discount is entered. Supplier only: ignore special. Supplier + Special: apply supplier first, then special."
+              >
+                <Select options={DISCOUNT_APPLY_OPTIONS} />
+              </Form.Item>
+            )}
             {showComputedNet && (
               <Form.Item label="Net cost / unit">
                 <Input value={formatRs(previewNetPrice)} disabled />
