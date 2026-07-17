@@ -37,18 +37,33 @@ function fillDailyTrend(
   purchasesByDay: Map<string, number>,
   expensesByDay: Map<string, number>
 ): { date: string; sales: number; purchases: number; expenses: number; profit: number }[] {
-  const rows: { date: string; sales: number; purchases: number; expenses: number; profit: number }[] = []
-  const cursor = new Date(from)
-  cursor.setHours(0, 0, 0, 0)
+  const start = new Date(from)
+  start.setHours(0, 0, 0, 0)
   const end = new Date(to)
   end.setHours(0, 0, 0, 0)
+  const spanDays = Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1
 
-  while (cursor <= end) {
-    const key = cursor.toISOString().slice(0, 10)
+  const toRow = (key: string) => {
     const sales = round2(salesByDay.get(key) || 0)
     const purchases = round2(purchasesByDay.get(key) || 0)
     const expenses = round2(expensesByDay.get(key) || 0)
-    rows.push({ date: key, sales, purchases, expenses, profit: round2(sales - expenses) })
+    return { date: key, sales, purchases, expenses, profit: round2(sales - expenses) }
+  }
+
+  // For long ranges (e.g. "All"), only plot days that have activity.
+  if (spanDays > 366) {
+    const keys = new Set<string>([
+      ...salesByDay.keys(),
+      ...purchasesByDay.keys(),
+      ...expensesByDay.keys()
+    ])
+    return [...keys].sort().map(toRow)
+  }
+
+  const rows: { date: string; sales: number; purchases: number; expenses: number; profit: number }[] = []
+  const cursor = new Date(start)
+  while (cursor <= end) {
+    rows.push(toRow(cursor.toISOString().slice(0, 10)))
     cursor.setDate(cursor.getDate() + 1)
   }
 

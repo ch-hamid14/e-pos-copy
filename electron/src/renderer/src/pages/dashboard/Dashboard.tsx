@@ -31,7 +31,11 @@ const { RangePicker } = DatePicker
 
 const CHART_COLORS = ['#2563eb', '#16a34a', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4']
 
+/** Far-past start used by the "All" preset so queries include every record. */
+const ALL_TIME_START = dayjs('2000-01-01').startOf('day')
+
 const rangePresets: TimeRangePickerProps['presets'] = [
+  { label: 'All', value: [ALL_TIME_START, dayjs().endOf('day')] },
   { label: 'Today', value: [dayjs().startOf('day'), dayjs().endOf('day')] },
   { label: 'Last 7 Days', value: [dayjs().subtract(6, 'day').startOf('day'), dayjs().endOf('day')] },
   { label: 'This Month', value: [dayjs().startOf('month'), dayjs().endOf('day')] },
@@ -159,6 +163,7 @@ export const Dashboard = () => {
 
   const from = dateRange[0].format('YYYY-MM-DD')
   const to = dateRange[1].format('YYYY-MM-DD')
+  const isAllTime = dateRange[0].isSame(ALL_TIME_START, 'day')
 
   useEffect(() => {
     if (!companyId) return
@@ -213,7 +218,9 @@ export const Dashboard = () => {
   )
 
   const periodLabel = data
-    ? `${dayjs(data.period.from).format('DD MMM YYYY')} – ${dayjs(data.period.to).format('DD MMM YYYY')}`
+    ? isAllTime
+      ? 'All time'
+      : `${dayjs(data.period.from).format('DD MMM YYYY')} – ${dayjs(data.period.to).format('DD MMM YYYY')}`
     : ''
 
   const topProductChartHeight = useMemo(
@@ -233,6 +240,12 @@ export const Dashboard = () => {
                 value={dateRange}
                 presets={rangePresets}
                 allowClear={false}
+                format={
+                  isAllTime
+                    ? [() => 'All', () => '']
+                    : 'YYYY-MM-DD'
+                }
+                separator={isAllTime ? '' : '-'}
                 onChange={(v) => {
                   if (v?.[0] && v?.[1]) setDateRange([v[0].startOf('day'), v[1].endOf('day')])
                 }}
