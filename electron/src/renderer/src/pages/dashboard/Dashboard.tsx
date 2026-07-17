@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Card, DatePicker, Select, Typography } from 'antd'
 import type { TimeRangePickerProps } from 'antd'
+import { ReloadOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import {
   Area,
@@ -159,6 +160,7 @@ export const Dashboard = () => {
     dayjs().startOf('month'),
     dayjs().endOf('day')
   ])
+  const [refreshKey, setRefreshKey] = useState(0)
   const requestIdRef = useRef(0)
 
   const from = dateRange[0].format('YYYY-MM-DD')
@@ -186,7 +188,7 @@ export const Dashboard = () => {
       .finally(() => {
         if (requestId === requestIdRef.current) setLoading(false)
       })
-  }, [companyId, branchId, from, to, supplierId, productId, partId])
+  }, [companyId, branchId, from, to, supplierId, productId, partId, refreshKey])
 
   const supplierOptions = useMemo(
     () => suppliers.map((s) => ({ value: s.id, label: s.name })),
@@ -282,6 +284,13 @@ export const Dashboard = () => {
                 value={partId}
                 onChange={setPartId}
               />
+              <Button
+                icon={<ReloadOutlined />}
+                loading={loading}
+                onClick={() => setRefreshKey((k) => k + 1)}
+              >
+                Refresh
+              </Button>
               <Button
                 onClick={() => {
                   setSupplierId(undefined)
