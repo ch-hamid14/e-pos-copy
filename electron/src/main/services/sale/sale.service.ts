@@ -33,6 +33,8 @@ export type SaleLineInput = {
   quantity?: number
   salePrice: number
   taxPercent?: number
+  /** When true, salePrice already contains sales tax; the ex-tax base is extracted. */
+  taxInclusive?: boolean
   whtPercent?: number
   warrantyActive?: boolean
   warrantyExpiryDate?: string
@@ -87,11 +89,19 @@ function normalizeLineType(line: SaleLineInput): SaleLineType {
 
 function calcLine(line: SaleLineInput) {
   const quantity = Math.max(1, Math.floor(Number(line.quantity || 1)))
-  const unitPrice = Number(line.salePrice || 0)
-  const extended = unitPrice * quantity
   const taxPercent = Number(line.taxPercent || 0)
   const whtPercent = Number(line.whtPercent || 0)
-  const taxAmount = round2((extended * taxPercent) / 100)
+  const taxInclusive = Boolean(line.taxInclusive) && taxPercent > 0
+  const enteredUnitPrice = Number(line.salePrice || 0)
+  // Inclusive: entered price already contains sales tax, so extract the ex-tax base
+  // and store that as the unit price. Downstream (invoices, totals) stays unchanged.
+  const unitPrice = taxInclusive
+    ? round2(enteredUnitPrice / (1 + taxPercent / 100))
+    : enteredUnitPrice
+  const extended = unitPrice * quantity
+  const taxAmount = taxInclusive
+    ? round2(enteredUnitPrice * quantity - extended)
+    : round2((extended * taxPercent) / 100)
   const whtAmount = round2((extended * whtPercent) / 100)
   const lineTotal = round2(extended + taxAmount + whtAmount)
   return {

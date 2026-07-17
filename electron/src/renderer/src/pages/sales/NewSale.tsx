@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import {
   Button,
   Card,
+  Checkbox,
   DatePicker,
   Form,
   Input,
@@ -42,6 +43,7 @@ type SaleLine = {
   quantity: number
   salePrice: number
   taxPercent: number
+  taxInclusive: boolean
   whtPercent: number
   warrantyActive: boolean
   warrantyExpiryDate?: string
@@ -53,11 +55,22 @@ function roundAmount(n: number): number {
   return Math.round(Number(n) || 0)
 }
 
-function calcLineTotal(line: Pick<SaleLine, 'salePrice' | 'taxPercent' | 'whtPercent' | 'quantity'>) {
-  const extended = line.salePrice * line.quantity
-  const tax = (extended * line.taxPercent) / 100
-  const wht = (extended * line.whtPercent) / 100
-  return roundAmount(extended + tax + wht)
+function calcLineAmounts(
+  line: Pick<SaleLine, 'salePrice' | 'taxPercent' | 'taxInclusive' | 'whtPercent' | 'quantity'>
+) {
+  const entered = line.salePrice * line.quantity
+  const inclusive = line.taxInclusive && line.taxPercent > 0
+  // Inclusive: entered price already contains sales tax — extract the ex-tax base.
+  const base = inclusive ? entered / (1 + line.taxPercent / 100) : entered
+  const tax = inclusive ? entered - base : (base * line.taxPercent) / 100
+  const wht = (base * line.whtPercent) / 100
+  return { base, tax, wht, total: base + tax + wht }
+}
+
+function calcLineTotal(
+  line: Pick<SaleLine, 'salePrice' | 'taxPercent' | 'taxInclusive' | 'whtPercent' | 'quantity'>
+) {
+  return roundAmount(calcLineAmounts(line).total)
 }
 
 function calcDueAmount(grossTotal: number, paid: number, discount: number) {
@@ -120,6 +133,7 @@ export const NewSale = () => {
       })
       lineForm.setFieldsValue({
         taxPercent: 0,
+        taxInclusive: false,
         whtPercent: 0,
         warrantyActive: false,
         quantity: 1,
@@ -184,6 +198,8 @@ export const NewSale = () => {
               quantity: Number(line.quantity || 1),
               salePrice: Number(line.salePrice || 0),
               taxPercent: Number(line.taxPercent || 0),
+              // Stored salePrice is always the ex-tax base, so edits load as exclusive.
+              taxInclusive: false,
               whtPercent: Number(line.whtPercent || 0),
               warrantyActive: Boolean(line.warrantyActive),
               warrantyExpiryDate: line.warrantyExpiryDate
@@ -282,6 +298,7 @@ export const NewSale = () => {
     lineForm.resetFields()
     lineForm.setFieldsValue({
       taxPercent: 0,
+      taxInclusive: false,
       whtPercent: 0,
       warrantyActive: false,
       quantity: 1,
@@ -311,7 +328,7 @@ export const NewSale = () => {
   }
 
   const addProductLine = async () => {
-    const values = await lineForm.validateFields(['productItemId', 'salePrice', 'taxPercent', 'whtPercent', 'warrantyActive', 'warrantyExpiryDate'])
+    const values = await lineForm.validateFields(['productItemId', 'salePrice', 'taxPercent', 'taxInclusive', 'whtPercent', 'warrantyActive', 'warrantyExpiryDate'])
     const item = productItemFromForm(values.productItemId)
     if (!item) {
       message.error('Select a valid unit')
@@ -344,6 +361,7 @@ export const NewSale = () => {
       quantity: 1,
       salePrice: Number(values.salePrice || 0),
       taxPercent: Number(values.taxPercent || 0),
+      taxInclusive: Boolean(values.taxInclusive),
       whtPercent: Number(values.whtPercent || 0),
       warrantyActive: Boolean(values.warrantyActive),
       warrantyExpiryDate: values.warrantyActive
@@ -377,7 +395,7 @@ export const NewSale = () => {
       .reduce((sum, l) => sum + l.quantity, 0)
 
   const addPartLine = async () => {
-    const values = await lineForm.validateFields(['partId', 'quantity', 'salePrice', 'taxPercent', 'whtPercent'])
+    const values = await lineForm.validateFields(['partId', 'quantity', 'salePrice', 'taxPercent', 'taxInclusive', 'whtPercent'])
     const stock = partStocks.find((s) => s.partId === values.partId)
     if (!stock) {
       message.error('Select a valid part')
@@ -405,6 +423,7 @@ export const NewSale = () => {
       quantity,
       salePrice: Number(values.salePrice || 0),
       taxPercent: Number(values.taxPercent || 0),
+      taxInclusive: Boolean(values.taxInclusive),
       whtPercent: Number(values.whtPercent || 0),
       warrantyActive: false,
       availableUnits: available
@@ -440,6 +459,7 @@ export const NewSale = () => {
                 quantity: l.quantity + quantity,
                 salePrice: Number(values.salePrice || 0),
                 taxPercent: Number(values.taxPercent || 0),
+                taxInclusive: Boolean(values.taxInclusive),
                 whtPercent: Number(values.whtPercent || 0)
               }
             : l
@@ -482,6 +502,7 @@ export const NewSale = () => {
         serialSearch: line.productItemId,
         salePrice: line.salePrice,
         taxPercent: line.taxPercent,
+        taxInclusive: line.taxInclusive,
         whtPercent: line.whtPercent,
         warrantyActive: line.warrantyActive,
         warrantyExpiryDate: line.warrantyExpiryDate ? dayjs(line.warrantyExpiryDate) : undefined
@@ -494,6 +515,7 @@ export const NewSale = () => {
       quantity: line.quantity,
       salePrice: line.salePrice,
       taxPercent: line.taxPercent,
+      taxInclusive: line.taxInclusive,
       whtPercent: line.whtPercent,
       warrantyActive: false,
       warrantyExpiryDate: undefined
@@ -521,13 +543,9 @@ export const NewSale = () => {
     if (editingKey === key) cancelEditLine()
   }
 
-  const subtotal = roundAmount(lines.reduce((s, l) => s + l.salePrice * l.quantity, 0))
-  const totalTax = roundAmount(
-    lines.reduce((s, l) => s + (l.salePrice * l.quantity * l.taxPercent) / 100, 0)
-  )
-  const totalWht = roundAmount(
-    lines.reduce((s, l) => s + (l.salePrice * l.quantity * l.whtPercent) / 100, 0)
-  )
+  const subtotal = roundAmount(lines.reduce((s, l) => s + calcLineAmounts(l).base, 0))
+  const totalTax = roundAmount(lines.reduce((s, l) => s + calcLineAmounts(l).tax, 0))
+  const totalWht = roundAmount(lines.reduce((s, l) => s + calcLineAmounts(l).wht, 0))
   const grossTotal = roundAmount(subtotal + totalTax + totalWht)
   const maxDiscount = Math.max(0, roundAmount(grossTotal - effectivePaid))
 
@@ -612,6 +630,7 @@ export const NewSale = () => {
                 quantity: 1,
                 salePrice: l.salePrice,
                 taxPercent: l.taxPercent,
+                taxInclusive: l.taxInclusive,
                 whtPercent: l.whtPercent,
                 warrantyActive: l.warrantyActive,
                 warrantyExpiryDate: l.warrantyExpiryDate
@@ -622,6 +641,7 @@ export const NewSale = () => {
                 quantity: l.quantity,
                 salePrice: l.salePrice,
                 taxPercent: l.taxPercent,
+                taxInclusive: l.taxInclusive,
                 whtPercent: l.whtPercent
               }
         )
@@ -738,7 +758,7 @@ export const NewSale = () => {
             { key: 'part', label: 'Part' }
           ]}
         />
-        <Form form={lineForm} layout="vertical" initialValues={{ taxPercent: 0, whtPercent: 0, warrantyActive: false, quantity: 1 }}>
+        <Form form={lineForm} layout="vertical" initialValues={{ taxPercent: 0, taxInclusive: false, whtPercent: 0, warrantyActive: false, quantity: 1 }}>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
             {lineType === 'product' ? (
               <>
@@ -815,8 +835,26 @@ export const NewSale = () => {
                 </Form.Item>
               </>
             )}
-            <Form.Item name="taxPercent" label="Tax %">
-              <InputNumber className="w-full" min={0} max={100} style={{ width: '100%' }} />
+          </div>
+          <Form.Item name="taxInclusive" valuePropName="checked" className="!mb-3">
+            <Checkbox>
+              <span className="font-medium">Sale price includes sales tax</span>
+            </Checkbox>
+          </Form.Item>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+            <Form.Item
+              label="Sales Tax %"
+              tooltip="Checked: sale price already includes sales tax (tax is extracted from it). Unchecked: tax is added on top of the sale price."
+            >
+              <Form.Item name="taxPercent" noStyle>
+                <InputNumber
+                  className="w-full"
+                  min={0}
+                  max={100}
+                  addonAfter="%"
+                  style={{ width: '100%' }}
+                />
+              </Form.Item>
             </Form.Item>
             <Form.Item name="whtPercent" label="WHT %">
               <InputNumber className="w-full" min={0} max={100} style={{ width: '100%' }} />
@@ -876,7 +914,12 @@ export const NewSale = () => {
               align: 'right' as const,
               render: formatRs
             },
-            { title: 'Tax %', dataIndex: 'taxPercent' },
+            {
+              title: 'Tax %',
+              dataIndex: 'taxPercent',
+              render: (v: number, r: SaleLine) =>
+                r.taxInclusive && v > 0 ? `${v} (incl.)` : v
+            },
             { title: 'WHT %', dataIndex: 'whtPercent' },
             {
               title: 'Line Total',
