@@ -14,6 +14,7 @@ import {
   browseData,
   hardDeleteDataRow,
   listDataTables,
+  reconcileSaleFinances,
   restoreDataRow,
   softDeleteDataRow,
   updateDataRow
@@ -137,9 +138,49 @@ export default function CompanyDataPanel({ companyId, token }: Props) {
           {
             title: '',
             fixed: 'right' as const,
-            width: 220,
+            width: table === 'sales' ? 330 : 220,
             render: (_: unknown, row: Record<string, unknown>) => (
               <Space size={4}>
+                {table === 'sales' ? (
+                  <Button
+                    size="small"
+                    type="primary"
+                    loading={busy === `reconcile-${row.id}`}
+                    onClick={() =>
+                      Modal.confirm({
+                        title: 'Reconcile sale finances?',
+                        content:
+                          'This recalculates totals from sale lines, sums all payments, fixes due amount, and appends ledger corrections. Any overpayment is preserved as customer credit.',
+                        okText: 'Reconcile',
+                        onOk: async () => {
+                          setBusy(`reconcile-${row.id}`)
+                          try {
+                            const result = await reconcileSaleFinances(
+                              token,
+                              companyId,
+                              String(row.id)
+                            )
+                            const credit =
+                              result.excessCredit > 0
+                                ? ` · Customer credit Rs ${result.excessCredit.toLocaleString()}`
+                                : ''
+                            message.success(
+                              `Sale reconciled · Net Rs ${result.netTotal.toLocaleString()} · Paid Rs ${result.paidAmount.toLocaleString()}${credit}`
+                            )
+                            load()
+                          } catch (e: any) {
+                            message.error(e.message)
+                            throw e
+                          } finally {
+                            setBusy(null)
+                          }
+                        }
+                      })
+                    }
+                  >
+                    Reconcile
+                  </Button>
+                ) : null}
                 <Button
                   size="small"
                   onClick={() => {

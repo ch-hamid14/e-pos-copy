@@ -28,6 +28,9 @@ function pageTitle(pathname: string): string {
   if (pathname.startsWith('/inventory/purchases/') && pathname !== App_Routes.PURCHASE_LIST) {
     return 'Purchase Detail'
   }
+  if (pathname.match(/^\/sales\/[^/]+\/edit$/)) {
+    return 'Edit Sale'
+  }
   if (pathname.startsWith('/sales/') && pathname !== App_Routes.SALES_LIST && pathname !== App_Routes.NEW_SALE && pathname !== App_Routes.DUE_SALES) {
     return 'Sale Detail'
   }

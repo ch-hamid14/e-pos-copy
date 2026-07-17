@@ -1,6 +1,6 @@
 import { IRequest } from '../../../common'
 import { saleService } from '../../services'
-import type { CreateSalePayload, RecordPaymentPayload } from '../../services/sale/sale.service'
+import type { CreateSalePayload, RecordPaymentPayload, UpdateSalePayload } from '../../services/sale/sale.service'
 import { auditFromListQuery, auditFromRequest } from '../shared/audit'
 
 class SaleController {
@@ -47,6 +47,16 @@ class SaleController {
       req.body?.companyId as string,
       auditFromRequest(req),
       req.body?.payload as RecordPaymentPayload
+    )
+  }
+
+  async update(_: Electron.IpcMainInvokeEvent, req: IRequest) {
+    return saleService.update(
+      req.params?.id as string,
+      req.body?.companyId as string,
+      req.body?.branchId as string,
+      auditFromRequest(req),
+      req.body?.payload as UpdateSalePayload
     )
   }
 }

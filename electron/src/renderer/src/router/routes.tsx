@@ -36,6 +36,7 @@ export const LazyPages = {
   NewSale: lazy(() => import('@/renderer/pages/sales/NewSale').then((m) => ({ default: m.NewSale }))),
   SalesList: lazy(() => import('@/renderer/pages/sales/SalesList').then((m) => ({ default: m.SalesList }))),
   SaleDetail: lazy(() => import('@/renderer/pages/sales/SaleDetail').then((m) => ({ default: m.SaleDetail }))),
+  SaleEdit: lazy(() => import('@/renderer/pages/sales/NewSale').then((m) => ({ default: m.NewSale }))),
   DueSales: lazy(() => import('@/renderer/pages/sales/DueSales').then((m) => ({ default: m.DueSales }))),
   Expenses: lazy(() => import('@/renderer/pages/finance/Expenses').then((m) => ({ default: m.Expenses }))),
   ExpenseCategories: lazy(() =>
@@ -81,6 +82,7 @@ export const AppRoutes: IAppRoutes[] = [
   { path: App_Routes.ADJUSTMENTS, component: LazyPages.Adjustment, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
   { path: App_Routes.NEW_SALE, component: LazyPages.NewSale, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN, Roles.STAFF] },
   { path: App_Routes.SALES_LIST, component: LazyPages.SalesList, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN, Roles.STAFF] },
+  { path: App_Routes.SALE_EDIT, component: LazyPages.SaleEdit, roles: [Roles.COMPANY_OWNER] },
   { path: App_Routes.SALE_DETAIL, component: LazyPages.SaleDetail, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN, Roles.STAFF] },
   { path: App_Routes.DUE_SALES, component: LazyPages.DueSales, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN, Roles.STAFF] },
   { path: App_Routes.EXPENSES, component: LazyPages.Expenses, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },

@@ -1,3 +1,4 @@
+import type { Knex } from 'knex'
 import {
   LedgerEntryType,
   MovementType,
@@ -9,6 +10,7 @@ import { getDb, withTransaction } from '../../db'
 import { generateId } from '../../../common/utils/uuid'
 import { computeCustomerBalance } from '../customer/customer.service'
 import { applyPartStockDelta } from '../part/part-stock.helpers'
+import { Roles } from '../../../common/constants/roles'
 import {
   AUDIT_USER_SELECT,
   type AuditContext,
@@ -17,7 +19,8 @@ import {
   auditUpdate,
   enrichAuditUsers,
   joinAuditUsers,
-  withAuditCreateWithDevice
+  withAuditCreateWithDevice,
+  withAuditUpdate
 } from '../shared/audit.helpers'
 import { asJson, asJsonList } from '../shared/json.helpers'
 
@@ -41,6 +44,15 @@ export type CreateSalePayload = {
   discount?: number
   paidAmount?: number
   paymentMethod?: string
+  dueReminderDate?: string
+  notes?: string
+  lines: SaleLineInput[]
+}
+
+export type UpdateSalePayload = {
+  customerId: string
+  saleDate: string
+  discount?: number
   dueReminderDate?: string
   notes?: string
   lines: SaleLineInput[]
@@ -114,6 +126,216 @@ type LineCalc = {
   whtAmount: number
   lineTotal: number
   unitCost?: number
+}
+
+function assertCanEditSale(ctx: AuditContext): void {
+  if (ctx.role !== Roles.COMPANY_OWNER && ctx.role !== Roles.SUPER_ADMIN) {
+    throw new Error('Only company owners can edit sales')
+  }
+}
+
+async function saleEditable(
+  sale: Record<string, unknown>,
+  lines: Record<string, unknown>[]
+): Promise<boolean> {
+  if (sale.deleted_at) return false
+  if (sale.status === SaleStatus.CANCELLED) return false
+
+  for (const line of lines) {
+    const lineType = (line.line_type as string) || (line.part_id ? 'part' : 'product')
+    if (lineType === 'part') continue
+    const productItemId = line.product_item_id as string | undefined
+    if (!productItemId) continue
+    const item = await getDb()('product_items').where({ id: productItemId }).first()
+    if (!item || item.status !== ProductItemStatus.SOLD) return false
+  }
+  return true
+}
+
+async function reverseProductSaleLine(
+  transaction: Knex.Transaction,
+  companyId: string,
+  branchId: string,
+  saleId: string,
+  line: Record<string, unknown>,
+  ctx: AuditContext
+): Promise<void> {
+  const productItemId = line.product_item_id as string
+  if (!productItemId) return
+
+  const item = await getDb()('product_items').transacting(transaction).where({ id: productItemId }).first()
+  if (!item) throw new Error('Product unit not found')
+
+  if (item.status !== ProductItemStatus.SOLD) {
+    throw new Error(`Cannot edit sale — unit ${line.serial_number} is no longer sold`)
+  }
+
+  const updated = await getDb()('product_items')
+    .transacting(transaction)
+    .where({ id: productItemId, status: ProductItemStatus.SOLD })
+    .update({
+      status: ProductItemStatus.IN_STOCK,
+      sold_at: null,
+      version: Number(item.version || 1) + 1,
+      ...auditUpdate(ctx)
+    })
+  if (!updated) {
+    throw new Error(`Cannot edit sale — unit ${line.serial_number} is no longer sold`)
+  }
+
+  const lineAudit = auditCreate(ctx)
+  await getDb()('inventory_movements').transacting(transaction).insert({
+    id: generateId(),
+    company_id: companyId,
+    product_item_id: productItemId,
+    movement_type: MovementType.RETURN,
+    to_branch_id: branchId,
+    reference_type: 'sale_edit',
+    reference_id: saleId,
+    ...lineAudit,
+    created_at: new Date()
+  })
+}
+
+async function reversePartSaleLine(
+  transaction: Knex.Transaction,
+  companyId: string,
+  branchId: string,
+  saleId: string,
+  line: Record<string, unknown>,
+  ctx: AuditContext
+): Promise<void> {
+  const partId = line.part_id as string
+  if (!partId) return
+  const quantity = Math.max(1, Math.floor(Number(line.quantity || 1)))
+
+  await applyPartStockDelta(transaction, {
+    companyId,
+    branchId,
+    partId,
+    deltaQty: quantity,
+    movementType: MovementType.RETURN,
+    referenceType: 'sale_edit',
+    referenceId: saleId,
+    notes: 'Reversed for sale edit',
+    ctx
+  })
+}
+
+async function applySaleEditLedger(
+  transaction: Knex.Transaction,
+  companyId: string,
+  ctx: AuditContext,
+  saleId: string,
+  oldCustomerId: string,
+  newCustomerId: string,
+  oldNetTotal: number,
+  newNetTotal: number,
+  totalPaid: number
+): Promise<void> {
+  const now = new Date()
+  const lineAudit = auditCreate(ctx)
+
+  if (oldCustomerId === newCustomerId) {
+    const delta = round2(newNetTotal - oldNetTotal)
+    if (delta === 0) return
+
+    let balance = await computeCustomerBalance(newCustomerId, transaction)
+    if (delta > 0) {
+      balance = round2(balance + delta)
+      await getDb()('ledger_entries').transacting(transaction).insert({
+        id: generateId(),
+        company_id: companyId,
+        customer_id: newCustomerId,
+        type: LedgerEntryType.SALE_DEBIT,
+        amount: delta,
+        reference_type: 'sale_edit',
+        reference_id: saleId,
+        running_balance: balance,
+        ...lineAudit,
+        created_at: now
+      })
+      return
+    }
+
+    const credit = round2(-delta)
+    balance = round2(balance - credit)
+    await getDb()('ledger_entries').transacting(transaction).insert({
+      id: generateId(),
+      company_id: companyId,
+      customer_id: newCustomerId,
+      type: LedgerEntryType.PAYMENT_CREDIT,
+      amount: credit,
+      reference_type: 'sale_edit',
+      reference_id: saleId,
+      running_balance: balance,
+      ...lineAudit,
+      created_at: now
+    })
+    return
+  }
+
+  let oldBalance = await computeCustomerBalance(oldCustomerId, transaction)
+  oldBalance = round2(oldBalance - oldNetTotal)
+  await getDb()('ledger_entries').transacting(transaction).insert({
+    id: generateId(),
+    company_id: companyId,
+    customer_id: oldCustomerId,
+    type: LedgerEntryType.PAYMENT_CREDIT,
+    amount: oldNetTotal,
+    reference_type: 'sale_edit',
+    reference_id: saleId,
+    running_balance: oldBalance,
+    ...lineAudit,
+    created_at: now
+  })
+
+  if (totalPaid > 0) {
+    oldBalance = round2(oldBalance + totalPaid)
+    await getDb()('ledger_entries').transacting(transaction).insert({
+      id: generateId(),
+      company_id: companyId,
+      customer_id: oldCustomerId,
+      type: LedgerEntryType.SALE_DEBIT,
+      amount: totalPaid,
+      reference_type: 'sale_edit',
+      reference_id: saleId,
+      running_balance: oldBalance,
+      ...lineAudit,
+      created_at: new Date(now.getTime() + 1)
+    })
+  }
+
+  let newBalance = await computeCustomerBalance(newCustomerId, transaction)
+  newBalance = round2(newBalance + newNetTotal)
+  await getDb()('ledger_entries').transacting(transaction).insert({
+    id: generateId(),
+    company_id: companyId,
+    customer_id: newCustomerId,
+    type: LedgerEntryType.SALE_DEBIT,
+    amount: newNetTotal,
+    reference_type: 'sale_edit',
+    reference_id: saleId,
+    running_balance: newBalance,
+    ...lineAudit,
+    created_at: new Date(now.getTime() + 2)
+  })
+
+  if (totalPaid > 0) {
+    newBalance = round2(newBalance - totalPaid)
+    await getDb()('ledger_entries').transacting(transaction).insert({
+      id: generateId(),
+      company_id: companyId,
+      customer_id: newCustomerId,
+      type: LedgerEntryType.PAYMENT_CREDIT,
+      amount: totalPaid,
+      reference_type: 'sale_edit',
+      reference_id: saleId,
+      running_balance: newBalance,
+      ...lineAudit,
+      created_at: new Date(now.getTime() + 3)
+    })
+  }
 }
 
 class SaleService {
@@ -239,11 +461,13 @@ class SaleService {
       )
       .orderBy('sl.created_at', 'asc')
     const payments = await getDb()('payments').where({ sale_id: id }).orderBy('payment_date', 'asc')
+    const editable = await saleEditable(sale, lines)
 
     return {
       sale: {
         ...asJson(sale)!,
         billNo: Number(count),
+        editable,
         customer: {
           name: sale.customer_name,
           phone: sale.customer_phone,
@@ -258,7 +482,8 @@ class SaleService {
             ? line.part_description || line.product_description
             : line.product_description
       })),
-      payments: asJsonList(payments)
+      payments: asJsonList(payments),
+      editable
     }
   }
 
@@ -557,6 +782,310 @@ class SaleService {
       }
 
       return { sale: asJson(sale), lines: createdLines, dueAmount }
+    })
+  }
+
+  async update(
+    id: string,
+    companyId: string,
+    branchId: string,
+    ctx: AuditContext,
+    payload: UpdateSalePayload
+  ): Promise<unknown> {
+    assertCanEditSale(ctx)
+
+    if (!payload.lines?.length) throw new Error('Add at least one line')
+    if (!payload.customerId) throw new Error('Select a customer')
+
+    const customer = await getDb()('customers')
+      .where({ id: payload.customerId, company_id: companyId })
+      .whereNull('deleted_at')
+      .first()
+    if (!customer) throw new Error('Customer not found')
+
+    const productIds = payload.lines
+      .filter((l) => normalizeLineType(l) === 'product')
+      .map((l) => l.productItemId)
+      .filter(Boolean) as string[]
+    if (new Set(productIds).size !== productIds.length) {
+      throw new Error('Duplicate product units in this sale')
+    }
+
+    return withTransaction(async (transaction) => {
+      const sale = await getDb()('sales')
+        .transacting(transaction)
+        .where({ id, company_id: companyId, branch_id: branchId })
+        .whereNull('deleted_at')
+        .first()
+      if (!sale) throw new Error('Sale not found')
+
+      const existingLines = await getDb()('sale_lines').transacting(transaction).where({ sale_id: id })
+      const payments = await getDb()('payments').transacting(transaction).where({ sale_id: id })
+
+      if (!(await saleEditable(sale, existingLines))) {
+        throw new Error('This sale can no longer be edited')
+      }
+
+      const paidAmount = round2(
+        payments.length > 0
+          ? payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0)
+          : Number(sale.paid_amount || 0)
+      )
+
+      const oldCustomerId = sale.customer_id as string
+      const oldNetTotal = round2(Number(sale.net_total || 0))
+
+      for (const line of existingLines) {
+        const lineType = (line.line_type as string) || (line.part_id ? 'part' : 'product')
+        if (lineType === 'part') {
+          await reversePartSaleLine(transaction, companyId, branchId, id, line, ctx)
+        } else {
+          await reverseProductSaleLine(transaction, companyId, branchId, id, line, ctx)
+        }
+      }
+
+      await getDb()('sale_lines').transacting(transaction).where({ sale_id: id }).del()
+
+      const lineCalcs: LineCalc[] = []
+
+      for (const line of payload.lines) {
+        const lineType = normalizeLineType(line)
+        const amounts = calcLine(line)
+
+        if (lineType === 'product') {
+          if (!line.productItemId) throw new Error('Select a product unit for every product line')
+          if (amounts.quantity !== 1) throw new Error('Product lines must have quantity 1')
+
+          const item = await getDb()('product_items as pi')
+            .transacting(transaction)
+            .leftJoin('products as pr', 'pi.product_id', 'pr.id')
+            .leftJoin('categories as c', 'pi.category_id', 'c.id')
+            .leftJoin('colors as co', 'pi.color_id', 'co.id')
+            .where({ 'pi.id': line.productItemId })
+            .select('pi.*', 'pr.name as product_name', 'c.name as category_name', 'co.name as color_name')
+            .first()
+
+          if (!item || item.company_id !== companyId) throw new Error('Unit not found')
+          if (item.current_branch_id !== branchId) {
+            throw new Error(`Serial ${item.serial_number} is not at this branch`)
+          }
+          if (item.status !== ProductItemStatus.IN_STOCK) {
+            throw new Error(`Serial ${item.serial_number} is not available for sale`)
+          }
+
+          const warrantyActive = Boolean(line.warrantyActive)
+          const warrantyExpiry =
+            warrantyActive && line.warrantyExpiryDate ? new Date(line.warrantyExpiryDate) : null
+          if (warrantyActive && !warrantyExpiry) {
+            throw new Error(`Warranty expiry required for serial ${item.serial_number}`)
+          }
+
+          lineCalcs.push({
+            lineType,
+            line,
+            productItem: item,
+            productName: (item.product_name as string) || '',
+            categoryName: (item.category_name as string) || '',
+            colorName: (item.color_name as string) || '',
+            serialNumber: (item.serial_number as string) || null,
+            warrantyActive,
+            warrantyExpiry,
+            ...amounts
+          })
+        } else {
+          if (!line.partId) throw new Error('Select a part for every part line')
+          if (amounts.quantity <= 0) throw new Error('Part quantity must be a positive whole number')
+
+          const part = await getDb()('parts as p')
+            .transacting(transaction)
+            .leftJoin('categories as c', 'p.category_id', 'c.id')
+            .where({ 'p.id': line.partId, 'p.company_id': companyId })
+            .whereNull('p.deleted_at')
+            .select('p.*', 'c.name as category_name')
+            .first()
+          if (!part) throw new Error('Part not found')
+
+          const stock = await getDb()('part_stocks')
+            .transacting(transaction)
+            .where({ company_id: companyId, branch_id: branchId, part_id: line.partId })
+            .first()
+          const available = Number(stock?.quantity_on_hand || 0)
+          if (available < amounts.quantity) {
+            throw new Error(
+              `Insufficient stock for ${part.name}: available ${available}, requested ${amounts.quantity}`
+            )
+          }
+
+          const unitCost = round2(Number(stock?.average_cost || part.default_purchase_price || 0))
+
+          lineCalcs.push({
+            lineType,
+            line,
+            partId: line.partId,
+            productName: (part.name as string) || '',
+            categoryName: (part.category_name as string) || '',
+            colorName: '',
+            serialNumber: null,
+            warrantyActive: false,
+            warrantyExpiry: null,
+            unitCost,
+            ...amounts
+          })
+        }
+      }
+
+      const subtotal = round2(lineCalcs.reduce((s, l) => s + l.extended, 0))
+      const totalTax = round2(lineCalcs.reduce((s, l) => s + l.taxAmount, 0))
+      const totalWht = round2(lineCalcs.reduce((s, l) => s + l.whtAmount, 0))
+      const discount = round2(Number(payload.discount || 0))
+      const netTotal = round2(subtotal + totalTax + totalWht - discount)
+      const dueAmount = round2(netTotal - paidAmount)
+
+      if (netTotal < 0) throw new Error('Sale total cannot be negative')
+      if (netTotal < paidAmount) {
+        throw new Error(`Sale total cannot be less than recorded payments (${paidAmount})`)
+      }
+      if (dueAmount > 0 && !payload.dueReminderDate) {
+        throw new Error('Due reminder date is required when there is an outstanding balance')
+      }
+
+      const saleDate = new Date(payload.saleDate)
+      const dueReminderDate =
+        dueAmount > 0 && payload.dueReminderDate ? new Date(payload.dueReminderDate) : null
+
+      const [updatedSale] = await getDb()('sales')
+        .transacting(transaction)
+        .where({ id })
+        .update(
+          withAuditUpdate(ctx, {
+            customer_id: payload.customerId,
+            sale_date: saleDate,
+            subtotal,
+            discount,
+            total_tax: totalTax,
+            total_wht: totalWht,
+            net_total: netTotal,
+            paid_amount: paidAmount,
+            due_amount: dueAmount,
+            due_reminder_date: dueReminderDate,
+            notes: payload.notes?.trim() || null
+          })
+        )
+        .returning('*')
+
+      const savedLines: Record<string, unknown>[] = []
+      const lineAudit = auditCreate(ctx)
+
+      for (const row of lineCalcs) {
+        if (row.lineType === 'product') {
+          const item = row.productItem!
+          const [saleLine] = await getDb()('sale_lines')
+            .transacting(transaction)
+            .insert({
+              id: generateId(),
+              sale_id: id,
+              line_type: 'product',
+              product_item_id: item.id,
+              part_id: null,
+              quantity: 1,
+              serial_number: item.serial_number,
+              product_name: row.productName,
+              category_name: row.categoryName,
+              color_name: row.colorName,
+              sale_price: row.unitPrice,
+              tax_percent: row.taxPercent,
+              tax_amount: row.taxAmount,
+              wht_percent: row.whtPercent,
+              wht_amount: row.whtAmount,
+              line_total: row.lineTotal,
+              warranty_active: row.warrantyActive,
+              warranty_expiry_date: row.warrantyExpiry,
+              ...lineAudit,
+              created_at: new Date()
+            })
+            .returning('*')
+
+          await getDb()('product_items').transacting(transaction).where({ id: item.id }).update({
+            status: ProductItemStatus.SOLD,
+            selling_price: row.unitPrice,
+            warranty_active: row.warrantyActive,
+            warranty_expiry_date: row.warrantyExpiry,
+            sold_at: new Date(),
+            version: Number(item.version || 1) + 1,
+            ...auditUpdate(ctx)
+          })
+
+          await getDb()('inventory_movements').transacting(transaction).insert({
+            id: generateId(),
+            company_id: companyId,
+            product_item_id: item.id,
+            movement_type: MovementType.SALE,
+            from_branch_id: branchId,
+            reference_type: 'sale',
+            reference_id: id,
+            ...lineAudit,
+            created_at: new Date()
+          })
+
+          savedLines.push(asJson(saleLine)!)
+        } else {
+          const [saleLine] = await getDb()('sale_lines')
+            .transacting(transaction)
+            .insert({
+              id: generateId(),
+              sale_id: id,
+              line_type: 'part',
+              product_item_id: null,
+              part_id: row.partId,
+              quantity: row.quantity,
+              serial_number: null,
+              product_name: row.productName,
+              category_name: row.categoryName,
+              color_name: null,
+              sale_price: row.unitPrice,
+              tax_percent: row.taxPercent,
+              tax_amount: row.taxAmount,
+              wht_percent: row.whtPercent,
+              wht_amount: row.whtAmount,
+              line_total: row.lineTotal,
+              unit_cost: row.unitCost ?? null,
+              warranty_active: false,
+              warranty_expiry_date: null,
+              ...lineAudit,
+              created_at: new Date()
+            })
+            .returning('*')
+
+          await applyPartStockDelta(transaction, {
+            companyId,
+            branchId,
+            partId: row.partId!,
+            deltaQty: -row.quantity,
+            movementType: MovementType.SALE,
+            referenceType: 'sale',
+            referenceId: id,
+            ctx
+          })
+
+          savedLines.push(asJson(saleLine)!)
+        }
+      }
+
+      await applySaleEditLedger(
+        transaction,
+        companyId,
+        ctx,
+        id,
+        oldCustomerId,
+        payload.customerId,
+        oldNetTotal,
+        netTotal,
+        paidAmount
+      )
+
+      const editable = await saleEditable(updatedSale, savedLines)
+
+      return { sale: asJson(updatedSale), lines: savedLines, dueAmount, editable }
     })
   }
 

@@ -291,6 +291,28 @@ export function updateDataRow(
   })
 }
 
+export type SaleReconcileResult = {
+  saleId: string
+  lineCount: number
+  paymentCount: number
+  netTotal: number
+  paidAmount: number
+  dueAmount: number
+  excessCredit: number
+  adjustments: Array<{
+    customerId: string
+    type: 'sale_debit' | 'payment_credit'
+    amount: number
+  }>
+}
+
+export function reconcileSaleFinances(token: string, companyId: string, saleId: string) {
+  return api<SaleReconcileResult>(`/admin/companies/${companyId}/sales/${saleId}/reconcile`, {
+    method: 'POST',
+    token
+  })
+}
+
 export function softDeleteDataRow(token: string, companyId: string, table: string, rowId: string) {
   return api(`/admin/companies/${companyId}/data/${table}/${rowId}/soft-delete`, {
     method: 'POST',

@@ -81,6 +81,26 @@ function computeNetPrice(
   return applySupplierDiscount(afterSupplier, specialDiscount, specialDiscountType)
 }
 
+function resolveLineNetCost(
+  listPrice: number,
+  supplierDiscount: number,
+  supplierDiscountType: SupplierDiscountType,
+  specialDiscount: number,
+  specialDiscountType: SupplierDiscountType,
+  manualNetCost?: number
+): number {
+  if (supplierDiscount > 0 || specialDiscount > 0) {
+    return computeNetPrice(
+      listPrice,
+      supplierDiscount,
+      supplierDiscountType,
+      specialDiscount,
+      specialDiscountType
+    )
+  }
+  return round2(Number(manualNetCost ?? listPrice))
+}
+
 function lineQty(line: CartLine): number {
   if (line.lineType === 'part') return Math.max(1, Number(line.quantity || 1))
   return 1
@@ -122,7 +142,8 @@ export const AddPurchase = () => {
         specialDiscount: 0,
         specialDiscountType: 'pkr',
         quantity: 1,
-        warrantyActive: false
+        warrantyActive: false,
+        netCost: 0
       })
     }
   }, [companyId, headerForm, lineForm, isEdit])
@@ -195,8 +216,10 @@ export const AddPurchase = () => {
     selectedSupplier?.discountType === 'percent' ? 'percent' : 'pkr'
   const hasSupplierDiscount = supplierDiscount > 0
   const hasSpecialDiscount = lines.some((l) => l.specialDiscount > 0)
-  const hasDiscount = hasSupplierDiscount || hasSpecialDiscount
-  const showNetPreview = hasSupplierDiscount || lineSpecialDiscount > 0
+  const hasFormDiscount = hasSupplierDiscount || lineSpecialDiscount > 0
+  const showComputedNet = hasFormDiscount
+  const showEditableNetCost = !hasFormDiscount
+  const partLines = lines.filter((l) => l.lineType === 'part')
 
   const enteredListPrice = Number(Form.useWatch('purchasePrice', lineForm) || 0)
   const previewNetPrice = computeNetPrice(
@@ -211,20 +234,22 @@ export const AddPurchase = () => {
     const sDiscount = Number(supplier?.discount || 0)
     const sType: SupplierDiscountType = supplier?.discountType === 'percent' ? 'percent' : 'pkr'
     setLines((prev) =>
-      prev.map((line) =>
-        line.locked
-          ? line
-          : {
-              ...line,
-              purchasePrice: computeNetPrice(
-                line.listPrice,
-                sDiscount,
-                sType,
-                line.specialDiscount,
-                line.specialDiscountType
-              )
-            }
-      )
+      prev.map((line) => {
+        if (line.locked) return line
+        const hasLineDiscount = sDiscount > 0 || line.specialDiscount > 0
+        // Keep manually entered net cost when no discounts apply
+        if (!hasLineDiscount) return line
+        return {
+          ...line,
+          purchasePrice: resolveLineNetCost(
+            line.listPrice,
+            sDiscount,
+            sType,
+            line.specialDiscount,
+            line.specialDiscountType
+          )
+        }
+      })
     )
   }
 
@@ -262,7 +287,8 @@ export const AddPurchase = () => {
       serialNumber: '',
       quantity: 1,
       specialDiscount: 0,
-      specialDiscountType: 'pkr'
+      specialDiscountType: 'pkr',
+      netCost: 0
     })
   }
 
@@ -301,6 +327,13 @@ export const AddPurchase = () => {
     const specialDiscount = Number(values.specialDiscount || 0)
     const specialDiscountType: SupplierDiscountType =
       values.specialDiscountType === 'percent' ? 'percent' : 'pkr'
+    const hasDiscountOnLine = supplierDiscount > 0 || specialDiscount > 0
+    const netCost = Number(values.netCost ?? 0)
+    if (!hasDiscountOnLine && netCost <= 0) {
+      message.error('Enter net cost per unit')
+      return
+    }
+
     const nextLine: CartLine = {
       key: editingKey || `${serial}-${Date.now()}`,
       lineType: 'product',
@@ -314,12 +347,13 @@ export const AddPurchase = () => {
       listPrice,
       specialDiscount,
       specialDiscountType,
-      purchasePrice: computeNetPrice(
+      purchasePrice: resolveLineNetCost(
         listPrice,
         supplierDiscount,
         supplierDiscountType,
         specialDiscount,
-        specialDiscountType
+        specialDiscountType,
+        hasDiscountOnLine ? undefined : netCost
       ),
       warrantyActive: Boolean(values.warrantyActive),
       warrantyExpiryDate: values.warrantyActive
@@ -371,6 +405,12 @@ export const AddPurchase = () => {
     const specialDiscount = Number(values.specialDiscount || 0)
     const specialDiscountType: SupplierDiscountType =
       values.specialDiscountType === 'percent' ? 'percent' : 'pkr'
+    const hasDiscountOnLine = supplierDiscount > 0 || specialDiscount > 0
+    const netCost = Number(values.netCost ?? 0)
+    if (!hasDiscountOnLine && netCost <= 0) {
+      message.error('Enter net cost per unit')
+      return
+    }
 
     const nextLine: CartLine = {
       key: editingKey || `part-${values.partId}-${Date.now()}`,
@@ -382,12 +422,13 @@ export const AddPurchase = () => {
       listPrice,
       specialDiscount,
       specialDiscountType,
-      purchasePrice: computeNetPrice(
+      purchasePrice: resolveLineNetCost(
         listPrice,
         supplierDiscount,
         supplierDiscountType,
         specialDiscount,
-        specialDiscountType
+        specialDiscountType,
+        hasDiscountOnLine ? undefined : netCost
       )
     }
 
@@ -435,6 +476,7 @@ export const AddPurchase = () => {
         productId: line.productId,
         colorId: line.colorId,
         purchasePrice: line.listPrice,
+        netCost: line.purchasePrice,
         specialDiscount: line.specialDiscount,
         specialDiscountType: line.specialDiscountType,
         warrantyActive: line.warrantyActive,
@@ -445,6 +487,7 @@ export const AddPurchase = () => {
         partId: line.partId,
         quantity: line.quantity ?? 1,
         purchasePrice: line.listPrice,
+        netCost: line.purchasePrice,
         specialDiscount: line.specialDiscount,
         specialDiscountType: line.specialDiscountType
       })
@@ -464,7 +507,6 @@ export const AddPurchase = () => {
   const lockedCount = lines.filter((l) => l.locked).length
   const editableCount = lines.length - lockedCount
   const productLines = lines.filter((l) => l.lineType === 'product')
-  const partLines = lines.filter((l) => l.lineType === 'part')
 
   const grossTotal = round2(lines.reduce((sum, l) => sum + l.listPrice * lineQty(l), 0))
   const netTotal = round2(lines.reduce((sum, l) => sum + l.purchasePrice * lineQty(l), 0))
@@ -724,9 +766,18 @@ export const AddPurchase = () => {
                 style={{ width: '100%' }}
               />
             </Form.Item>
-            {showNetPreview && (
-              <Form.Item label={activeLineType === 'part' ? 'Net cost / unit' : 'Net Price'}>
+            {showComputedNet && (
+              <Form.Item label="Net cost / unit">
                 <Input value={formatRs(previewNetPrice)} disabled />
+              </Form.Item>
+            )}
+            {showEditableNetCost && (
+              <Form.Item
+                name="netCost"
+                label="Net cost / unit"
+                rules={[{ required: true, message: 'Enter net cost per unit' }]}
+              >
+                <InputNumber className="w-full" min={0} style={{ width: '100%' }} />
               </Form.Item>
             )}
             {activeLineType === 'product' && (
@@ -807,35 +858,24 @@ export const AddPurchase = () => {
               render: (v: string | undefined, r: CartLine) =>
                 r.lineType === 'product' ? v || '—' : '—'
             },
-            ...(hasDiscount
-              ? [
-                  {
-                    title: 'Retail Price',
-                    dataIndex: 'listPrice',
-                    align: 'right' as const,
-                    render: formatRs
-                  },
-                  {
-                    title: 'Special Disc.',
-                    key: 'specialDiscount',
-                    render: (_: unknown, r: CartLine) =>
-                      formatSupplierDiscount(r.specialDiscount, r.specialDiscountType)
-                  },
-                  {
-                    title: 'Net Price',
-                    dataIndex: 'purchasePrice',
-                    align: 'right' as const,
-                    render: formatRs
-                  }
-                ]
-              : [
-                  {
-                    title: 'Purchase Price',
-                    dataIndex: 'purchasePrice',
-                    align: 'right' as const,
-                    render: formatRs
-                  }
-                ]),
+            {
+              title: 'Retail Price',
+              dataIndex: 'listPrice',
+              align: 'right' as const,
+              render: formatRs
+            },
+            {
+              title: 'Special Disc.',
+              key: 'specialDiscount',
+              render: (_: unknown, r: CartLine) =>
+                formatSupplierDiscount(r.specialDiscount, r.specialDiscountType)
+            },
+            {
+              title: 'Net Price',
+              dataIndex: 'purchasePrice',
+              align: 'right' as const,
+              render: formatRs
+            },
             {
               title: 'Warranty',
               render: (_: unknown, r: CartLine) =>
@@ -901,22 +941,19 @@ export const AddPurchase = () => {
                   {productLines.length} product · {partLines.length} part
                 </>
               )}
-              {hasDiscount && discountAmount > 0 ? (
-                <>
-                  {' '}
-                  · Gross {formatRs(grossTotal)}
-                  {hasSupplierDiscount && (
-                    <>
-                      {' '}
-                      · Supplier ({formatSupplierDiscount(supplierDiscount, supplierDiscountType)})
-                    </>
-                  )}
-                  {hasSpecialDiscount && <> · Special (per unit)</>} − {formatRs(discountAmount)} ·
-                  Net {formatRs(netTotal)}
-                </>
-              ) : (
-                <> · Total {formatRs(netTotal)}</>
-              )}
+              <>
+                {' '}
+                · Gross {formatRs(grossTotal)}
+                {hasSupplierDiscount && (
+                  <>
+                    {' '}
+                    · Supplier ({formatSupplierDiscount(supplierDiscount, supplierDiscountType)})
+                  </>
+                )}
+                {hasSpecialDiscount && <> · Special (per unit)</>}
+                {discountAmount > 0 && <> − {formatRs(discountAmount)}</>} · Net{' '}
+                {formatRs(netTotal)}
+              </>
             </Text>
           </div>
           <Space>

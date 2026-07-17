@@ -168,6 +168,17 @@ export const saleAPI = {
     audit: SessionAudit,
     payload: Record<string, unknown>
   ) => ipcCall(`POST:${Channels.SALES}`, { body: auditBody(audit, { companyId, branchId, payload }) }),
+  update: (
+    id: string,
+    companyId: string,
+    branchId: string,
+    audit: SessionAudit,
+    payload: Record<string, unknown>
+  ) =>
+    ipcCall(`PUT:${Channels.SALES}`, {
+      params: { id },
+      body: auditBody(audit, { companyId, branchId, payload })
+    }),
   recordPayment: (companyId: string, audit: SessionAudit, payload: Record<string, unknown>) =>
     ipcCall(`POST:${Channels.SALES}:payment`, { body: auditBody(audit, { companyId, payload }) })
 }

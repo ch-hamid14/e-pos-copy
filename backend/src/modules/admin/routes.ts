@@ -35,6 +35,7 @@ import {
   restoreRow,
   hardDeleteRow
 } from './data'
+import { reconcileSaleFinances } from './saleRepair'
 import {
   listConflicts,
   getConflictDetail,
@@ -470,6 +471,21 @@ export function adminRouter(db: Knex): Router {
         resource: req.params.table,
         companyId: req.params.id,
         detail: { rowId: req.params.rowId, keys: Object.keys(req.body || {}) }
+      })
+      res.json(result)
+    } catch (err: any) {
+      res.status(400).json({ error: err.message })
+    }
+  })
+
+  router.post('/companies/:id/sales/:saleId/reconcile', async (req: AuthRequest, res) => {
+    try {
+      const result = await reconcileSaleFinances(req.params.id, req.params.saleId)
+      await writeAudit(db, req, {
+        action: 'sale.reconcile_finances',
+        resource: 'sale',
+        companyId: req.params.id,
+        detail: result
       })
       res.json(result)
     } catch (err: any) {

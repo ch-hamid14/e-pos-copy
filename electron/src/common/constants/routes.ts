@@ -23,6 +23,7 @@ export enum App_Routes {
   NEW_SALE = '/sales/new',
   SALES_LIST = '/sales/list',
   SALE_DETAIL = '/sales/:id',
+  SALE_EDIT = '/sales/:id/edit',
   DUE_SALES = '/sales/due',
   EXPENSES = '/finance/expenses',
   EXPENSE_CATEGORIES = '/finance/expense-categories',

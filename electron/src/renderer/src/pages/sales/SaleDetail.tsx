@@ -1,9 +1,9 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Button, Card, Col, Descriptions, Row, Spin, Statistic, Table, Tag, Typography } from 'antd'
-import { ArrowLeftOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, EditOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import { App_Routes } from '@/common'
+import { App_Routes, Roles } from '@/common'
 import { saleAPI } from '@/renderer/services'
 import { useSession } from '@/renderer/hooks/useSession'
 import { useSaleInvoicePrint } from '@/renderer/hooks/useSaleInvoicePrint'
@@ -17,7 +17,9 @@ const { Text } = Typography
 export const SaleDetail = () => {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { branchName } = useSession()
+  const { branchName, user } = useSession()
+  const canEditSales = user?.role === Roles.COMPANY_OWNER
+  const [editable, setEditable] = useState(false)
   const {
     preparePrint,
     clearPrint,
@@ -30,7 +32,10 @@ export const SaleDetail = () => {
   useEffect(() => {
     if (!id) return
     saleAPI.get(id).then((res) => {
-      if (res?.sale) preparePrint(res)
+      if (res?.sale) {
+        preparePrint(res)
+        setEditable(Boolean(res.editable ?? res.sale.editable))
+      }
     })
     return () => clearPrint()
   }, [id, preparePrint, clearPrint])
@@ -63,6 +68,7 @@ export const SaleDetail = () => {
   }
 
   const sale = detail.sale
+  const canEdit = editable && canEditSales
 
   return (
     <div>
@@ -79,11 +85,30 @@ export const SaleDetail = () => {
         title={`Sale #${sale.billNo ?? '—'}`}
         subtitle={dayjs(sale.saleDate).format('DD MMM YYYY')}
         extra={
-          <PrintInvoiceButton
-            onThermal={handleThermalPrint}
-            onA4Print={handlePrintInvoice}
-            disabled={!hasPrintDetail}
-          />
+          <div className="flex items-center gap-3">
+            {canEdit ? (
+              <Button
+                type="primary"
+                icon={<EditOutlined />}
+                onClick={() => navigate(App_Routes.SALE_EDIT.replace(':id', sale.id))}
+              >
+                Edit
+              </Button>
+            ) : (
+              canEditSales || editable ? (
+                <Text type="secondary">
+                  {!canEditSales
+                    ? 'Only company owners can edit sales'
+                    : 'Edit unavailable — one or more sold units are no longer editable'}
+                </Text>
+              ) : null
+            )}
+            <PrintInvoiceButton
+              onThermal={handleThermalPrint}
+              onA4Print={handlePrintInvoice}
+              disabled={!hasPrintDetail}
+            />
+          </div>
         }
       />
 
