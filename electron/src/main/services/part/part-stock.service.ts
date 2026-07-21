@@ -1,5 +1,6 @@
 import { getDb } from '../../db'
 import { asJson } from '../shared/json.helpers'
+import { previewPartFifoCost } from './part-fifo.helpers'
 
 export type PartStockListFilters = {
   search?: string
@@ -134,6 +135,16 @@ class PartStockService {
           },
       movements: movements.map((m) => asJson(m)!)
     }
+  }
+
+  async fifoPreview(
+    companyId: string,
+    branchId: string,
+    partId: string,
+    quantity = 1
+  ): Promise<unknown> {
+    const qty = Math.max(1, Math.floor(Number(quantity)))
+    return previewPartFifoCost(getDb(), companyId, branchId, partId, qty)
   }
 }
 

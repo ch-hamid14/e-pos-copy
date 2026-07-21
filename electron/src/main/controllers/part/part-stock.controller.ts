@@ -26,6 +26,15 @@ class PartStockController {
       req.params?.id as string
     )
   }
+
+  async fifoPreview(_: Electron.IpcMainInvokeEvent, req: IRequest) {
+    return partStockService.fifoPreview(
+      req.query?.companyId as string,
+      req.query?.branchId as string,
+      req.query?.partId as string,
+      Number(req.query?.quantity || 1)
+    )
+  }
 }
 
 export const partStockController = new PartStockController()

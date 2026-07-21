@@ -57,6 +57,9 @@ function normalizeLines(lines: PartPurchaseLineInput[]): PartPurchaseLineInput[]
     const unitSalePrice = Number(
       line.unitSalePrice !== undefined ? line.unitSalePrice : unitCost
     )
+    if (unitSalePrice < unitCost) {
+      throw new Error('Retail price cannot be less than net cost')
+    }
     return {
       ...line,
       quantity,
@@ -233,6 +236,7 @@ class PartPurchaseService {
             part_id: line.partId,
             category_id: part.category_id,
             quantity: line.quantity,
+            quantity_remaining: line.quantity,
             unit_cost: line.unitCost,
             unit_sale_price: line.unitSalePrice ?? line.unitCost,
             special_discount: line.specialDiscount || 0,
@@ -308,6 +312,13 @@ class PartPurchaseService {
       // Reverse removed lines
       for (const existing of existingLines) {
         if (keepIds.has(existing.id as string)) continue
+        const remaining = Number(existing.quantity_remaining ?? existing.quantity)
+        const sold = Number(existing.quantity) - remaining
+        if (sold > 0) {
+          throw new Error(
+            'Cannot remove a purchase line — units from this purchase have already been sold'
+          )
+        }
         await applyPartStockDelta(transaction, {
           companyId,
           branchId,
@@ -339,6 +350,13 @@ class PartPurchaseService {
           const prev = existingById.get(line.id)!
 
           if (prev.part_id !== line.partId) {
+            const prevRemaining = Number(prev.quantity_remaining ?? prev.quantity)
+            const soldFromLine = Number(prev.quantity) - prevRemaining
+            if (soldFromLine > 0) {
+              throw new Error(
+                'Cannot change part on this line — units from this purchase have already been sold'
+              )
+            }
             await applyPartStockDelta(transaction, {
               companyId,
               branchId,
@@ -364,6 +382,13 @@ class PartPurchaseService {
               ctx
             })
           } else {
+            const prevRemaining = Number(prev.quantity_remaining ?? prev.quantity)
+            const soldFromLine = Number(prev.quantity) - prevRemaining
+            if (line.quantity < soldFromLine) {
+              throw new Error(
+                `Cannot reduce quantity below ${soldFromLine} — units from this purchase have already been sold`
+              )
+            }
             const qtyDiff = line.quantity - Number(prev.quantity)
             if (qtyDiff !== 0) {
               await applyPartStockDelta(transaction, {
@@ -392,6 +417,9 @@ class PartPurchaseService {
             }
           }
 
+          const prevRemaining = Number(prev.quantity_remaining ?? prev.quantity)
+          const qtyDiff = line.quantity - Number(prev.quantity)
+
           await getDb()('part_purchase_lines')
             .transacting(transaction)
             .where({ id: line.id })
@@ -400,6 +428,8 @@ class PartPurchaseService {
                 part_id: line.partId,
                 category_id: part.category_id,
                 quantity: line.quantity,
+                quantity_remaining:
+                  prev.part_id !== line.partId ? line.quantity : prevRemaining + qtyDiff,
                 unit_cost: line.unitCost,
                 unit_sale_price: line.unitSalePrice ?? line.unitCost,
                 special_discount: line.specialDiscount || 0,
@@ -426,6 +456,7 @@ class PartPurchaseService {
               part_id: line.partId,
               category_id: part.category_id,
               quantity: line.quantity,
+              quantity_remaining: line.quantity,
               unit_cost: line.unitCost,
               unit_sale_price: line.unitSalePrice ?? line.unitCost,
               special_discount: line.specialDiscount || 0,

@@ -142,6 +142,10 @@ export const partStockAPI = {
     ipcCall(`GET:${Channels.PART_STOCKS}:detail`, {
       params: { id: partId },
       query: { companyId, branchId }
+    }),
+  fifoPreview: (companyId: string, branchId: string, partId: string, quantity?: number) =>
+    ipcCall(`GET:${Channels.PART_STOCKS}:fifo`, {
+      query: { companyId, branchId, partId, quantity: quantity ?? 1 }
     })
 }
 

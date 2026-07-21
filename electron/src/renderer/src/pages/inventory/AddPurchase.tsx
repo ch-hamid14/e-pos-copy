@@ -96,7 +96,7 @@ function computeNetPrice(
   supplierDiscountType: SupplierDiscountType,
   specialDiscount: number,
   specialDiscountType: SupplierDiscountType,
-  discountApplyMode: DiscountApplyMode = 'special'
+  discountApplyMode: DiscountApplyMode = 'supplier'
 ): number {
   const { supplier, special } = effectiveDiscounts(
     supplierDiscount,
@@ -113,7 +113,7 @@ function resolveLineNetCost(
   supplierDiscountType: SupplierDiscountType,
   specialDiscount: number,
   specialDiscountType: SupplierDiscountType,
-  discountApplyMode: DiscountApplyMode = 'special',
+  discountApplyMode: DiscountApplyMode = 'supplier',
   manualNetCost?: number
 ): number {
   const { supplier, special } = effectiveDiscounts(
@@ -136,12 +136,18 @@ function resolveLineNetCost(
 
 function parseDiscountApplyMode(value: unknown): DiscountApplyMode {
   if (value === 'supplier' || value === 'special' || value === 'both') return value
-  return 'special'
+  return 'supplier'
 }
 
 function lineQty(line: CartLine): number {
   if (line.lineType === 'part') return Math.max(1, Number(line.quantity || 1))
   return 1
+}
+
+const RETAIL_BELOW_NET_MSG = 'Retail price cannot be less than net cost'
+
+function retailBelowNet(retail: number, netCost: number): boolean {
+  return netCost > retail
 }
 
 export const AddPurchase = () => {
@@ -180,7 +186,7 @@ export const AddPurchase = () => {
       lineForm.setFieldsValue({
         specialDiscount: 0,
         specialDiscountType: 'pkr',
-        discountApplyMode: 'special',
+        discountApplyMode: 'supplier',
         quantity: 1,
         warrantyActive: false,
         netCost: 0
@@ -332,7 +338,7 @@ export const AddPurchase = () => {
       quantity: 1,
       specialDiscount: 0,
       specialDiscountType: 'pkr',
-      discountApplyMode: 'special',
+      discountApplyMode: 'supplier',
       netCost: 0
     })
   }
@@ -409,6 +415,11 @@ export const AddPurchase = () => {
         : undefined
     }
 
+    if (retailBelowNet(nextLine.listPrice, nextLine.purchasePrice)) {
+      message.error(RETAIL_BELOW_NET_MSG)
+      return
+    }
+
     if (editingKey) {
       const existing = lines.find((l) => l.key === editingKey)
       if (!existing || existing.locked || existing.lineType !== 'product') {
@@ -483,6 +494,11 @@ export const AddPurchase = () => {
       )
     }
 
+    if (retailBelowNet(nextLine.listPrice, nextLine.purchasePrice)) {
+      message.error(RETAIL_BELOW_NET_MSG)
+      return
+    }
+
     if (editingKey) {
       const existing = lines.find((l) => l.key === editingKey)
       if (!existing || existing.lineType !== 'part') {
@@ -530,7 +546,7 @@ export const AddPurchase = () => {
         netCost: line.purchasePrice,
         specialDiscount: line.specialDiscount,
         specialDiscountType: line.specialDiscountType,
-        discountApplyMode: line.discountApplyMode || 'special',
+        discountApplyMode: line.discountApplyMode || 'supplier',
         warrantyActive: line.warrantyActive,
         warrantyExpiryDate: line.warrantyExpiryDate ? dayjs(line.warrantyExpiryDate) : undefined
       })
@@ -542,7 +558,7 @@ export const AddPurchase = () => {
         netCost: line.purchasePrice,
         specialDiscount: line.specialDiscount,
         specialDiscountType: line.specialDiscountType,
-        discountApplyMode: line.discountApplyMode || 'special'
+        discountApplyMode: line.discountApplyMode || 'supplier'
       })
     }
   }
@@ -603,6 +619,12 @@ export const AddPurchase = () => {
   const handleSubmit = async () => {
     if (!lines.length) {
       message.error('Add at least one line')
+      return
+    }
+    const invalidLine = lines.find((l) => retailBelowNet(l.listPrice, l.purchasePrice))
+    if (invalidLine) {
+      const label = invalidLine.lineType === 'part' ? invalidLine.productName : invalidLine.serialNumber
+      message.error(`${label}: ${RETAIL_BELOW_NET_MSG}`)
       return
     }
     const header = await headerForm.validateFields()
@@ -720,7 +742,7 @@ export const AddPurchase = () => {
             warrantyActive: false,
             specialDiscount: 0,
             specialDiscountType: 'pkr',
-            discountApplyMode: 'special',
+            discountApplyMode: 'supplier',
             quantity: 1
           }}
         >
@@ -838,7 +860,20 @@ export const AddPurchase = () => {
               <Form.Item
                 name="netCost"
                 label="Net cost / unit"
-                rules={[{ required: true, message: 'Enter net cost per unit' }]}
+                dependencies={['purchasePrice']}
+                rules={[
+                  { required: true, message: 'Enter net cost per unit' },
+                  ({ getFieldValue }) => ({
+                    validator(_, value) {
+                      const retail = Number(getFieldValue('purchasePrice') || 0)
+                      const net = Number(value || 0)
+                      if (retailBelowNet(retail, net)) {
+                        return Promise.reject(new Error(RETAIL_BELOW_NET_MSG))
+                      }
+                      return Promise.resolve()
+                    }
+                  })
+                ]}
               >
                 <InputNumber className="w-full" min={0} style={{ width: '100%' }} />
               </Form.Item>

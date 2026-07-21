@@ -10,6 +10,11 @@ import { getDb, withTransaction } from '../../db'
 import { generateId } from '../../../common/utils/uuid'
 import { computeCustomerBalance } from '../customer/customer.service'
 import { applyPartStockDelta } from '../part/part-stock.helpers'
+import {
+  consumePartStockFifo,
+  previewPartFifoCost,
+  restorePartSaleAllocations
+} from '../part/part-fifo.helpers'
 import { Roles } from '../../../common/constants/roles'
 import {
   AUDIT_USER_SELECT,
@@ -218,6 +223,11 @@ async function reversePartSaleLine(
   const partId = line.part_id as string
   if (!partId) return
   const quantity = Math.max(1, Math.floor(Number(line.quantity || 1)))
+  const saleLineId = line.id as string
+
+  if (saleLineId) {
+    await restorePartSaleAllocations(transaction, saleLineId, ctx)
+  }
 
   await applyPartStockDelta(transaction, {
     companyId,
@@ -591,7 +601,18 @@ class SaleService {
             )
           }
 
-          const unitCost = round2(Number(stock?.average_cost || part.default_purchase_price || 0))
+          const fifoPreview = await previewPartFifoCost(
+            transaction,
+            companyId,
+            branchId,
+            line.partId,
+            amounts.quantity
+          )
+          if (fifoPreview.availableQuantity < amounts.quantity) {
+            throw new Error(
+              `Insufficient stock for ${part.name}: available ${fifoPreview.availableQuantity}, requested ${amounts.quantity}`
+            )
+          }
 
           lineCalcs.push({
             lineType,
@@ -603,7 +624,7 @@ class SaleService {
             serialNumber: null,
             warrantyActive: false,
             warrantyExpiry: null,
-            unitCost,
+            unitCost: fifoPreview.unitCost,
             ...amounts
           })
         }
@@ -726,13 +747,30 @@ class SaleService {
               wht_percent: row.whtPercent,
               wht_amount: row.whtAmount,
               line_total: row.lineTotal,
-              unit_cost: row.unitCost ?? null,
+              unit_cost: null,
               warranty_active: false,
               warranty_expiry_date: null,
               ...lineAudit,
               created_at: new Date()
             })
             .returning('*')
+
+          const saleLineId = saleLine.id as string
+          const { unitCost } = await consumePartStockFifo(transaction, {
+            companyId,
+            branchId,
+            partId: row.partId!,
+            quantity: row.quantity,
+            saleLineId,
+            ctx
+          })
+
+          await getDb()('sale_lines')
+            .transacting(transaction)
+            .where({ id: saleLineId })
+            .update({ unit_cost: unitCost })
+
+          saleLine.unit_cost = unitCost
 
           await applyPartStockDelta(transaction, {
             companyId,
@@ -926,7 +964,18 @@ class SaleService {
             )
           }
 
-          const unitCost = round2(Number(stock?.average_cost || part.default_purchase_price || 0))
+          const fifoPreview = await previewPartFifoCost(
+            transaction,
+            companyId,
+            branchId,
+            line.partId,
+            amounts.quantity
+          )
+          if (fifoPreview.availableQuantity < amounts.quantity) {
+            throw new Error(
+              `Insufficient stock for ${part.name}: available ${fifoPreview.availableQuantity}, requested ${amounts.quantity}`
+            )
+          }
 
           lineCalcs.push({
             lineType,
@@ -938,7 +987,7 @@ class SaleService {
             serialNumber: null,
             warrantyActive: false,
             warrantyExpiry: null,
-            unitCost,
+            unitCost: fifoPreview.unitCost,
             ...amounts
           })
         }
@@ -1058,13 +1107,30 @@ class SaleService {
               wht_percent: row.whtPercent,
               wht_amount: row.whtAmount,
               line_total: row.lineTotal,
-              unit_cost: row.unitCost ?? null,
+              unit_cost: null,
               warranty_active: false,
               warranty_expiry_date: null,
               ...lineAudit,
               created_at: new Date()
             })
             .returning('*')
+
+          const saleLineId = saleLine.id as string
+          const { unitCost } = await consumePartStockFifo(transaction, {
+            companyId,
+            branchId,
+            partId: row.partId!,
+            quantity: row.quantity,
+            saleLineId,
+            ctx
+          })
+
+          await getDb()('sale_lines')
+            .transacting(transaction)
+            .where({ id: saleLineId })
+            .update({ unit_cost: unitCost })
+
+          saleLine.unit_cost = unitCost
 
           await applyPartStockDelta(transaction, {
             companyId,

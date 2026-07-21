@@ -75,6 +75,7 @@ ipcMain.handle(`POST:${Channels.TRANSFERS}`, catchIpcHandler(inventoryController
 
 ipcMain.handle(`GET:${Channels.PART_STOCKS}`, catchIpcHandler(partStockController.list))
 ipcMain.handle(`GET:${Channels.PART_STOCKS}:detail`, catchIpcHandler(partStockController.detail))
+ipcMain.handle(`GET:${Channels.PART_STOCKS}:fifo`, catchIpcHandler(partStockController.fifoPreview))
 
 ipcMain.handle(`POST:${Channels.SALES}`, catchIpcHandler(saleController.create))
 ipcMain.handle(`PUT:${Channels.SALES}`, catchIpcHandler(saleController.update))

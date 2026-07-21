@@ -3,7 +3,6 @@ import { useNavigate, useParams } from 'react-router-dom'
 import {
   Button,
   Card,
-  Checkbox,
   DatePicker,
   Form,
   Input,
@@ -78,6 +77,11 @@ function calcDueAmount(grossTotal: number, paid: number, discount: number) {
   return Math.max(0, roundAmount(grossTotal - paid - discount))
 }
 
+function formatFifoLayers(layers: { unitCost: number; quantity: number }[]): string {
+  if (!layers.length) return '—'
+  return layers.map((l) => `${l.quantity} @ ${formatRs(l.unitCost)}`).join(' · ')
+}
+
 export const NewSale = () => {
   const { id } = useParams()
   const isEdit = Boolean(id)
@@ -102,6 +106,13 @@ export const NewSale = () => {
 
   const warrantyActive = Form.useWatch('warrantyActive', lineForm)
   const selectedPartId = Form.useWatch('partId', lineForm)
+  const partQuantity = Form.useWatch('quantity', lineForm)
+  const [partFifoPreview, setPartFifoPreview] = useState<{
+    unitCost: number
+    nextLotUnitCost: number
+    nextLotSalePrice: number
+    layers: { unitCost: number; quantity: number; purchaseDate: string }[]
+  } | null>(null)
 
   const loadCustomers = () => {
     if (!companyId) return Promise.resolve()
@@ -133,7 +144,7 @@ export const NewSale = () => {
       })
       lineForm.setFieldsValue({
         taxPercent: 0,
-        taxInclusive: false,
+        taxInclusive: true,
         whtPercent: 0,
         warrantyActive: false,
         quantity: 1,
@@ -294,11 +305,23 @@ export const NewSale = () => {
     }
   }, [selectedPartStock, lineForm, editingKey])
 
+  useEffect(() => {
+    if (!companyId || !branchId || !selectedPartId || lineType !== 'part') {
+      setPartFifoPreview(null)
+      return
+    }
+    const qty = Math.max(1, Math.floor(Number(partQuantity || 1)))
+    partStockAPI
+      .fifoPreview(companyId, branchId, selectedPartId, qty)
+      .then((preview: any) => setPartFifoPreview(preview))
+      .catch(() => setPartFifoPreview(null))
+  }, [companyId, branchId, selectedPartId, partQuantity, lineType])
+
   const resetLineForm = () => {
     lineForm.resetFields()
     lineForm.setFieldsValue({
       taxPercent: 0,
-      taxInclusive: false,
+      taxInclusive: true,
       whtPercent: 0,
       warrantyActive: false,
       quantity: 1,
@@ -758,7 +781,7 @@ export const NewSale = () => {
             { key: 'part', label: 'Part' }
           ]}
         />
-        <Form form={lineForm} layout="vertical" initialValues={{ taxPercent: 0, taxInclusive: false, whtPercent: 0, warrantyActive: false, quantity: 1 }}>
+        <Form form={lineForm} layout="vertical" initialValues={{ taxPercent: 0, taxInclusive: true, whtPercent: 0, warrantyActive: false, quantity: 1 }}>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
             {lineType === 'product' ? (
               <>
@@ -817,6 +840,15 @@ export const NewSale = () => {
                   <Input value={selectedPartStock?.category?.name || '—'} disabled />
                 </Form.Item>
                 <Form.Item
+                  label="Purchase price"
+                  tooltip="FIFO cost per purchase batch. Profit uses these costs, not the sale price you enter."
+                >
+                  <Input
+                    value={partFifoPreview ? formatFifoLayers(partFifoPreview.layers) : '—'}
+                    disabled
+                  />
+                </Form.Item>
+                <Form.Item
                   name="quantity"
                   label="Units"
                   rules={[{ required: true, message: 'Enter units' }]}
@@ -830,21 +862,21 @@ export const NewSale = () => {
                     style={{ width: '100%' }}
                   />
                 </Form.Item>
-                <Form.Item name="salePrice" label="Sale Price" rules={[{ required: true }]}>
-                  <InputNumber className="w-full" min={0} style={{ width: '100%' }} disabled />
+                <Form.Item
+                  name="salePrice"
+                  label="Sale price"
+                  rules={[{ required: true }]}
+                  tooltip="Editable — charge any price; old stock can be sold at today's rate or a custom amount."
+                >
+                  <InputNumber className="w-full" min={0} style={{ width: '100%' }} />
                 </Form.Item>
               </>
             )}
           </div>
-          <Form.Item name="taxInclusive" valuePropName="checked" className="!mb-3">
-            <Checkbox>
-              <span className="font-medium">Sale price includes sales tax</span>
-            </Checkbox>
-          </Form.Item>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
             <Form.Item
               label="Sales Tax %"
-              tooltip="Checked: sale price already includes sales tax (tax is extracted from it). Unchecked: tax is added on top of the sale price."
+              tooltip="On: sale price already includes sales tax (tax is extracted from it). Off: tax is added on top of the sale price."
             >
               <Form.Item name="taxPercent" noStyle>
                 <InputNumber
@@ -858,6 +890,9 @@ export const NewSale = () => {
             </Form.Item>
             <Form.Item name="whtPercent" label="WHT %">
               <InputNumber className="w-full" min={0} max={100} style={{ width: '100%' }} />
+            </Form.Item>
+            <Form.Item name="taxInclusive" label="Tax Inclusive" valuePropName="checked">
+              <Switch />
             </Form.Item>
             {lineType === 'product' && (
               <>

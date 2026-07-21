@@ -1,6 +1,7 @@
 import type { Knex } from 'knex'
 import { ProductItemStatus } from '@madix/database'
 import { getDb } from '../../db'
+import { computePartFifoInventoryValue } from '../part/part-fifo.helpers'
 
 export type DashboardFilters = {
   from?: string
@@ -82,8 +83,7 @@ function includePartScope(filters?: DashboardFilters): boolean {
   return !filters?.productId || !!filters?.partId
 }
 
-const PART_COGS_SQL =
-  'COALESCE(sl.unit_cost, ps.average_cost, p.default_purchase_price, 0) * sl.quantity'
+const PART_COGS_SQL = 'COALESCE(sl.unit_cost, 0) * sl.quantity'
 
 function baseSaleLinesQuery(
   db: Knex,
@@ -448,14 +448,14 @@ class DashboardService {
 
       if (filters?.partId) partStockQ = partStockQ.where({ 'ps.part_id': filters.partId })
 
-      const partStocks = await partStockQ.select('ps.quantity_on_hand', 'ps.average_cost')
+      const partStocks = await partStockQ.select('ps.quantity_on_hand')
 
       partStockUnits = partStocks.reduce((sum, row) => sum + Number(row.quantity_on_hand), 0)
-      partInventoryValue = round2(
-        partStocks.reduce(
-          (sum, row) => sum + Number(row.quantity_on_hand) * Number(row.average_cost || 0),
-          0
-        )
+      partInventoryValue = await computePartFifoInventoryValue(
+        db,
+        companyId,
+        branchId,
+        filters?.partId
       )
     }
 

@@ -39,6 +39,20 @@ function lineSpecialDiscount(line: PurchaseLineInput): { discount: number; type:
   }
 }
 
+function assertRetailNotBelowNet(
+  netCost: number,
+  retail: number,
+  context?: string
+): void {
+  if (retail < netCost) {
+    throw new Error(
+      context
+        ? `${context}: retail price cannot be less than net cost`
+        : 'Retail price cannot be less than net cost'
+    )
+  }
+}
+
 export type CreatePurchasePayload = {
   supplierId: string
   purchaseDate: string
@@ -230,6 +244,10 @@ class PurchaseService {
         }
 
         const special = lineSpecialDiscount(line)
+        const netCost = Number(line.purchasePrice || 0)
+        const retail = Number(line.sellingPrice ?? line.purchasePrice ?? 0)
+        assertRetailNotBelowNet(netCost, retail, `Serial ${line.serialNumber.trim()}`)
+
         const [item] = await getDb()('product_items')
           .transacting(transaction)
           .insert({
@@ -243,8 +261,8 @@ class PurchaseService {
             color_id: line.colorId || null,
             motor_number: line.motorNumber?.trim() || null,
             serial_number: line.serialNumber.trim(),
-            purchase_price: Number(line.purchasePrice || 0),
-            selling_price: Number(line.sellingPrice ?? line.purchasePrice ?? 0),
+            purchase_price: netCost,
+            selling_price: retail,
             special_discount: special.discount,
             special_discount_type: special.type,
             status: ProductItemStatus.IN_STOCK,
@@ -406,6 +424,10 @@ class PurchaseService {
           }
 
           const special = lineSpecialDiscount(line)
+          const netCost = Number(line.purchasePrice || 0)
+          const retail = Number(line.sellingPrice ?? line.purchasePrice ?? 0)
+          assertRetailNotBelowNet(netCost, retail, `Serial ${line.serialNumber.trim()}`)
+
           const [updated] = await getDb()('product_items')
             .transacting(transaction)
             .where({ id: line.id, purchase_id: id, status: ProductItemStatus.IN_STOCK })
@@ -416,8 +438,8 @@ class PurchaseService {
               color_id: line.colorId || null,
               motor_number: line.motorNumber?.trim() || null,
               serial_number: line.serialNumber.trim(),
-              purchase_price: Number(line.purchasePrice || 0),
-              selling_price: Number(line.sellingPrice ?? line.purchasePrice ?? 0),
+              purchase_price: netCost,
+              selling_price: retail,
               special_discount: special.discount,
               special_discount_type: special.type,
               warranty_active: warrantyActive,
@@ -450,6 +472,10 @@ class PurchaseService {
         }
 
         const special = lineSpecialDiscount(line)
+        const netCost = Number(line.purchasePrice || 0)
+        const retail = Number(line.sellingPrice ?? line.purchasePrice ?? 0)
+        assertRetailNotBelowNet(netCost, retail, `Serial ${line.serialNumber.trim()}`)
+
         const [item] = await getDb()('product_items')
           .transacting(transaction)
           .insert({
@@ -463,8 +489,8 @@ class PurchaseService {
             color_id: line.colorId || null,
             motor_number: line.motorNumber?.trim() || null,
             serial_number: line.serialNumber.trim(),
-            purchase_price: Number(line.purchasePrice || 0),
-            selling_price: Number(line.sellingPrice ?? line.purchasePrice ?? 0),
+            purchase_price: netCost,
+            selling_price: retail,
             special_discount: special.discount,
             special_discount_type: special.type,
             status: ProductItemStatus.IN_STOCK,

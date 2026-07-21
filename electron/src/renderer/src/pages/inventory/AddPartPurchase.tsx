@@ -30,6 +30,12 @@ import { formatRs, PageHeader } from '../shared/page-ui'
 
 const { Text } = Typography
 
+const RETAIL_BELOW_NET_MSG = 'Retail price cannot be less than net cost'
+
+function retailBelowNet(retail: number, netCost: number): boolean {
+  return netCost > retail
+}
+
 type PartPurchaseLine = {
   key: string
   id?: string
@@ -222,6 +228,11 @@ export const AddPartPurchase = () => {
         )
       }
 
+      if (retailBelowNet(nextLine.listPrice, nextLine.unitCost)) {
+        message.error(RETAIL_BELOW_NET_MSG)
+        return
+      }
+
       setLines((prev) =>
         editingKey ? prev.map((l) => (l.key === editingKey ? nextLine : l)) : [...prev, nextLine]
       )
@@ -256,6 +267,11 @@ export const AddPartPurchase = () => {
       const header = await headerForm.validateFields()
       if (!lines.length) {
         message.error('Add at least one part line')
+        return
+      }
+      const invalidLine = lines.find((l) => retailBelowNet(l.listPrice, l.unitCost))
+      if (invalidLine) {
+        message.error(`${invalidLine.partName}: ${RETAIL_BELOW_NET_MSG}`)
         return
       }
       setLoading(true)
