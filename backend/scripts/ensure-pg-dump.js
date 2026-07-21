@@ -63,6 +63,29 @@ function artifactFor(key) {
   return entry
 }
 
+function archiveLooksValid(archivePath) {
+  if (!fs.existsSync(archivePath)) return false
+  const stat = fs.statSync(archivePath)
+  if (stat.size < 1024 * 1024) return false
+
+  const fd = fs.openSync(archivePath, 'r')
+  try {
+    const header = Buffer.alloc(4)
+    fs.readSync(fd, header, 0, 4, 0)
+    if (archivePath.endsWith('.zip')) {
+      // PK\x03\x04
+      return header[0] === 0x50 && header[1] === 0x4b && header[2] === 0x03 && header[3] === 0x04
+    }
+    if (archivePath.endsWith('.tar.gz') || archivePath.endsWith('.tgz')) {
+      // gzip magic
+      return header[0] === 0x1f && header[1] === 0x8b
+    }
+    return true
+  } finally {
+    fs.closeSync(fd)
+  }
+}
+
 function download(url, dest) {
   return new Promise((resolve, reject) => {
     const follow = (u, redirects = 0) => {
@@ -94,13 +117,56 @@ function download(url, dest) {
               res.resume()
               return
             }
-            pipeline(res, fs.createWriteStream(dest)).then(resolve).catch(reject)
+
+            const expected = Number(res.headers['content-length'] || 0)
+            let received = 0
+            res.on('data', (chunk) => {
+              received += chunk.length
+            })
+
+            const out = fs.createWriteStream(dest)
+            pipeline(res, out)
+              .then(() => {
+                if (expected > 0 && received !== expected) {
+                  reject(
+                    new Error(
+                      `Incomplete download: got ${received} bytes, expected ${expected} (${path.basename(dest)})`
+                    )
+                  )
+                  return
+                }
+                resolve({ bytes: received, expected })
+              })
+              .catch(reject)
           }
         )
         .on('error', reject)
     }
     follow(url)
   })
+}
+
+async function ensureArchive(url, archivePath) {
+  if (archiveLooksValid(archivePath)) {
+    const size = fs.statSync(archivePath).size
+    console.log(`[ensure-pg-dump] Using cached archive (${(size / 1024 / 1024).toFixed(1)} MB)`)
+    return
+  }
+
+  if (fs.existsSync(archivePath)) {
+    console.log('[ensure-pg-dump] Removing invalid/incomplete cached archive…')
+    await fsp.rm(archivePath, { force: true })
+  }
+
+  console.log(`[ensure-pg-dump] Downloading…`)
+  console.log(`[ensure-pg-dump] ${url}`)
+  const { bytes } = await download(url, archivePath)
+  console.log(`[ensure-pg-dump] Downloaded ${(bytes / 1024 / 1024).toFixed(1)} MB`)
+
+  if (!archiveLooksValid(archivePath)) {
+    await fsp.rm(archivePath, { force: true })
+    throw new Error('Downloaded file is not a valid archive (corrupt or blocked)')
+  }
 }
 
 async function extractArchive(archivePath, destDir) {
@@ -180,10 +246,7 @@ async function main() {
   const archivePath = path.join(cacheDir, artifact.file)
 
   console.log(`[ensure-pg-dump] Downloading PostgreSQL ${PG_VERSION} for ${key}…`)
-  console.log(`[ensure-pg-dump] ${url}`)
-  if (!fs.existsSync(archivePath)) {
-    await download(url, archivePath)
-  }
+  await ensureArchive(url, archivePath)
 
   const extractDir = path.join(cacheDir, crypto.randomBytes(8).toString('hex'))
   await fsp.mkdir(extractDir, { recursive: true })
@@ -195,6 +258,22 @@ async function main() {
     }
     await installFromBundle(bundleRoot, targetDir)
     console.log(`[ensure-pg-dump] Installed to ${targetDir}`)
+  } catch (err) {
+    // Archive may have been corrupted after download — delete cache and retry once.
+    if (fs.existsSync(archivePath)) {
+      console.log('[ensure-pg-dump] Extract failed; clearing cache and retrying download…')
+      await fsp.rm(archivePath, { force: true })
+      await ensureArchive(url, archivePath)
+      await extractArchive(archivePath, extractDir)
+      const bundleRoot = path.join(extractDir, artifact.folder)
+      if (!fs.existsSync(bundleRoot)) {
+        throw new Error(`Expected folder ${artifact.folder}/ inside archive`)
+      }
+      await installFromBundle(bundleRoot, targetDir)
+      console.log(`[ensure-pg-dump] Installed to ${targetDir}`)
+      return
+    }
+    throw err
   } finally {
     await fsp.rm(extractDir, { recursive: true, force: true }).catch(() => {})
   }
