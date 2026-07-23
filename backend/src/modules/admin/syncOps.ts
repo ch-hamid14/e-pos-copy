@@ -1,5 +1,8 @@
 import type { Knex } from 'knex'
+import { resetClonedCompanySync } from '@madix/database'
 import { getCompanyDb } from '../../db'
+import { bootstrapCompanySync } from '../sync/bootstrap'
+import { clearSyncAuthority } from '../sync/authority'
 
 function pageOpts(page?: number, pageSize?: number) {
   const p = Math.max(1, page || 1)
@@ -174,6 +177,26 @@ export async function clearSyncQueue(companyId: string) {
   if (!(await db.schema.hasTable('sync_queue'))) return { deleted: 0 }
   const deleted = await db('sync_queue').del()
   return { deleted }
+}
+
+/**
+ * Drop sync history and re-enqueue current live rows so POS pull matches
+ * Business Ops (fixes orphan inserts left after hard deletes / purge).
+ */
+export async function rebuildCompanySyncFromLive(companyId: string) {
+  clearSyncAuthority(companyId)
+  const db = await getCompanyDb(companyId, { forOps: true })
+
+  await db.raw(`SELECT set_config('session_replication_role', 'replica', true)`)
+  try {
+    await resetClonedCompanySync(db)
+  } finally {
+    await db.raw(`SELECT set_config('session_replication_role', 'origin', true)`)
+  }
+
+  clearSyncAuthority(companyId)
+  const enqueued = await bootstrapCompanySync(companyId, db)
+  return { companyId, enqueued }
 }
 
 function parseJson(value: unknown) {

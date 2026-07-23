@@ -427,7 +427,7 @@ export const Login = () => {
   if (dataEpochStale) {
     return (
       <>
-        <h2>Cloud data was reset</h2>
+        <h2>Local data must be wiped</h2>
         <Alert
           type="warning"
           showIcon

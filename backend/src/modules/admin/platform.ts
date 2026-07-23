@@ -17,6 +17,7 @@ import {
 import { companyDbPool, getCompanyDb } from '../../db'
 import { bootstrapCompanySync } from '../sync/bootstrap'
 import { clearSyncAuthority } from '../sync/authority'
+import { rebuildCompanySyncFromLive } from './syncOps'
 import { runPgDump, runPsql } from '../../lib/pgDump'
 import { mapCompany } from './service'
 
@@ -291,6 +292,32 @@ export async function unbindAllDevices(controlDb: Knex, companyId: string) {
   })
 
   return { ok: true }
+}
+
+/**
+ * Force every POS for this company through the data_epoch wipe gate on next
+ * online login/refresh. Rebuilds sync_queue from live tables first so wiped
+ * devices re-download the same data Business Ops shows (no orphan changelog).
+ */
+export async function forcePosRemoteCleanup(controlDb: Knex, companyId: string) {
+  const company = await controlDb('companies').where({ id: companyId }).first()
+  if (!company) throw new Error('Company not found')
+
+  const previousEpoch = Number(company.data_epoch ?? 1)
+  const sync = await rebuildCompanySyncFromLive(companyId)
+  await unbindAllDevices(controlDb, companyId)
+  await controlDb('companies').where({ id: companyId }).increment('data_epoch', 1)
+  const epochRow = await controlDb('companies').where({ id: companyId }).first()
+
+  return {
+    ok: true,
+    companyId,
+    devicesUnbound: true,
+    syncRebuilt: true,
+    enqueued: sync.enqueued,
+    previousEpoch,
+    dataEpoch: Number(epochRow?.data_epoch ?? previousEpoch + 1)
+  }
 }
 
 export async function resetUserPassword(

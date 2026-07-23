@@ -594,19 +594,19 @@ export async function voidSale(
       updated_at: now
     })
 
-    let purged = false
+    // Soft-void only. Hard purge left orphan inserts in sync_queue so wiped
+    // POS devices re-downloaded deleted ledger rows. Use Force remote POS
+    // cleanup after void if devices must re-pull live data.
     if (options.purge) {
-      await trx('ledger_entries').where({ reference_id: saleId }).del()
-      await trx('payments').where({ sale_id: saleId }).del()
-      await trx('sale_lines').where({ sale_id: saleId }).del()
-      await trx('sales').where({ id: saleId }).del()
-      purged = true
+      throw new Error(
+        'Hard purge is disabled (breaks POS sync). Void the sale, then use Force remote POS cleanup if devices need a fresh download.'
+      )
     }
 
     return {
       saleId,
       voided: true,
-      purged,
+      purged: false,
       restockedProducts: lines.filter(
         (l) => ((l.line_type as string) || (l.part_id ? 'part' : 'product')) !== 'part'
       ).length,

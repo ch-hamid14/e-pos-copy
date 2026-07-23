@@ -15,6 +15,7 @@ import {
 import {
   cloneCompany,
   createSnapshot,
+  forcePosRemoteCleanup,
   listSnapshots,
   restoreSnapshot,
   unbindAllDevices,
@@ -145,7 +146,9 @@ export default function CompanySettingsPanel({ company, token, onChanged }: Prop
       <div className="madix-ops-grid">
         <div className="madix-ops-card">
           <h3>Support actions</h3>
-          <p className="madix-ops-card__desc">Force re-auth and clone this tenant for QA.</p>
+          <p className="madix-ops-card__desc">
+            Force re-auth, remote POS wipe gate, or clone this tenant for QA.
+          </p>
           <Space direction="vertical" style={{ width: '100%' }}>
             <Button
               danger
@@ -172,6 +175,63 @@ export default function CompanySettingsPanel({ company, token, onChanged }: Prop
               }
             >
               Unbind all devices
+            </Button>
+            <Button
+              danger
+              type="primary"
+              block
+              loading={busy === 'pos-cleanup'}
+              onClick={() => {
+                let confirmText = ''
+                Modal.confirm({
+                  title: 'Force remote POS cleanup?',
+                  content: (
+                    <div>
+                      <p style={{ marginBottom: 8 }}>
+                        Rebuilds <code>sync_queue</code> from <strong>live</strong> company data
+                        (so POS matches Business Ops), unbinds all devices, and bumps{' '}
+                        <code>data_epoch</code>. Cloud business rows are not deleted.
+                      </p>
+                      <p style={{ marginBottom: 8 }}>
+                        Tell staff: open POS online → when prompted, choose Continue / wipe →
+                        sign in again.
+                      </p>
+                      <p style={{ marginBottom: 8 }}>
+                        Type <strong>FORCE</strong> to confirm:
+                      </p>
+                      <Input
+                        placeholder="FORCE"
+                        onChange={(e) => {
+                          confirmText = e.target.value
+                        }}
+                      />
+                    </div>
+                  ),
+                  okType: 'danger',
+                  okText: 'Force cleanup',
+                  onOk: async () => {
+                    if (confirmText.trim().toUpperCase() !== 'FORCE') {
+                      message.error('Type FORCE to confirm')
+                      throw new Error('Confirmation required')
+                    }
+                    setBusy('pos-cleanup')
+                    try {
+                      const result = await forcePosRemoteCleanup(token, company.id)
+                      message.success(
+                        `POS cleanup armed · sync rebuilt · epoch ${result.previousEpoch} → ${result.dataEpoch}`
+                      )
+                      onChanged()
+                    } catch (err: any) {
+                      message.error(err.message)
+                      throw err
+                    } finally {
+                      setBusy(null)
+                    }
+                  }
+                })
+              }}
+            >
+              Force remote POS cleanup
             </Button>
             <Button
               block

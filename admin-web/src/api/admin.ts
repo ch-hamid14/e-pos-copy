@@ -121,12 +121,31 @@ export function bootstrapSync(token: string, id: string) {
   return api(`/admin/companies/${id}/bootstrap-sync`, { method: 'POST', token })
 }
 
+export function rebuildSyncFromLive(token: string, companyId: string) {
+  return api<{ companyId: string; enqueued: Record<string, number> }>(
+    `/admin/companies/${companyId}/rebuild-sync-from-live`,
+    { method: 'POST', token }
+  )
+}
+
 export function unbindDevice(token: string, companyId: string, deviceId: string) {
   return api(`/admin/companies/${companyId}/devices/${deviceId}`, { method: 'DELETE', token })
 }
 
 export function unbindAllDevices(token: string, companyId: string) {
   return api(`/admin/companies/${companyId}/unbind-all-devices`, { method: 'POST', token })
+}
+
+export function forcePosRemoteCleanup(token: string, companyId: string) {
+  return api<{
+    ok: boolean
+    companyId: string
+    devicesUnbound: boolean
+    syncRebuilt: boolean
+    enqueued: Record<string, number>
+    previousEpoch: number
+    dataEpoch: number
+  }>(`/admin/companies/${companyId}/force-pos-cleanup`, { method: 'POST', token })
 }
 
 export function deleteCompany(token: string, id: string, confirmName: string) {

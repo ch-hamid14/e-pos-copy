@@ -5,7 +5,6 @@ import {
   Alert,
   Button,
   Card,
-  Checkbox,
   Col,
   Descriptions,
   Input,
@@ -40,7 +39,6 @@ export default function BusinessSaleDetailPage() {
   const [busy, setBusy] = useState<string | null>(null)
   const [voidOpen, setVoidOpen] = useState(false)
   const [reason, setReason] = useState('')
-  const [purge, setPurge] = useState(false)
 
   const load = async () => {
     if (!token || !companyId || !saleId) return
@@ -168,7 +166,6 @@ export default function BusinessSaleDetailPage() {
               disabled={!impact.canVoid}
               onClick={() => {
                 setReason('')
-                setPurge(false)
                 setVoidOpen(true)
               }}
             >
@@ -311,7 +308,7 @@ export default function BusinessSaleDetailPage() {
       <Modal
         title="Void sale"
         open={voidOpen}
-        okText={purge ? 'Void & purge' : 'Void sale'}
+        okText="Void sale"
         okButtonProps={{
           danger: true,
           disabled: reason.trim().length < 3,
@@ -323,13 +320,11 @@ export default function BusinessSaleDetailPage() {
           setBusy('void')
           try {
             await voidBusinessSale(token, companyId, saleId, {
-              reason: reason.trim(),
-              purge
+              reason: reason.trim()
             })
-            message.success(purge ? 'Sale voided and purged' : 'Sale voided')
+            message.success('Sale voided')
             setVoidOpen(false)
-            if (purge) navigate(`/companies/${id}/business/sales`)
-            else await load()
+            await load()
           } catch (err: any) {
             message.error(err.message)
           } finally {
@@ -351,6 +346,13 @@ export default function BusinessSaleDetailPage() {
             </ul>
           }
         />
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="Hard purge is disabled"
+          description="Void keeps sync-safe history. If POS devices are out of date, use Force remote POS cleanup on the company so they wipe and re-pull live data."
+        />
         <Typography.Paragraph>
           Reason <Typography.Text type="secondary">(required)</Typography.Text>
         </Typography.Paragraph>
@@ -360,13 +362,6 @@ export default function BusinessSaleDetailPage() {
           onChange={(e) => setReason(e.target.value)}
           placeholder="e.g. Duplicate entry / wrong customer / test sale"
         />
-        <Checkbox
-          style={{ marginTop: 12 }}
-          checked={purge}
-          onChange={(e) => setPurge(e.target.checked)}
-        >
-          Also purge (hard-delete sale, lines, payments, and related ledger)
-        </Checkbox>
       </Modal>
     </div>
   )

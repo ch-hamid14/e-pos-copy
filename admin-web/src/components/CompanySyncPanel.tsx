@@ -10,7 +10,8 @@ import {
   dismissConflicts,
   getConflictDetail,
   listConflicts,
-  listSyncQueue
+  listSyncQueue,
+  rebuildSyncFromLive
 } from '../api/admin'
 import type { SyncConflict, SyncQueueItem } from '../types'
 
@@ -320,31 +321,63 @@ export default function CompanySyncPanel({ companyId, token }: Props) {
               <div className="madix-panel">
                 <div className="madix-panel__head">
                   <h2 className="madix-panel__title">Authority sync queue</h2>
-                  <Button
-                    danger
-                    loading={busy === 'clear-queue'}
-                    onClick={() =>
-                      Modal.confirm({
-                        title: 'Clear entire sync queue?',
-                        okType: 'danger',
-                        onOk: async () => {
-                          setBusy('clear-queue')
-                          try {
-                            await clearSyncQueue(token, companyId)
-                            message.success('Queue cleared')
-                            loadQueue(1)
-                          } catch (err: any) {
-                            message.error(err.message)
-                            throw err
-                          } finally {
-                            setBusy(null)
+                  <Space>
+                    <Button
+                      type="primary"
+                      loading={busy === 'rebuild-sync'}
+                      onClick={() =>
+                        Modal.confirm({
+                          title: 'Rebuild sync from live data?',
+                          content:
+                            'Clears sync history and re-enqueues current live rows so POS pull matches Business Ops. Does not bump data_epoch — use Force remote POS cleanup to wipe devices.',
+                          onOk: async () => {
+                            setBusy('rebuild-sync')
+                            try {
+                              const result = await rebuildSyncFromLive(token, companyId)
+                              const total = Object.values(result.enqueued || {}).reduce(
+                                (a, b) => a + Number(b || 0),
+                                0
+                              )
+                              message.success(`Sync rebuilt · ${total} row(s) enqueued`)
+                              loadQueue(1)
+                            } catch (err: any) {
+                              message.error(err.message)
+                              throw err
+                            } finally {
+                              setBusy(null)
+                            }
                           }
-                        }
-                      })
-                    }
-                  >
-                    Clear queue
-                  </Button>
+                        })
+                      }
+                    >
+                      Rebuild from live
+                    </Button>
+                    <Button
+                      danger
+                      loading={busy === 'clear-queue'}
+                      onClick={() =>
+                        Modal.confirm({
+                          title: 'Clear entire sync queue?',
+                          okType: 'danger',
+                          onOk: async () => {
+                            setBusy('clear-queue')
+                            try {
+                              await clearSyncQueue(token, companyId)
+                              message.success('Queue cleared')
+                              loadQueue(1)
+                            } catch (err: any) {
+                              message.error(err.message)
+                              throw err
+                            } finally {
+                              setBusy(null)
+                            }
+                          }
+                        })
+                      }
+                    >
+                      Clear queue
+                    </Button>
+                  </Space>
                 </div>
                 <Table
                   loading={queueLoading}

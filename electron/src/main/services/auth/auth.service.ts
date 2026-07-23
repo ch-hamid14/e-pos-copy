@@ -533,7 +533,7 @@ class AuthService {
       localEpoch: effectiveLocal,
       serverEpoch,
       message:
-        `Cloud data for "${companyName}" was reset (demo flush or snapshot restore). ` +
+        `Cloud data for "${companyName}" was reset or a remote cleanup was forced. ` +
         `This POS still has old local data and must wipe to continue. ` +
         `Choose Continue to wipe local data and start fresh, or Logout to stop (tech can help).`
     }

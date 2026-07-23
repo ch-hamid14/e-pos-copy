@@ -141,6 +141,20 @@ export async function restoreRow(companyId: string, table: string, id: string) {
 
 export async function hardDeleteRow(companyId: string, table: string, id: string) {
   assertTable(table)
+  // Hard deletes leave insert events in sync_queue without matching deletes →
+  // wiped POS devices resurrect orphans. Prefer soft-delete / void flows.
+  const blocked = new Set([
+    'ledger_entries',
+    'sales',
+    'sale_lines',
+    'payments',
+    'inventory_movements'
+  ])
+  if (blocked.has(table)) {
+    throw new Error(
+      `Hard delete is disabled for ${table} (breaks POS sync). Soft-delete or void instead, then Force remote POS cleanup if devices must re-pull.`
+    )
+  }
   const db = await getCompanyDb(companyId, { forOps: true })
   const deleted = await db(table).where({ id }).del()
   if (!deleted) throw new Error('Row not found')

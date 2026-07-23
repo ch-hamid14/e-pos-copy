@@ -67,11 +67,13 @@ import {
   applyConflictLosers,
   listSyncQueue,
   deleteSyncQueueItem,
-  clearSyncQueue
+  clearSyncQueue,
+  rebuildCompanySyncFromLive
 } from './syncOps'
 import {
   updateCompanyPlatformSettings,
   unbindAllDevices,
+  forcePosRemoteCleanup,
   resetUserPassword,
   createCompanySnapshot,
   listCompanySnapshots,
@@ -225,6 +227,27 @@ export function adminRouter(db: Knex): Router {
         action: 'company.unbind_all_devices',
         resource: 'devices',
         companyId: req.params.id
+      })
+      res.json(result)
+    } catch (err: any) {
+      res.status(400).json({ error: err.message })
+    }
+  })
+
+  router.post('/companies/:id/force-pos-cleanup', async (req: AuthRequest, res) => {
+    try {
+      const result = await forcePosRemoteCleanup(db, req.params.id)
+      await writeAudit(db, req, {
+        action: 'company.force_pos_cleanup',
+        resource: 'company',
+        companyId: req.params.id,
+        detail: {
+          previousEpoch: result.previousEpoch,
+          dataEpoch: result.dataEpoch,
+          devicesUnbound: result.devicesUnbound,
+          syncRebuilt: result.syncRebuilt,
+          enqueued: result.enqueued
+        }
       })
       res.json(result)
     } catch (err: any) {
@@ -450,6 +473,21 @@ export function adminRouter(db: Knex): Router {
         resource: 'sync_queue',
         companyId: req.params.id,
         detail: result
+      })
+      res.json(result)
+    } catch (err: any) {
+      res.status(400).json({ error: err.message })
+    }
+  })
+
+  router.post('/companies/:id/rebuild-sync-from-live', async (req: AuthRequest, res) => {
+    try {
+      const result = await rebuildCompanySyncFromLive(req.params.id)
+      await writeAudit(db, req, {
+        action: 'sync.rebuild_from_live',
+        resource: 'sync_queue',
+        companyId: req.params.id,
+        detail: { enqueued: result.enqueued }
       })
       res.json(result)
     } catch (err: any) {
