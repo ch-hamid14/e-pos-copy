@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   CloudSyncOutlined,
+  ExportOutlined,
   PlusOutlined,
   SearchOutlined
 } from '@ant-design/icons'
@@ -155,8 +156,23 @@ export default function CompaniesPage() {
             },
             {
               title: '',
-              width: 90,
-              render: (_, row) => <Link to={`/companies/${row.id}`}>Open</Link>
+              width: 200,
+              render: (_, row) => (
+                <Space size={8}>
+                  <Link to={`/companies/${row.id}`}>Open</Link>
+                  <Button
+                    type="link"
+                    size="small"
+                    icon={<ExportOutlined />}
+                    style={{ padding: 0 }}
+                    onClick={() =>
+                      window.open(`/companies/${row.id}/business/dashboard`, '_blank', 'noopener,noreferrer')
+                    }
+                  >
+                    Business ops
+                  </Button>
+                </Space>
+              )
             }
           ]}
         />

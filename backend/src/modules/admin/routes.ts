@@ -37,6 +37,28 @@ import {
 } from './data'
 import { reconcileSaleFinances } from './saleRepair'
 import {
+  listSales,
+  listDueSales,
+  getSaleDetail,
+  voidSale,
+  repairSaleLedger,
+  repairAllVoidedSaleLedgers,
+  listPurchases,
+  getPurchaseDetail,
+  getPartPurchaseDetail,
+  voidPurchase,
+  voidPartPurchase,
+  listCustomers,
+  getCustomerDetail,
+  updateCustomer,
+  softDeleteCustomer,
+  setCustomerOutstanding
+} from './businessOps'
+import {
+  getBusinessAnalytics,
+  getBusinessFilterOptions
+} from './businessDashboardAnalytics'
+import {
   listConflicts,
   getConflictDetail,
   dismissConflict,
@@ -492,6 +514,299 @@ export function adminRouter(db: Knex): Router {
       res.status(400).json({ error: err.message })
     }
   })
+
+  router.get('/companies/:id/business/dashboard', async (req: AuthRequest, res) => {
+    try {
+      res.json(
+        await getBusinessAnalytics(req.params.id, {
+          from: req.query.from as string | undefined,
+          to: req.query.to as string | undefined,
+          branchId: req.query.branchId as string | undefined,
+          supplierId: req.query.supplierId as string | undefined,
+          productId: req.query.productId as string | undefined,
+          partId: req.query.partId as string | undefined
+        })
+      )
+    } catch (err: any) {
+      res.status(400).json({ error: err.message })
+    }
+  })
+
+  router.get('/companies/:id/business/filters', async (req: AuthRequest, res) => {
+    try {
+      res.json(await getBusinessFilterOptions(req.params.id))
+    } catch (err: any) {
+      res.status(400).json({ error: err.message })
+    }
+  })
+
+  router.get('/companies/:id/business/sales', async (req: AuthRequest, res) => {
+    try {
+      const visibility = String(req.query.visibility || '') as 'active' | 'include' | 'only'
+      res.json(
+        await listSales(req.params.id, {
+          search: req.query.search as string | undefined,
+          fromDate: req.query.fromDate as string | undefined,
+          toDate: req.query.toDate as string | undefined,
+          page: Number(req.query.page || 1),
+          pageSize: Number(req.query.pageSize || 25),
+          includeDeleted: req.query.includeDeleted === '1',
+          visibility:
+            visibility === 'active' || visibility === 'include' || visibility === 'only'
+              ? visibility
+              : undefined
+        })
+      )
+    } catch (err: any) {
+      res.status(400).json({ error: err.message })
+    }
+  })
+
+  router.get('/companies/:id/business/dues', async (req: AuthRequest, res) => {
+    try {
+      res.json(
+        await listDueSales(req.params.id, {
+          search: req.query.search as string | undefined,
+          page: Number(req.query.page || 1),
+          pageSize: Number(req.query.pageSize || 25)
+        })
+      )
+    } catch (err: any) {
+      res.status(400).json({ error: err.message })
+    }
+  })
+
+  router.get('/companies/:id/business/sales/:saleId', async (req: AuthRequest, res) => {
+    try {
+      res.json(await getSaleDetail(req.params.id, req.params.saleId))
+    } catch (err: any) {
+      res.status(400).json({ error: err.message })
+    }
+  })
+
+  router.post('/companies/:id/business/sales/:saleId/void', async (req: AuthRequest, res) => {
+    try {
+      const result = await voidSale(req.params.id, req.params.saleId, {
+        reason: String(req.body?.reason || ''),
+        purge: Boolean(req.body?.purge)
+      })
+      await writeAudit(db, req, {
+        action: req.body?.purge ? 'sale.purge' : 'sale.void',
+        resource: 'sale',
+        companyId: req.params.id,
+        detail: result
+      })
+      res.json(result)
+    } catch (err: any) {
+      res.status(400).json({ error: err.message })
+    }
+  })
+
+  router.post('/companies/:id/business/sales/:saleId/repair-ledger', async (req: AuthRequest, res) => {
+    try {
+      const result = await repairSaleLedger(req.params.id, req.params.saleId)
+      await writeAudit(db, req, {
+        action: 'sale.repair_ledger',
+        resource: 'sale',
+        companyId: req.params.id,
+        detail: result
+      })
+      res.json(result)
+    } catch (err: any) {
+      res.status(400).json({ error: err.message })
+    }
+  })
+
+  router.post('/companies/:id/business/repair-voided-ledgers', async (req: AuthRequest, res) => {
+    try {
+      const result = await repairAllVoidedSaleLedgers(req.params.id)
+      await writeAudit(db, req, {
+        action: 'sale.repair_voided_ledgers',
+        resource: 'sale',
+        companyId: req.params.id,
+        detail: { scanned: result.scanned, repaired: result.repaired }
+      })
+      res.json(result)
+    } catch (err: any) {
+      res.status(400).json({ error: err.message })
+    }
+  })
+
+  router.get('/companies/:id/business/purchases', async (req: AuthRequest, res) => {
+    try {
+      const visibility = String(req.query.visibility || '') as 'active' | 'include' | 'only'
+      res.json(
+        await listPurchases(req.params.id, {
+          search: req.query.search as string | undefined,
+          fromDate: req.query.fromDate as string | undefined,
+          toDate: req.query.toDate as string | undefined,
+          kind: req.query.kind as string | undefined,
+          page: Number(req.query.page || 1),
+          pageSize: Number(req.query.pageSize || 25),
+          visibility:
+            visibility === 'active' || visibility === 'include' || visibility === 'only'
+              ? visibility
+              : undefined
+        })
+      )
+    } catch (err: any) {
+      res.status(400).json({ error: err.message })
+    }
+  })
+
+  router.get('/companies/:id/business/customers', async (req: AuthRequest, res) => {
+    try {
+      const visibility = String(req.query.visibility || '') as 'active' | 'include' | 'only'
+      res.json(
+        await listCustomers(req.params.id, {
+          search: req.query.search as string | undefined,
+          dueFilter: req.query.dueFilter as string | undefined,
+          page: Number(req.query.page || 1),
+          pageSize: Number(req.query.pageSize || 25),
+          includeDeleted: req.query.includeDeleted === '1',
+          visibility:
+            visibility === 'active' || visibility === 'include' || visibility === 'only'
+              ? visibility
+              : undefined
+        })
+      )
+    } catch (err: any) {
+      res.status(400).json({ error: err.message })
+    }
+  })
+
+  router.get('/companies/:id/business/customers/:customerId', async (req: AuthRequest, res) => {
+    try {
+      res.json(await getCustomerDetail(req.params.id, req.params.customerId))
+    } catch (err: any) {
+      res.status(400).json({ error: err.message })
+    }
+  })
+
+  router.patch('/companies/:id/business/customers/:customerId', async (req: AuthRequest, res) => {
+    try {
+      const result = await updateCustomer(req.params.id, req.params.customerId, {
+        name: req.body?.name,
+        phone: req.body?.phone,
+        cnic: req.body?.cnic,
+        address: req.body?.address
+      })
+      await writeAudit(db, req, {
+        action: 'customer.update',
+        resource: 'customer',
+        companyId: req.params.id,
+        detail: { customerId: req.params.customerId, keys: Object.keys(req.body || {}) }
+      })
+      res.json(result)
+    } catch (err: any) {
+      res.status(400).json({ error: err.message })
+    }
+  })
+
+  router.post(
+    '/companies/:id/business/customers/:customerId/soft-delete',
+    async (req: AuthRequest, res) => {
+      try {
+        const result = await softDeleteCustomer(req.params.id, req.params.customerId)
+        await writeAudit(db, req, {
+          action: 'customer.soft_delete',
+          resource: 'customer',
+          companyId: req.params.id,
+          detail: { customerId: req.params.customerId }
+        })
+        res.json(result)
+      } catch (err: any) {
+        res.status(400).json({ error: err.message })
+      }
+    }
+  )
+
+  router.post(
+    '/companies/:id/business/customers/:customerId/set-outstanding',
+    async (req: AuthRequest, res) => {
+      try {
+        const result = await setCustomerOutstanding(req.params.id, req.params.customerId, {
+          outstanding: Number(req.body?.outstanding),
+          reason: req.body?.reason
+        })
+        await writeAudit(db, req, {
+          action: 'customer.set_outstanding',
+          resource: 'customer',
+          companyId: req.params.id,
+          detail: {
+            customerId: req.params.customerId,
+            previous: result.previous,
+            outstanding: result.outstanding,
+            adjusted: result.adjusted,
+            adjustment: result.adjustment,
+            reason: result.reason
+          }
+        })
+        res.json(result)
+      } catch (err: any) {
+        res.status(400).json({ error: err.message })
+      }
+    }
+  )
+
+  router.get('/companies/:id/business/purchases/:purchaseId', async (req: AuthRequest, res) => {
+    try {
+      res.json(await getPurchaseDetail(req.params.id, req.params.purchaseId))
+    } catch (err: any) {
+      res.status(400).json({ error: err.message })
+    }
+  })
+
+  router.get(
+    '/companies/:id/business/part-purchases/:purchaseId',
+    async (req: AuthRequest, res) => {
+      try {
+        res.json(await getPartPurchaseDetail(req.params.id, req.params.purchaseId))
+      } catch (err: any) {
+        res.status(400).json({ error: err.message })
+      }
+    }
+  )
+
+  router.post(
+    '/companies/:id/business/purchases/:purchaseId/void',
+    async (req: AuthRequest, res) => {
+      try {
+        const result = await voidPurchase(req.params.id, req.params.purchaseId, {
+          reason: String(req.body?.reason || '')
+        })
+        await writeAudit(db, req, {
+          action: 'purchase.void',
+          resource: 'purchase',
+          companyId: req.params.id,
+          detail: result
+        })
+        res.json(result)
+      } catch (err: any) {
+        res.status(400).json({ error: err.message })
+      }
+    }
+  )
+
+  router.post(
+    '/companies/:id/business/part-purchases/:purchaseId/void',
+    async (req: AuthRequest, res) => {
+      try {
+        const result = await voidPartPurchase(req.params.id, req.params.purchaseId, {
+          reason: String(req.body?.reason || '')
+        })
+        await writeAudit(db, req, {
+          action: 'part_purchase.void',
+          resource: 'part_purchase',
+          companyId: req.params.id,
+          detail: result
+        })
+        res.json(result)
+      } catch (err: any) {
+        res.status(400).json({ error: err.message })
+      }
+    }
+  )
 
   router.post('/companies/:id/data/:table/:rowId/soft-delete', async (req: AuthRequest, res) => {
     try {

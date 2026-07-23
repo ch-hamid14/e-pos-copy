@@ -4,6 +4,7 @@ import {
   ArrowLeftOutlined,
   BranchesOutlined,
   DatabaseOutlined,
+  ExportOutlined,
   SafetyCertificateOutlined,
   SettingOutlined,
   SyncOutlined,
@@ -147,9 +148,20 @@ export default function CompanyDetailPage() {
               {company.dbName ? <span style={{ fontFamily: 'monospace' }}>{company.dbName}</span> : null}
             </div>
           </div>
-          <Button onClick={() => setTab('configure')} icon={<ToolOutlined />}>
-            Open configure
-          </Button>
+          <Space wrap>
+            <Button
+              type="primary"
+              icon={<ExportOutlined />}
+              onClick={() =>
+                window.open(`/companies/${id}/business/dashboard`, '_blank', 'noopener,noreferrer')
+              }
+            >
+              Business ops
+            </Button>
+            <Button onClick={() => setTab('configure')} icon={<ToolOutlined />}>
+              Open configure
+            </Button>
+          </Space>
         </div>
         <div className="madix-company-hero__stats">
           <div className="madix-company-hero__stat">

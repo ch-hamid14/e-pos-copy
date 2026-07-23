@@ -1,6 +1,12 @@
 import { api } from './client'
 import type {
   AuditLog,
+  BusinessAnalytics,
+  BusinessCustomerRow,
+  BusinessFilterOptions,
+  BusinessListResult,
+  BusinessPurchaseRow,
+  BusinessSaleRow,
   Company,
   CompanyDetail,
   CompanyOps,
@@ -331,5 +337,276 @@ export function hardDeleteDataRow(token: string, companyId: string, table: strin
   return api(`/admin/companies/${companyId}/data/${table}/${rowId}`, {
     method: 'DELETE',
     token
+  })
+}
+
+export function getBusinessDashboard(
+  token: string,
+  companyId: string,
+  params?: {
+    from?: string
+    to?: string
+    branchId?: string
+    supplierId?: string
+    productId?: string
+    partId?: string
+  }
+) {
+  const q = new URLSearchParams()
+  if (params?.from) q.set('from', params.from)
+  if (params?.to) q.set('to', params.to)
+  if (params?.branchId) q.set('branchId', params.branchId)
+  if (params?.supplierId) q.set('supplierId', params.supplierId)
+  if (params?.productId) q.set('productId', params.productId)
+  if (params?.partId) q.set('partId', params.partId)
+  const suffix = q.toString() ? `?${q}` : ''
+  return api<BusinessAnalytics>(`/admin/companies/${companyId}/business/dashboard${suffix}`, {
+    token
+  })
+}
+
+export function getBusinessFilterOptions(token: string, companyId: string) {
+  return api<BusinessFilterOptions>(`/admin/companies/${companyId}/business/filters`, { token })
+}
+
+export function listBusinessSales(
+  token: string,
+  companyId: string,
+  params?: {
+    page?: number
+    pageSize?: number
+    search?: string
+    fromDate?: string
+    toDate?: string
+    visibility?: 'active' | 'include' | 'only'
+  }
+) {
+  const q = new URLSearchParams()
+  if (params?.page) q.set('page', String(params.page))
+  if (params?.pageSize) q.set('pageSize', String(params.pageSize))
+  if (params?.search) q.set('search', params.search)
+  if (params?.fromDate) q.set('fromDate', params.fromDate)
+  if (params?.toDate) q.set('toDate', params.toDate)
+  if (params?.visibility) q.set('visibility', params.visibility)
+  const suffix = q.toString() ? `?${q}` : ''
+  return api<BusinessListResult<BusinessSaleRow>>(
+    `/admin/companies/${companyId}/business/sales${suffix}`,
+    { token }
+  )
+}
+
+export function listBusinessDues(
+  token: string,
+  companyId: string,
+  params?: { page?: number; pageSize?: number; search?: string }
+) {
+  const q = new URLSearchParams()
+  if (params?.page) q.set('page', String(params.page))
+  if (params?.pageSize) q.set('pageSize', String(params.pageSize))
+  if (params?.search) q.set('search', params.search)
+  const suffix = q.toString() ? `?${q}` : ''
+  return api<BusinessListResult<BusinessSaleRow>>(
+    `/admin/companies/${companyId}/business/dues${suffix}`,
+    { token }
+  )
+}
+
+export function getBusinessSale(token: string, companyId: string, saleId: string) {
+  return api<{
+    sale: Record<string, unknown>
+    lines: Record<string, unknown>[]
+    payments: Record<string, unknown>[]
+    ledger: Record<string, unknown>[]
+    impact: {
+      canVoid: boolean
+      blockers: string[]
+      productUnits: unknown[]
+      partLines: unknown[]
+      paymentTotal: number
+      netTotal: number
+      dueAmount: number
+      note: string
+    }
+  }>(`/admin/companies/${companyId}/business/sales/${saleId}`, { token })
+}
+
+export function voidBusinessSale(
+  token: string,
+  companyId: string,
+  saleId: string,
+  body: { reason: string; purge?: boolean }
+) {
+  return api(`/admin/companies/${companyId}/business/sales/${saleId}/void`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify(body)
+  })
+}
+
+export function repairBusinessSaleLedger(token: string, companyId: string, saleId: string) {
+  return api<{
+    saleId: string
+    repaired: boolean
+    adjustments: Array<{ customerId: string; type: string; amount: number }>
+    message: string
+  }>(`/admin/companies/${companyId}/business/sales/${saleId}/repair-ledger`, {
+    method: 'POST',
+    token
+  })
+}
+
+export function repairAllVoidedSaleLedgers(token: string, companyId: string) {
+  return api<{
+    scanned: number
+    repaired: number
+    results: Array<{ saleId: string; adjustments: unknown[] }>
+  }>(`/admin/companies/${companyId}/business/repair-voided-ledgers`, {
+    method: 'POST',
+    token
+  })
+}
+
+export function listBusinessPurchases(
+  token: string,
+  companyId: string,
+  params?: {
+    page?: number
+    pageSize?: number
+    search?: string
+    kind?: string
+    fromDate?: string
+    toDate?: string
+    visibility?: 'active' | 'include' | 'only'
+  }
+) {
+  const q = new URLSearchParams()
+  if (params?.page) q.set('page', String(params.page))
+  if (params?.pageSize) q.set('pageSize', String(params.pageSize))
+  if (params?.search) q.set('search', params.search)
+  if (params?.kind) q.set('kind', params.kind)
+  if (params?.fromDate) q.set('fromDate', params.fromDate)
+  if (params?.toDate) q.set('toDate', params.toDate)
+  if (params?.visibility) q.set('visibility', params.visibility)
+  const suffix = q.toString() ? `?${q}` : ''
+  return api<BusinessListResult<BusinessPurchaseRow>>(
+    `/admin/companies/${companyId}/business/purchases${suffix}`,
+    { token }
+  )
+}
+
+export function getBusinessPurchase(token: string, companyId: string, purchaseId: string) {
+  return api<{
+    kind: 'product'
+    purchase: Record<string, unknown>
+    items: Record<string, unknown>[]
+    impact: { canVoid: boolean; blockers: string[]; inStockCount: number; totalUnits: number }
+  }>(`/admin/companies/${companyId}/business/purchases/${purchaseId}`, { token })
+}
+
+export function getBusinessPartPurchase(token: string, companyId: string, purchaseId: string) {
+  return api<{
+    kind: 'part'
+    purchase: Record<string, unknown>
+    lines: Record<string, unknown>[]
+    impact: { canVoid: boolean; blockers: string[]; lineCount: number }
+  }>(`/admin/companies/${companyId}/business/part-purchases/${purchaseId}`, { token })
+}
+
+export function voidBusinessPurchase(
+  token: string,
+  companyId: string,
+  purchaseId: string,
+  body: { reason: string }
+) {
+  return api(`/admin/companies/${companyId}/business/purchases/${purchaseId}/void`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify(body)
+  })
+}
+
+export function voidBusinessPartPurchase(
+  token: string,
+  companyId: string,
+  purchaseId: string,
+  body: { reason: string }
+) {
+  return api(`/admin/companies/${companyId}/business/part-purchases/${purchaseId}/void`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify(body)
+  })
+}
+
+export function listBusinessCustomers(
+  token: string,
+  companyId: string,
+  params?: {
+    page?: number
+    pageSize?: number
+    search?: string
+    dueFilter?: string
+    visibility?: 'active' | 'include' | 'only'
+  }
+) {
+  const q = new URLSearchParams()
+  if (params?.page) q.set('page', String(params.page))
+  if (params?.pageSize) q.set('pageSize', String(params.pageSize))
+  if (params?.search) q.set('search', params.search)
+  if (params?.dueFilter) q.set('dueFilter', params.dueFilter)
+  if (params?.visibility) q.set('visibility', params.visibility)
+  const suffix = q.toString() ? `?${q}` : ''
+  return api<BusinessListResult<BusinessCustomerRow>>(
+    `/admin/companies/${companyId}/business/customers${suffix}`,
+    { token }
+  )
+}
+
+export function getBusinessCustomer(token: string, companyId: string, customerId: string) {
+  return api<{
+    customer: BusinessCustomerRow & Record<string, unknown>
+    ledger: Record<string, unknown>[]
+    recentSales: Record<string, unknown>[]
+    openDues: { count: number; total: number }
+  }>(`/admin/companies/${companyId}/business/customers/${customerId}`, { token })
+}
+
+export function updateBusinessCustomer(
+  token: string,
+  companyId: string,
+  customerId: string,
+  patch: { name?: string; phone?: string; cnic?: string; address?: string }
+) {
+  return api<BusinessCustomerRow>(`/admin/companies/${companyId}/business/customers/${customerId}`, {
+    method: 'PATCH',
+    token,
+    body: JSON.stringify(patch)
+  })
+}
+
+export function softDeleteBusinessCustomer(token: string, companyId: string, customerId: string) {
+  return api(`/admin/companies/${companyId}/business/customers/${customerId}/soft-delete`, {
+    method: 'POST',
+    token
+  })
+}
+
+export function setBusinessCustomerOutstanding(
+  token: string,
+  companyId: string,
+  customerId: string,
+  body: { outstanding: number; reason: string }
+) {
+  return api<{
+    customerId: string
+    previous: number
+    outstanding: number
+    adjusted: boolean
+    adjustment: { type: string; amount: number; referenceId?: string } | null
+    reason: string
+  }>(`/admin/companies/${companyId}/business/customers/${customerId}/set-outstanding`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify(body)
   })
 }

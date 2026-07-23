@@ -208,3 +208,75 @@ export type SnapshotInfo = {
   createdAt: string
   kind?: 'manual' | 'scheduled'
 }
+
+export type BusinessListResult<T> = {
+  rows: T[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+export type BusinessSaleRow = {
+  id: string
+  billNo?: number
+  saleDate: string
+  netTotal: number
+  paidAmount: number
+  dueAmount: number
+  status: string
+  deletedAt?: string | null
+  notes?: string | null
+  customer?: { name?: string } | null
+  branchName?: string | null
+  lineCount?: number
+}
+
+export type BusinessPurchaseRow = {
+  key: string
+  kind: 'product' | 'part'
+  id: string
+  purchaseDate: string
+  supplier?: { name?: string } | null
+  branchName?: string | null
+  itemCount: number
+  totalValue: number
+  editable: boolean
+  soldCount?: number
+  deletedAt?: string | null
+  voided?: boolean
+}
+
+export type BusinessAnalytics = {
+  period: { from: string; to: string }
+  kpis: Record<string, number>
+  profitLoss: {
+    revenue: number
+    cogs: number
+    grossProfit: number
+    grossMarginPercent: number
+    expenses: number
+    netProfit: number
+    netMarginPercent: number
+  }
+  insights: Record<string, number>
+  trend: { date: string; sales: number; purchases: number; expenses: number; profit: number }[]
+  topProducts: { name: string; units: number; revenue: number }[]
+  expensesByCategory: { category: string; amount: number }[]
+}
+
+export type BusinessFilterOptions = {
+  branches: { id: string; name: string }[]
+  suppliers: { id: string; name: string }[]
+  products: { id: string; name: string }[]
+  parts: { id: string; name: string }[]
+}
+
+export type BusinessCustomerRow = {
+  id: string
+  name: string
+  phone?: string | null
+  cnic?: string | null
+  address?: string | null
+  balance: number
+  deletedAt?: string | null
+}

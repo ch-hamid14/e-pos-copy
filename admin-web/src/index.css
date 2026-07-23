@@ -437,6 +437,15 @@ a {
   border-top: 1px solid var(--madix-border);
 }
 
+.madix-business-page {
+  max-width: 1600px;
+}
+
+.madix-detail-card {
+  box-shadow: var(--madix-shadow);
+  border-radius: var(--madix-radius);
+}
+
 @media (max-width: 560px) {
   .madix-form-grid,
   .madix-perm-grid {
