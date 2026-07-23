@@ -43,6 +43,11 @@ import { ProductQuickModal } from '@/renderer/components/quick/ProductQuickModal
 import { ColorQuickModal } from '@/renderer/components/quick/ColorQuickModal'
 import { SelectQuickFooter } from '@/renderer/components/quick/SelectQuickFooter'
 import { STATUS_COLORS } from './inventory-ui'
+import {
+  focusFormFieldError,
+  scrollToElementId,
+  validateAndScroll
+} from '@/renderer/utils/formScroll'
 
 const { Text } = Typography
 
@@ -68,6 +73,7 @@ type CartLine = {
   colorId?: string
   colorName?: string
   warrantyActive?: boolean
+  warrantyYears?: number
   warrantyExpiryDate?: string
   locked?: boolean
   status?: string
@@ -260,6 +266,7 @@ export const AddPurchase = () => {
             // Saved net cost already reflects how discounts were applied; default special for recalc.
             discountApplyMode: 'special' as DiscountApplyMode,
             warrantyActive: Boolean(item.warrantyActive),
+            warrantyYears: item.warrantyYears != null ? Number(item.warrantyYears) : undefined,
             warrantyExpiryDate: item.warrantyExpiryDate
               ? dayjs(item.warrantyExpiryDate).format('YYYY-MM-DD')
               : undefined,
@@ -406,9 +413,10 @@ export const AddPurchase = () => {
   }
 
   const addProductLine = async () => {
-    const values = await lineForm.validateFields()
+    const values = await validateAndScroll(lineForm)
     const product = productMap.get(values.productId)
     if (!product) {
+      focusFormFieldError(lineForm, 'productId', 'Select a valid product')
       message.error('Select a valid product')
       return
     }
@@ -421,11 +429,17 @@ export const AddPurchase = () => {
           (!editingKey || l.key !== editingKey)
       )
     ) {
+      focusFormFieldError(lineForm, 'serialNumber', 'Chassis number already added to this purchase')
       message.error('Chassis number already added to this purchase')
       return
     }
-    if (values.warrantyActive && !values.warrantyExpiryDate) {
-      message.error('Warranty expiry is required when warranty is active')
+    if (values.warrantyActive && !(Number(values.warrantyYears) >= 1)) {
+      focusFormFieldError(
+        lineForm,
+        'warrantyYears',
+        'Warranty years (whole number ≥ 1) required when warranty is active'
+      )
+      message.error('Warranty years (whole number ≥ 1) required when warranty is active')
       return
     }
 
@@ -438,9 +452,17 @@ export const AddPurchase = () => {
     const hasDiscountOnLine = supplierDiscount > 0 || specialDiscount > 0
     const netCost = Number(values.netCost ?? 0)
     if (!hasDiscountOnLine && netCost <= 0) {
+      focusFormFieldError(lineForm, 'netCost', 'Enter net cost per unit')
       message.error('Enter net cost per unit')
       return
     }
+
+    const warrantyYears = values.warrantyActive ? Math.floor(Number(values.warrantyYears)) : undefined
+    const purchaseDateValue = headerForm.getFieldValue('purchaseDate')
+    const warrantyExpiryDate =
+      values.warrantyActive && warrantyYears && purchaseDateValue
+        ? dayjs(purchaseDateValue).add(warrantyYears, 'year').format('YYYY-MM-DD')
+        : undefined
 
     const nextLine: CartLine = {
       key: editingKey || `${serial}-${Date.now()}`,
@@ -466,12 +488,12 @@ export const AddPurchase = () => {
         hasDiscountOnLine ? undefined : netCost
       ),
       warrantyActive: Boolean(values.warrantyActive),
-      warrantyExpiryDate: values.warrantyActive
-        ? values.warrantyExpiryDate.format('YYYY-MM-DD')
-        : undefined
+      warrantyYears,
+      warrantyExpiryDate
     }
 
     if (retailBelowNet(nextLine.listPrice, nextLine.purchasePrice)) {
+      focusFormFieldError(lineForm, 'purchasePrice', RETAIL_BELOW_NET_MSG)
       message.error(RETAIL_BELOW_NET_MSG)
       return
     }
@@ -496,22 +518,28 @@ export const AddPurchase = () => {
       )
       setEditingKey(null)
       message.success('Unit updated in list')
+      resetLineForm()
     } else {
       setLines((prev) => [...prev, nextLine])
+      // Keep product / price / warranty for the next chassis; only clear unique fields.
+      lineForm.setFieldsValue({
+        serialNumber: '',
+        motorNumber: ''
+      })
     }
-
-    resetLineForm()
   }
 
   const addPartLine = async () => {
-    const values = await lineForm.validateFields()
+    const values = await validateAndScroll(lineForm)
     const part = partMap.get(values.partId)
     if (!part) {
+      focusFormFieldError(lineForm, 'partId', 'Select a valid part')
       message.error('Select a valid part')
       return
     }
     const quantity = Math.floor(Number(values.quantity))
     if (!Number.isFinite(quantity) || quantity <= 0) {
+      focusFormFieldError(lineForm, 'quantity', 'Quantity must be a positive whole number')
       message.error('Quantity must be a positive whole number')
       return
     }
@@ -524,6 +552,7 @@ export const AddPurchase = () => {
     const hasDiscountOnLine = supplierDiscount > 0 || specialDiscount > 0
     const netCost = Number(values.netCost ?? 0)
     if (!hasDiscountOnLine && netCost <= 0) {
+      focusFormFieldError(lineForm, 'netCost', 'Enter net cost per unit')
       message.error('Enter net cost per unit')
       return
     }
@@ -551,6 +580,7 @@ export const AddPurchase = () => {
     }
 
     if (retailBelowNet(nextLine.listPrice, nextLine.purchasePrice)) {
+      focusFormFieldError(lineForm, 'purchasePrice', RETAIL_BELOW_NET_MSG)
       message.error(RETAIL_BELOW_NET_MSG)
       return
     }
@@ -566,11 +596,12 @@ export const AddPurchase = () => {
       )
       setEditingKey(null)
       message.success('Part line updated')
+      resetLineForm()
     } else {
       setLines((prev) => [...prev, nextLine])
+      // Keep part / price / discounts; only reset quantity for the next line.
+      lineForm.setFieldsValue({ quantity: 1 })
     }
-
-    resetLineForm()
   }
 
   const addLine = async () => {
@@ -604,7 +635,7 @@ export const AddPurchase = () => {
         specialDiscountType: line.specialDiscountType,
         discountApplyMode: line.discountApplyMode || 'supplier',
         warrantyActive: line.warrantyActive,
-        warrantyExpiryDate: line.warrantyExpiryDate ? dayjs(line.warrantyExpiryDate) : undefined
+        warrantyYears: line.warrantyYears
       })
     } else {
       lineForm.setFieldsValue({
@@ -654,7 +685,7 @@ export const AddPurchase = () => {
       specialDiscount: l.specialDiscount,
       specialDiscountType: l.specialDiscountType,
       warrantyActive: l.warrantyActive,
-      warrantyExpiryDate: l.warrantyExpiryDate
+      warrantyYears: l.warrantyYears
     }))
   })
 
@@ -675,15 +706,26 @@ export const AddPurchase = () => {
   const handleSubmit = async () => {
     if (!lines.length) {
       message.error('Add at least one line')
+      scrollToElementId('purchase-line-form')
       return
     }
     const invalidLine = lines.find((l) => retailBelowNet(l.listPrice, l.purchasePrice))
     if (invalidLine) {
       const label = invalidLine.lineType === 'part' ? invalidLine.productName : invalidLine.serialNumber
       message.error(`${label}: ${RETAIL_BELOW_NET_MSG}`)
+      startEditLine(invalidLine)
+      scrollToElementId('purchase-line-form')
+      requestAnimationFrame(() => {
+        focusFormFieldError(lineForm, 'purchasePrice', RETAIL_BELOW_NET_MSG)
+      })
       return
     }
-    const header = await headerForm.validateFields()
+    let header: any
+    try {
+      header = await validateAndScroll(headerForm)
+    } catch {
+      return
+    }
     setLoading(true)
     try {
       if (isEdit && id) {
@@ -751,7 +793,7 @@ export const AddPurchase = () => {
       />
 
       <Card bordered={false} className="shadow-sm mb-4">
-        <Form form={headerForm} layout="vertical">
+        <Form form={headerForm} layout="vertical" scrollToFirstError>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Form.Item name="supplierId" label="Supplier" rules={[{ required: true, message: 'Select supplier' }]}>
               <Select
@@ -796,6 +838,7 @@ export const AddPurchase = () => {
       </Card>
 
       <Card
+        id="purchase-line-form"
         title={editingKey ? (activeLineType === 'part' ? 'Edit part line' : 'Edit unit') : 'Add line'}
         bordered={false}
         className="shadow-sm mb-4"
@@ -813,6 +856,7 @@ export const AddPurchase = () => {
         <Form
           form={lineForm}
           layout="vertical"
+          scrollToFirstError
           initialValues={{
             warrantyActive: false,
             specialDiscount: 0,
@@ -980,11 +1024,21 @@ export const AddPurchase = () => {
                 </Form.Item>
                 {warrantyActive && (
                   <Form.Item
-                    name="warrantyExpiryDate"
-                    label="Warranty Expiry"
-                    rules={[{ required: true }]}
+                    name="warrantyYears"
+                    label="Warranty (years)"
+                    rules={[
+                      { required: true, message: 'Enter warranty years' },
+                      { type: 'number', min: 1, message: 'Must be at least 1 year' }
+                    ]}
+                    extra="Expiry is calculated from the purchase date"
                   >
-                    <DatePicker className="w-full" style={{ width: '100%' }} />
+                    <InputNumber
+                      className="w-full"
+                      min={1}
+                      step={1}
+                      precision={0}
+                      style={{ width: '100%' }}
+                    />
                   </Form.Item>
                 )}
               </>
@@ -1012,6 +1066,8 @@ export const AddPurchase = () => {
           rowKey="key"
           dataSource={lines}
           pagination={false}
+          scroll={{ x: 'max-content' }}
+          className="[&_.ant-table-cell]:!whitespace-nowrap"
           locale={{ emptyText: 'No lines added yet' }}
           columns={[
             ...(!isEdit
@@ -1074,7 +1130,7 @@ export const AddPurchase = () => {
               render: (_: unknown, r: CartLine) =>
                 r.lineType === 'product'
                   ? r.warrantyActive
-                    ? `Yes · ${r.warrantyExpiryDate}`
+                    ? `${r.warrantyYears || '—'} yr${r.warrantyExpiryDate ? ` · ${r.warrantyExpiryDate}` : ''}`
                     : 'No'
                   : '—'
             },

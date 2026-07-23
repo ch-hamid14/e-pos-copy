@@ -300,9 +300,13 @@ export const Stock = () => {
                 render: formatRs
               },
               {
-                title: 'Warranty Active',
+                title: 'Warranty',
                 render: (_, r) =>
-                  r.warrantyActive ? dayjs(r.warrantyExpiryDate).format('DD MMM YYYY') : 'No'
+                  r.warrantyActive
+                    ? `${r.warrantyYears != null ? `${r.warrantyYears} yr · ` : ''}${
+                        r.warrantyExpiryDate ? dayjs(r.warrantyExpiryDate).format('DD MMM YYYY') : '—'
+                      }`
+                    : 'No'
               }
             ]}
           />

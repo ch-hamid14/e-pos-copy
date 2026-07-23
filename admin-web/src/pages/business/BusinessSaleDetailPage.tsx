@@ -213,7 +213,7 @@ export default function BusinessSaleDetailPage() {
         {[
           ['Subtotal', sale.subtotal],
           ['Tax', sale.totalTax],
-          ['WHT', sale.totalWht],
+          ['Tax u/s 236 G/H', sale.totalWht],
           ['Discount', sale.discount],
           ['Net', sale.netTotal],
           ['Paid', sale.paidAmount]

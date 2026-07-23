@@ -152,7 +152,11 @@ export const PurchaseDetail = () => {
             {
               title: 'Warranty',
               render: (_: unknown, r: any) =>
-                r.warrantyActive ? dayjs(r.warrantyExpiryDate).format('DD MMM YYYY') : 'No'
+                r.warrantyActive
+                  ? `${r.warrantyYears != null ? `${r.warrantyYears} yr · ` : ''}${
+                      r.warrantyExpiryDate ? dayjs(r.warrantyExpiryDate).format('DD MMM YYYY') : '—'
+                    }`
+                  : 'No'
             }
           ]}
         />

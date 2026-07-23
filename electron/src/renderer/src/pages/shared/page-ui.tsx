@@ -3,7 +3,8 @@ import { Typography } from 'antd'
 
 const { Title, Text } = Typography
 
-export const formatRs = (value: unknown) => `Rs ${Number(value ?? 0).toLocaleString()}`
+export const formatRs = (value: unknown) =>
+  `Rs\u00A0${Number(value ?? 0).toLocaleString()}`
 
 function formatScaled(value: number, divisor: number, suffix: string): string {
   const scaled = value / divisor

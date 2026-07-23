@@ -139,7 +139,7 @@ export const SaleDetail = () => {
         </Col>
         <Col xs={12} sm={8} lg={4}>
           <Card bordered={false} className="shadow-sm">
-            <Statistic title="WHT" value={sale.totalWht ?? 0} prefix="Rs" precision={0} />
+            <Statistic title="Tax u/s 236 G/H" value={sale.totalWht ?? 0} prefix="Rs" precision={0} />
           </Card>
         </Col>
         <Col xs={12} sm={8} lg={4}>
@@ -194,7 +194,7 @@ export const SaleDetail = () => {
             { title: 'Color', dataIndex: 'colorName', render: (v) => v || '—' },
             { title: 'Unit price', dataIndex: 'salePrice', align: 'right' as const, render: formatRs },
             { title: 'Tax', dataIndex: 'taxAmount', align: 'right' as const, render: formatRs },
-            { title: 'WHT', dataIndex: 'whtAmount', align: 'right' as const, render: formatRs },
+            { title: 'Tax u/s 236 G/H', dataIndex: 'whtAmount', align: 'right' as const, render: formatRs },
             { title: 'Total', dataIndex: 'lineTotal', align: 'right' as const, render: formatRs }
           ]}
         />

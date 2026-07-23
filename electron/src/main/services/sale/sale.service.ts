@@ -42,6 +42,9 @@ export type SaleLineInput = {
   taxInclusive?: boolean
   whtPercent?: number
   warrantyActive?: boolean
+  /** Integer years of warranty; expiry is computed from sale date. */
+  warrantyYears?: number
+  /** @deprecated Prefer warrantyYears; kept for older clients. */
   warrantyExpiryDate?: string
 }
 
@@ -96,19 +99,36 @@ function calcLine(line: SaleLineInput) {
   const quantity = Math.max(1, Math.floor(Number(line.quantity || 1)))
   const taxPercent = Number(line.taxPercent || 0)
   const whtPercent = Number(line.whtPercent || 0)
-  const taxInclusive = Boolean(line.taxInclusive) && taxPercent > 0
+  const taxInclusive = Boolean(line.taxInclusive) && (taxPercent > 0 || whtPercent > 0)
   const enteredUnitPrice = Number(line.salePrice || 0)
-  // Inclusive: entered price already contains sales tax, so extract the ex-tax base
-  // and store that as the unit price. Downstream (invoices, totals) stays unchanged.
-  const unitPrice = taxInclusive
-    ? round2(enteredUnitPrice / (1 + taxPercent / 100))
-    : enteredUnitPrice
-  const extended = unitPrice * quantity
-  const taxAmount = taxInclusive
-    ? round2(enteredUnitPrice * quantity - extended)
-    : round2((extended * taxPercent) / 100)
-  const whtAmount = round2((extended * whtPercent) / 100)
-  const lineTotal = round2(extended + taxAmount + whtAmount)
+  // Inclusive: entered price already contains sales tax and Tax u/s 236 G/H —
+  // extract the ex-tax base and store that as the unit price.
+  const factor = 1 + taxPercent / 100 + whtPercent / 100
+  const unitPrice = taxInclusive ? round2(enteredUnitPrice / factor) : enteredUnitPrice
+  const extended = round2(unitPrice * quantity)
+  const enteredTotal = round2(enteredUnitPrice * quantity)
+
+  let taxAmount: number
+  let whtAmount: number
+  let lineTotal: number
+  if (taxInclusive) {
+    if (taxPercent > 0 && whtPercent > 0) {
+      taxAmount = round2((extended * taxPercent) / 100)
+      whtAmount = round2(enteredTotal - extended - taxAmount)
+    } else if (whtPercent > 0) {
+      taxAmount = 0
+      whtAmount = round2(enteredTotal - extended)
+    } else {
+      taxAmount = round2(enteredTotal - extended)
+      whtAmount = 0
+    }
+    lineTotal = enteredTotal
+  } else {
+    taxAmount = round2((extended * taxPercent) / 100)
+    whtAmount = round2((extended * whtPercent) / 100)
+    lineTotal = round2(extended + taxAmount + whtAmount)
+  }
+
   return {
     quantity,
     unitPrice,
@@ -131,6 +151,7 @@ type LineCalc = {
   colorName: string
   serialNumber: string | null
   warrantyActive: boolean
+  warrantyYears: number | null
   warrantyExpiry: Date | null
   quantity: number
   unitPrice: number
@@ -141,6 +162,30 @@ type LineCalc = {
   whtAmount: number
   lineTotal: number
   unitCost?: number
+}
+
+function resolveWarranty(
+  saleDate: Date,
+  warrantyActive: boolean,
+  warrantyYears?: number,
+  warrantyExpiryDate?: string
+): { warrantyActive: boolean; warrantyYears: number | null; warrantyExpiry: Date | null } {
+  if (!warrantyActive) {
+    return { warrantyActive: false, warrantyYears: null, warrantyExpiry: null }
+  }
+  const years = Math.floor(Number(warrantyYears ?? 0))
+  if (Number.isFinite(years) && years >= 1) {
+    const expiry = new Date(saleDate)
+    expiry.setFullYear(expiry.getFullYear() + years)
+    return { warrantyActive: true, warrantyYears: years, warrantyExpiry: expiry }
+  }
+  if (warrantyExpiryDate) {
+    const expiry = new Date(warrantyExpiryDate)
+    if (!Number.isNaN(expiry.getTime())) {
+      return { warrantyActive: true, warrantyYears: null, warrantyExpiry: expiry }
+    }
+  }
+  throw new Error('Warranty years (whole number ≥ 1) required when warranty is active')
 }
 
 function assertCanEditSale(ctx: AuditContext): void {
@@ -558,12 +603,12 @@ class SaleService {
             throw new Error(`Serial ${item.serial_number} is not available for sale`)
           }
 
-          const warrantyActive = Boolean(line.warrantyActive)
-          const warrantyExpiry =
-            warrantyActive && line.warrantyExpiryDate ? new Date(line.warrantyExpiryDate) : null
-          if (warrantyActive && !warrantyExpiry) {
-            throw new Error(`Warranty expiry required for serial ${item.serial_number}`)
-          }
+          const warranty = resolveWarranty(
+            new Date(payload.saleDate),
+            Boolean(line.warrantyActive),
+            line.warrantyYears,
+            line.warrantyExpiryDate
+          )
 
           lineCalcs.push({
             lineType,
@@ -573,8 +618,9 @@ class SaleService {
             categoryName: (item.category_name as string) || '',
             colorName: (item.color_name as string) || '',
             serialNumber: (item.serial_number as string) || null,
-            warrantyActive,
-            warrantyExpiry,
+            warrantyActive: warranty.warrantyActive,
+            warrantyYears: warranty.warrantyYears,
+            warrantyExpiry: warranty.warrantyExpiry,
             ...amounts
           })
         } else {
@@ -623,6 +669,7 @@ class SaleService {
             colorName: '',
             serialNumber: null,
             warrantyActive: false,
+            warrantyYears: null,
             warrantyExpiry: null,
             unitCost: fifoPreview.unitCost,
             ...amounts
@@ -698,6 +745,7 @@ class SaleService {
               wht_amount: row.whtAmount,
               line_total: row.lineTotal,
               warranty_active: row.warrantyActive,
+              warranty_years: row.warrantyYears,
               warranty_expiry_date: row.warrantyExpiry,
               ...lineAudit,
               created_at: new Date()
@@ -708,6 +756,7 @@ class SaleService {
             status: ProductItemStatus.SOLD,
             selling_price: row.unitPrice,
             warranty_active: row.warrantyActive,
+            warranty_years: row.warrantyYears,
             warranty_expiry_date: row.warrantyExpiry,
             sold_at: new Date(),
             version: Number(item.version || 1) + 1,
@@ -749,6 +798,7 @@ class SaleService {
               line_total: row.lineTotal,
               unit_cost: null,
               warranty_active: false,
+              warranty_years: null,
               warranty_expiry_date: null,
               ...lineAudit,
               created_at: new Date()
@@ -921,12 +971,12 @@ class SaleService {
             throw new Error(`Serial ${item.serial_number} is not available for sale`)
           }
 
-          const warrantyActive = Boolean(line.warrantyActive)
-          const warrantyExpiry =
-            warrantyActive && line.warrantyExpiryDate ? new Date(line.warrantyExpiryDate) : null
-          if (warrantyActive && !warrantyExpiry) {
-            throw new Error(`Warranty expiry required for serial ${item.serial_number}`)
-          }
+          const warranty = resolveWarranty(
+            new Date(payload.saleDate),
+            Boolean(line.warrantyActive),
+            line.warrantyYears,
+            line.warrantyExpiryDate
+          )
 
           lineCalcs.push({
             lineType,
@@ -936,8 +986,9 @@ class SaleService {
             categoryName: (item.category_name as string) || '',
             colorName: (item.color_name as string) || '',
             serialNumber: (item.serial_number as string) || null,
-            warrantyActive,
-            warrantyExpiry,
+            warrantyActive: warranty.warrantyActive,
+            warrantyYears: warranty.warrantyYears,
+            warrantyExpiry: warranty.warrantyExpiry,
             ...amounts
           })
         } else {
@@ -986,6 +1037,7 @@ class SaleService {
             colorName: '',
             serialNumber: null,
             warrantyActive: false,
+            warrantyYears: null,
             warrantyExpiry: null,
             unitCost: fifoPreview.unitCost,
             ...amounts
@@ -1058,6 +1110,7 @@ class SaleService {
               wht_amount: row.whtAmount,
               line_total: row.lineTotal,
               warranty_active: row.warrantyActive,
+              warranty_years: row.warrantyYears,
               warranty_expiry_date: row.warrantyExpiry,
               ...lineAudit,
               created_at: new Date()
@@ -1068,6 +1121,7 @@ class SaleService {
             status: ProductItemStatus.SOLD,
             selling_price: row.unitPrice,
             warranty_active: row.warrantyActive,
+            warranty_years: row.warrantyYears,
             warranty_expiry_date: row.warrantyExpiry,
             sold_at: new Date(),
             version: Number(item.version || 1) + 1,
@@ -1109,6 +1163,7 @@ class SaleService {
               line_total: row.lineTotal,
               unit_cost: null,
               warranty_active: false,
+              warranty_years: null,
               warranty_expiry_date: null,
               ...lineAudit,
               created_at: new Date()

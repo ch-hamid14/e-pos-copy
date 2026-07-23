@@ -138,6 +138,7 @@ export type IProductItem = {
   sellingPrice: number
   status: string
   warrantyActive: boolean
+  warrantyYears?: number
   warrantyExpiryDate?: string
   purchasedAt?: string
   soldAt?: string

@@ -26,6 +26,11 @@ import { useSession } from '@/renderer/hooks/useSession'
 import { formatRs, PageHeader } from '../shared/page-ui'
 import { CustomerQuickModal } from '@/renderer/components/quick/CustomerQuickModal'
 import { SelectQuickFooter } from '@/renderer/components/quick/SelectQuickFooter'
+import {
+  focusFormFieldError,
+  scrollToElementId,
+  validateAndScroll
+} from '@/renderer/utils/formScroll'
 
 const { Text } = Typography
 
@@ -47,9 +52,12 @@ type SaleLine = {
   taxInclusive: boolean
   whtPercent: number
   warrantyActive: boolean
+  warrantyYears?: number
   warrantyExpiryDate?: string
   availableUnits?: number
   locked?: boolean
+  /** Preserved DB amounts (edit load) so rounding does not drift until the line is re-entered. */
+  fixedAmounts?: { base: number; tax: number; wht: number; total: number }
 }
 
 function roundAmount(n: number): number {
@@ -57,21 +65,76 @@ function roundAmount(n: number): number {
 }
 
 function calcLineAmounts(
-  line: Pick<SaleLine, 'salePrice' | 'taxPercent' | 'taxInclusive' | 'whtPercent' | 'quantity'>
+  line: Pick<
+    SaleLine,
+    'salePrice' | 'taxPercent' | 'taxInclusive' | 'whtPercent' | 'quantity' | 'fixedAmounts'
+  >
 ) {
-  const entered = line.salePrice * line.quantity
-  const inclusive = line.taxInclusive && line.taxPercent > 0
-  // Inclusive: entered price already contains sales tax — extract the ex-tax base.
-  const base = inclusive ? entered / (1 + line.taxPercent / 100) : entered
-  const tax = inclusive ? entered - base : (base * line.taxPercent) / 100
-  const wht = (base * line.whtPercent) / 100
-  return { base, tax, wht, total: base + tax + wht }
+  if (line.fixedAmounts) {
+    return {
+      base: line.fixedAmounts.base,
+      tax: line.fixedAmounts.tax,
+      wht: line.fixedAmounts.wht,
+      total: line.fixedAmounts.total
+    }
+  }
+
+  const entered = roundAmount(line.salePrice * line.quantity)
+  const taxPercent = Number(line.taxPercent || 0)
+  const whtPercent = Number(line.whtPercent || 0)
+  // Inclusive: entered price already contains sales tax and Tax u/s 236 G/H.
+  const inclusive = Boolean(line.taxInclusive) && (taxPercent > 0 || whtPercent > 0)
+  const factor = 1 + taxPercent / 100 + whtPercent / 100
+
+  if (inclusive) {
+    const base = roundAmount(entered / factor)
+    let tax: number
+    let wht: number
+    // Keep total = entered; put leftover paisa into the last tax component.
+    if (taxPercent > 0 && whtPercent > 0) {
+      tax = roundAmount((base * taxPercent) / 100)
+      wht = roundAmount(entered - base - tax)
+    } else if (whtPercent > 0) {
+      tax = 0
+      wht = roundAmount(entered - base)
+    } else {
+      tax = roundAmount(entered - base)
+      wht = 0
+    }
+    return { base, tax, wht, total: entered }
+  }
+
+  const base = entered
+  const tax = roundAmount((base * taxPercent) / 100)
+  const wht = roundAmount((base * whtPercent) / 100)
+  return { base, tax, wht, total: roundAmount(base + tax + wht) }
 }
 
 function calcLineTotal(
-  line: Pick<SaleLine, 'salePrice' | 'taxPercent' | 'taxInclusive' | 'whtPercent' | 'quantity'>
+  line: Pick<
+    SaleLine,
+    'salePrice' | 'taxPercent' | 'taxInclusive' | 'whtPercent' | 'quantity' | 'fixedAmounts'
+  >
 ) {
-  return roundAmount(calcLineAmounts(line).total)
+  return calcLineAmounts(line).total
+}
+
+/** Pricing fields for create/update API — keep frozen edit totals via inclusive resubmit. */
+function lineApiPricing(l: SaleLine) {
+  if (l.fixedAmounts) {
+    return {
+      salePrice: roundAmount(l.fixedAmounts.total / Math.max(1, l.quantity)),
+      taxInclusive: true,
+      taxPercent: l.taxPercent,
+      whtPercent: l.whtPercent
+    }
+  }
+  return {
+    salePrice: l.salePrice,
+    taxInclusive: l.taxInclusive,
+    taxPercent: l.taxPercent,
+    whtPercent: l.whtPercent
+  }
 }
 
 function calcDueAmount(grossTotal: number, paid: number, discount: number) {
@@ -201,6 +264,11 @@ export const NewSale = () => {
         setLines(
           (detail.lines || []).map((line: any) => {
             const lineTypeValue: SaleLineType = line.lineType === 'part' ? 'part' : 'product'
+            const quantity = Number(line.quantity || 1)
+            const base = Number(line.salePrice || 0) * quantity
+            const tax = Number(line.taxAmount || 0)
+            const wht = Number(line.whtAmount || 0)
+            const total = Number(line.lineTotal != null ? line.lineTotal : base + tax + wht)
             return {
               key: line.id,
               id: line.id,
@@ -211,16 +279,23 @@ export const NewSale = () => {
               productName: line.productName || '—',
               categoryName: line.categoryName || '—',
               colorName: line.colorName || undefined,
-              quantity: Number(line.quantity || 1),
+              quantity,
               salePrice: Number(line.salePrice || 0),
               taxPercent: Number(line.taxPercent || 0),
-              // Stored salePrice is always the ex-tax base, so edits load as exclusive.
+              // Stored salePrice is the ex-tax base; keep exclusive in the form until re-edited.
               taxInclusive: false,
               whtPercent: Number(line.whtPercent || 0),
               warrantyActive: Boolean(line.warrantyActive),
+              warrantyYears: line.warrantyYears != null ? Number(line.warrantyYears) : undefined,
               warrantyExpiryDate: line.warrantyExpiryDate
                 ? dayjs(line.warrantyExpiryDate).format('YYYY-MM-DD')
-                : undefined
+                : undefined,
+              fixedAmounts: {
+                base: roundAmount(base),
+                tax: roundAmount(tax),
+                wht: roundAmount(wht),
+                total: roundAmount(total)
+              }
             }
           })
         )
@@ -310,9 +385,10 @@ export const NewSale = () => {
       lineForm.setFieldsValue({
         salePrice: Number(selectedItem.sellingPrice || selectedItem.purchasePrice || 0),
         warrantyActive: Boolean(selectedItem.warrantyActive),
-        warrantyExpiryDate: selectedItem.warrantyExpiryDate
-          ? dayjs(selectedItem.warrantyExpiryDate)
-          : undefined,
+        warrantyYears:
+          selectedItem.warrantyYears != null
+            ? Number(selectedItem.warrantyYears)
+            : undefined,
         quantity: 1
       })
     }
@@ -328,7 +404,7 @@ export const NewSale = () => {
         ),
         quantity: 1,
         warrantyActive: false,
-        warrantyExpiryDate: undefined
+        warrantyYears: undefined
       })
     }
   }, [selectedPartStock, lineForm, editingKey])
@@ -379,9 +455,18 @@ export const NewSale = () => {
   }
 
   const addProductLine = async () => {
-    const values = await lineForm.validateFields(['productItemId', 'salePrice', 'taxPercent', 'taxInclusive', 'whtPercent', 'warrantyActive', 'warrantyExpiryDate'])
+    const values = await validateAndScroll(lineForm, [
+      'productItemId',
+      'salePrice',
+      'taxPercent',
+      'taxInclusive',
+      'whtPercent',
+      'warrantyActive',
+      'warrantyYears'
+    ])
     const item = productItemFromForm(values.productItemId)
     if (!item) {
+      focusFormFieldError(lineForm, 'productItemId', 'Select a valid unit')
       message.error('Select a valid unit')
       return
     }
@@ -393,13 +478,27 @@ export const NewSale = () => {
           (!editingKey || l.key !== editingKey)
       )
     ) {
+      focusFormFieldError(lineForm, 'productItemId', 'Unit already added to this sale')
       message.error('Unit already added to this sale')
       return
     }
-    if (values.warrantyActive && !values.warrantyExpiryDate) {
-      message.error('Warranty expiry is required when warranty is active')
+    if (values.warrantyActive && !(Number(values.warrantyYears) >= 1)) {
+      focusFormFieldError(
+        lineForm,
+        'warrantyYears',
+        'Warranty years (at least 1) required when warranty is active'
+      )
+      message.error('Warranty years (at least 1) required when warranty is active')
       return
     }
+
+    const saleDate = headerForm.getFieldValue('saleDate')
+    const baseDate = saleDate ? dayjs(saleDate) : dayjs()
+    const warrantyYears = values.warrantyActive ? Math.floor(Number(values.warrantyYears)) : undefined
+    const warrantyExpiryDate =
+      values.warrantyActive && warrantyYears
+        ? baseDate.add(warrantyYears, 'year').format('YYYY-MM-DD')
+        : undefined
 
     const nextLine: SaleLine = {
       key: editingKey || `product-${item.id}`,
@@ -415,9 +514,8 @@ export const NewSale = () => {
       taxInclusive: Boolean(values.taxInclusive),
       whtPercent: Number(values.whtPercent || 0),
       warrantyActive: Boolean(values.warrantyActive),
-      warrantyExpiryDate: values.warrantyActive
-        ? values.warrantyExpiryDate.format('YYYY-MM-DD')
-        : undefined
+      warrantyYears,
+      warrantyExpiryDate
     }
 
     if (editingKey) {
@@ -446,14 +544,23 @@ export const NewSale = () => {
       .reduce((sum, l) => sum + l.quantity, 0)
 
   const addPartLine = async () => {
-    const values = await lineForm.validateFields(['partId', 'quantity', 'salePrice', 'taxPercent', 'taxInclusive', 'whtPercent'])
+    const values = await validateAndScroll(lineForm, [
+      'partId',
+      'quantity',
+      'salePrice',
+      'taxPercent',
+      'taxInclusive',
+      'whtPercent'
+    ])
     const stock = partStocks.find((s) => s.partId === values.partId)
     if (!stock) {
+      focusFormFieldError(lineForm, 'partId', 'Select a valid part')
       message.error('Select a valid part')
       return
     }
     const quantity = Math.floor(Number(values.quantity))
     if (!Number.isFinite(quantity) || quantity <= 0) {
+      focusFormFieldError(lineForm, 'quantity', 'Quantity must be a positive whole number')
       message.error('Quantity must be a positive whole number')
       return
     }
@@ -461,6 +568,11 @@ export const NewSale = () => {
     const alreadyOnSale = partQtyOnSale(stock.partId, editingKey)
     const effectiveAvailable = available + (isEdit ? alreadyOnSale : 0)
     if (quantity > effectiveAvailable) {
+      focusFormFieldError(
+        lineForm,
+        'quantity',
+        `Only ${effectiveAvailable} unit(s) available for this part`
+      )
       message.error(`Only ${effectiveAvailable} unit(s) available for this part`)
       return
     }
@@ -499,6 +611,11 @@ export const NewSale = () => {
     if (existingIdx >= 0) {
       const requestedTotal = partQtyOnSale(stock.partId) + quantity
       if (requestedTotal > effectiveAvailable) {
+        focusFormFieldError(
+          lineForm,
+          'quantity',
+          `Only ${effectiveAvailable} unit(s) available for this part`
+        )
         message.error(`Only ${effectiveAvailable} unit(s) available for this part`)
         return
       }
@@ -531,6 +648,12 @@ export const NewSale = () => {
     setEditingKey(line.key)
     setLineType(line.lineType)
 
+    // Prefer the frozen customer-facing total so re-saving does not reintroduce rounding drift.
+    const editSalePrice = line.fixedAmounts
+      ? roundAmount(line.fixedAmounts.total / Math.max(1, line.quantity))
+      : line.salePrice
+    const editTaxInclusive = line.fixedAmounts ? true : line.taxInclusive
+
     if (line.lineType === 'product') {
       if (line.productItemId) {
         try {
@@ -551,12 +674,12 @@ export const NewSale = () => {
       lineForm.setFieldsValue({
         productItemId: line.productItemId,
         serialSearch: line.productItemId,
-        salePrice: line.salePrice,
+        salePrice: editSalePrice,
         taxPercent: line.taxPercent,
-        taxInclusive: line.taxInclusive,
+        taxInclusive: editTaxInclusive,
         whtPercent: line.whtPercent,
         warrantyActive: line.warrantyActive,
-        warrantyExpiryDate: line.warrantyExpiryDate ? dayjs(line.warrantyExpiryDate) : undefined
+        warrantyYears: line.warrantyYears
       })
       return
     }
@@ -564,12 +687,12 @@ export const NewSale = () => {
     lineForm.setFieldsValue({
       partId: line.partId,
       quantity: line.quantity,
-      salePrice: line.salePrice,
+      salePrice: editSalePrice,
       taxPercent: line.taxPercent,
-      taxInclusive: line.taxInclusive,
+      taxInclusive: editTaxInclusive,
       whtPercent: line.whtPercent,
       warrantyActive: false,
-      warrantyExpiryDate: undefined
+      warrantyYears: undefined
     })
   }
 
@@ -594,10 +717,15 @@ export const NewSale = () => {
     if (editingKey === key) cancelEditLine()
   }
 
-  const subtotal = roundAmount(lines.reduce((s, l) => s + calcLineAmounts(l).base, 0))
-  const totalTax = roundAmount(lines.reduce((s, l) => s + calcLineAmounts(l).tax, 0))
-  const totalWht = roundAmount(lines.reduce((s, l) => s + calcLineAmounts(l).wht, 0))
-  const grossTotal = roundAmount(subtotal + totalTax + totalWht)
+  const subtotal = lines.reduce((s, l) => s + calcLineAmounts(l).base, 0)
+  const totalTax = lines.reduce((s, l) => s + calcLineAmounts(l).tax, 0)
+  const totalWht = lines.reduce((s, l) => s + calcLineAmounts(l).wht, 0)
+  const grossTotal = lines.reduce((s, l) => s + calcLineAmounts(l).total, 0)
+  const anyTaxInclusive = lines.some(
+    (l) =>
+      Boolean(l.fixedAmounts) ||
+      (l.taxInclusive && (Number(l.taxPercent) > 0 || Number(l.whtPercent) > 0))
+  )
   const maxDiscount = Math.max(0, roundAmount(grossTotal - effectivePaid))
 
   useEffect(() => {
@@ -647,21 +775,28 @@ export const NewSale = () => {
   const handleSubmit = async () => {
     if (!lines.length) {
       message.error('Add at least one line')
+      scrollToElementId('sale-line-form')
       return
     }
-    const header = await headerForm.validateFields()
+    let header: any
+    try {
+      header = await validateAndScroll(headerForm)
+    } catch {
+      return
+    }
     const paid = isEdit ? recordedPaid : Number(header.paidAmount || 0)
     const discount = Number(header.discount || 0)
     const due = calcDueAmount(grossTotal, paid, discount)
     if (roundAmount(paid + discount) > grossTotal) {
-      message.error(
-        isEdit
-          ? 'Discount cannot exceed sale total minus recorded payments'
-          : 'Paid amount + discount cannot exceed sale total'
-      )
+      const msg = isEdit
+        ? 'Discount cannot exceed sale total minus recorded payments'
+        : 'Paid amount + discount cannot exceed sale total'
+      focusFormFieldError(headerForm, isEdit ? 'discount' : 'paidAmount', msg)
+      message.error(msg)
       return
     }
     if (due > 0 && !header.dueReminderDate) {
+      focusFormFieldError(headerForm, 'dueReminderDate', 'Select a due reminder date')
       message.error('Select a due reminder date')
       return
     }
@@ -673,29 +808,25 @@ export const NewSale = () => {
         discount,
         notes: header.notes?.trim() || undefined,
         dueReminderDate: due > 0 ? header.dueReminderDate.format('YYYY-MM-DD') : undefined,
-        lines: lines.map((l) =>
-          l.lineType === 'product'
+        lines: lines.map((l) => {
+          const pricing = lineApiPricing(l)
+          return l.lineType === 'product'
             ? {
                 lineType: 'product',
                 productItemId: l.productItemId,
                 quantity: 1,
-                salePrice: l.salePrice,
-                taxPercent: l.taxPercent,
-                taxInclusive: l.taxInclusive,
-                whtPercent: l.whtPercent,
+                ...pricing,
                 warrantyActive: l.warrantyActive,
+                warrantyYears: l.warrantyYears,
                 warrantyExpiryDate: l.warrantyExpiryDate
               }
             : {
                 lineType: 'part',
                 partId: l.partId,
                 quantity: l.quantity,
-                salePrice: l.salePrice,
-                taxPercent: l.taxPercent,
-                taxInclusive: l.taxInclusive,
-                whtPercent: l.whtPercent
+                ...pricing
               }
-        )
+        })
       }
 
       const res: any = isEdit
@@ -776,7 +907,7 @@ export const NewSale = () => {
       />
 
       <Card bordered={false} className="shadow-sm mb-4">
-        <Form form={headerForm} layout="vertical">
+        <Form form={headerForm} layout="vertical" scrollToFirstError>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Form.Item name="customerId" label="Customer" rules={[{ required: true, message: 'Select customer' }]}>
               <Select
@@ -807,6 +938,7 @@ export const NewSale = () => {
       </Card>
 
       <Card
+        id="sale-line-form"
         title={editingKey ? (lineType === 'part' ? 'Edit part line' : 'Edit product line') : 'Add line'}
         bordered={false}
         className="shadow-sm mb-4"
@@ -819,7 +951,12 @@ export const NewSale = () => {
             { key: 'part', label: 'Part' }
           ]}
         />
-        <Form form={lineForm} layout="vertical" initialValues={{ taxPercent: 0, taxInclusive: true, whtPercent: 0, warrantyActive: false, quantity: 1 }}>
+        <Form
+          form={lineForm}
+          layout="vertical"
+          scrollToFirstError
+          initialValues={{ taxPercent: 0, taxInclusive: true, whtPercent: 0, warrantyActive: false, quantity: 1 }}
+        >
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
             {lineType === 'product' ? (
               <>
@@ -846,8 +983,13 @@ export const NewSale = () => {
                 <Form.Item label="Category">
                   <Input value={selectedItem?.category?.name || '—'} disabled />
                 </Form.Item>
-                <Form.Item name="salePrice" label="Sale Price" rules={[{ required: true }]}>
-                  <InputNumber className="w-full" min={0} style={{ width: '100%' }} disabled />
+                <Form.Item
+                  name="salePrice"
+                  label="Sale Price"
+                  rules={[{ required: true }]}
+                  tooltip="Defaults to retail; you can charge more (or any amount)."
+                >
+                  <InputNumber className="w-full" min={0} style={{ width: '100%' }} />
                 </Form.Item>
               </>
             ) : (
@@ -926,10 +1068,19 @@ export const NewSale = () => {
                 />
               </Form.Item>
             </Form.Item>
-            <Form.Item name="whtPercent" label="WHT %">
+            <Form.Item
+              name="whtPercent"
+              label="Tax u/s 236 G/H %"
+              tooltip="Withholding tax under section 236 G/H"
+            >
               <InputNumber className="w-full" min={0} max={100} style={{ width: '100%' }} />
             </Form.Item>
-            <Form.Item name="taxInclusive" label="Tax Inclusive" valuePropName="checked">
+            <Form.Item
+              name="taxInclusive"
+              label="Tax Inclusive"
+              valuePropName="checked"
+              tooltip="Applies to Sales Tax and Tax u/s 236 G/H"
+            >
               <Switch />
             </Form.Item>
             {lineType === 'product' && (
@@ -938,8 +1089,22 @@ export const NewSale = () => {
                   <Switch />
                 </Form.Item>
                 {warrantyActive && (
-                  <Form.Item name="warrantyExpiryDate" label="Warranty Expiry" rules={[{ required: true }]}>
-                    <DatePicker className="w-full" style={{ width: '100%' }} />
+                  <Form.Item
+                    name="warrantyYears"
+                    label="Warranty (years)"
+                    rules={[
+                      { required: true, message: 'Enter warranty years' },
+                      { type: 'number', min: 1, message: 'Must be at least 1 year' }
+                    ]}
+                    extra="Expiry is calculated from the sale date"
+                  >
+                    <InputNumber
+                      className="w-full"
+                      min={1}
+                      step={1}
+                      precision={0}
+                      style={{ width: '100%' }}
+                    />
                   </Form.Item>
                 )}
               </>
@@ -959,6 +1124,8 @@ export const NewSale = () => {
           rowKey="key"
           dataSource={lines}
           pagination={false}
+          scroll={{ x: 'max-content' }}
+          className="[&_.ant-table-cell]:!whitespace-nowrap"
           locale={{ emptyText: 'No lines added yet' }}
           columns={[
             {
@@ -993,7 +1160,12 @@ export const NewSale = () => {
               render: (v: number, r: SaleLine) =>
                 r.taxInclusive && v > 0 ? `${v} (incl.)` : v
             },
-            { title: 'WHT %', dataIndex: 'whtPercent' },
+            {
+              title: 'Tax u/s 236 G/H %',
+              dataIndex: 'whtPercent',
+              render: (v: number, r: SaleLine) =>
+                r.taxInclusive && v > 0 ? `${v} (incl.)` : v
+            },
             {
               title: 'Line Total',
               align: 'right' as const,
@@ -1004,13 +1176,14 @@ export const NewSale = () => {
               render: (_: unknown, r: SaleLine) =>
                 r.lineType === 'product'
                   ? r.warrantyActive
-                    ? `Yes · ${r.warrantyExpiryDate}`
+                    ? `${r.warrantyYears || '—'} yr${r.warrantyExpiryDate ? ` · ${r.warrantyExpiryDate}` : ''}`
                     : 'No'
                   : '—'
             },
             {
               title: '',
               width: 88,
+              fixed: 'right' as const,
               render: (_: unknown, r: SaleLine) =>
                 r.locked ? (
                   <Space size={0}>
@@ -1033,6 +1206,7 @@ export const NewSale = () => {
         <Form
           form={headerForm}
           layout="vertical"
+          scrollToFirstError
           className="mt-4 pt-4 border-t border-slate-100"
           onValuesChange={handlePaymentValuesChange}
         >
@@ -1127,11 +1301,11 @@ export const NewSale = () => {
                   <span className="font-medium text-slate-800">{formatRs(subtotal)}</span>
                 </div>
                 <div className="flex justify-between gap-6 text-slate-600">
-                  <span>Tax</span>
+                  <span>Tax{anyTaxInclusive ? ' (incl.)' : ''}</span>
                   <span className="font-medium text-emerald-700">+ {formatRs(totalTax)}</span>
                 </div>
                 <div className="flex justify-between gap-6 text-slate-600">
-                  <span>WHT</span>
+                  <span>Tax u/s 236 G/H{anyTaxInclusive ? ' (incl.)' : ''}</span>
                   <span className="font-medium text-emerald-700">+ {formatRs(totalWht)}</span>
                 </div>
                 {discountAmount > 0 && (

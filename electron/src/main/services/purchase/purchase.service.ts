@@ -29,7 +29,34 @@ export type PurchaseLineInput = {
   specialDiscount?: number
   specialDiscountType?: 'pkr' | 'percent'
   warrantyActive?: boolean
+  /** Integer years of warranty; expiry is computed from purchase date. */
+  warrantyYears?: number
+  /** @deprecated Prefer warrantyYears; kept for older clients. */
   warrantyExpiryDate?: string
+}
+
+function resolvePurchaseWarranty(
+  purchaseDate: Date,
+  warrantyActive: boolean,
+  warrantyYears?: number,
+  warrantyExpiryDate?: string
+): { warrantyActive: boolean; warrantyYears: number | null; warrantyExpiry: Date | null } {
+  if (!warrantyActive) {
+    return { warrantyActive: false, warrantyYears: null, warrantyExpiry: null }
+  }
+  const years = Math.floor(Number(warrantyYears ?? 0))
+  if (Number.isFinite(years) && years >= 1) {
+    const expiry = new Date(purchaseDate)
+    expiry.setFullYear(expiry.getFullYear() + years)
+    return { warrantyActive: true, warrantyYears: years, warrantyExpiry: expiry }
+  }
+  if (warrantyExpiryDate) {
+    const expiry = new Date(warrantyExpiryDate)
+    if (!Number.isNaN(expiry.getTime())) {
+      return { warrantyActive: true, warrantyYears: null, warrantyExpiry: expiry }
+    }
+  }
+  throw new Error('Warranty years (whole number ≥ 1) required when warranty is active')
 }
 
 function lineSpecialDiscount(line: PurchaseLineInput): { discount: number; type: 'pkr' | 'percent' } {
@@ -236,12 +263,12 @@ class PurchaseService {
           .first()
         if (!product) throw new Error('Invalid product selected')
 
-        const warrantyActive = Boolean(line.warrantyActive)
-        const warrantyExpiry =
-          warrantyActive && line.warrantyExpiryDate ? new Date(line.warrantyExpiryDate) : null
-        if (warrantyActive && !warrantyExpiry) {
-          throw new Error(`Warranty expiry required for serial ${line.serialNumber}`)
-        }
+        const warranty = resolvePurchaseWarranty(
+          purchaseDate,
+          Boolean(line.warrantyActive),
+          line.warrantyYears,
+          line.warrantyExpiryDate
+        )
 
         const special = lineSpecialDiscount(line)
         const netCost = Number(line.purchasePrice || 0)
@@ -266,8 +293,9 @@ class PurchaseService {
             special_discount: special.discount,
             special_discount_type: special.type,
             status: ProductItemStatus.IN_STOCK,
-            warranty_active: warrantyActive,
-            warranty_expiry_date: warrantyExpiry,
+            warranty_active: warranty.warrantyActive,
+            warranty_years: warranty.warrantyYears,
+            warranty_expiry_date: warranty.warrantyExpiry,
             purchased_at: purchaseDate,
             version: 1,
             ...itemAudit,
@@ -416,12 +444,12 @@ class PurchaseService {
             .first()
           if (!product) throw new Error('Invalid product selected')
 
-          const warrantyActive = Boolean(line.warrantyActive)
-          const warrantyExpiry =
-            warrantyActive && line.warrantyExpiryDate ? new Date(line.warrantyExpiryDate) : null
-          if (warrantyActive && !warrantyExpiry) {
-            throw new Error(`Warranty expiry required for serial ${line.serialNumber}`)
-          }
+          const warranty = resolvePurchaseWarranty(
+            purchaseDate,
+            Boolean(line.warrantyActive),
+            line.warrantyYears,
+            line.warrantyExpiryDate
+          )
 
           const special = lineSpecialDiscount(line)
           const netCost = Number(line.purchasePrice || 0)
@@ -442,8 +470,9 @@ class PurchaseService {
               selling_price: retail,
               special_discount: special.discount,
               special_discount_type: special.type,
-              warranty_active: warrantyActive,
-              warranty_expiry_date: warrantyExpiry,
+              warranty_active: warranty.warrantyActive,
+              warranty_years: warranty.warrantyYears,
+              warranty_expiry_date: warranty.warrantyExpiry,
               purchased_at: purchaseDate,
               ...auditUpdate(ctx)
             })
@@ -464,12 +493,12 @@ class PurchaseService {
           .first()
         if (!product) throw new Error('Invalid product selected')
 
-        const warrantyActive = Boolean(line.warrantyActive)
-        const warrantyExpiry =
-          warrantyActive && line.warrantyExpiryDate ? new Date(line.warrantyExpiryDate) : null
-        if (warrantyActive && !warrantyExpiry) {
-          throw new Error(`Warranty expiry required for serial ${line.serialNumber}`)
-        }
+        const warranty = resolvePurchaseWarranty(
+          purchaseDate,
+          Boolean(line.warrantyActive),
+          line.warrantyYears,
+          line.warrantyExpiryDate
+        )
 
         const special = lineSpecialDiscount(line)
         const netCost = Number(line.purchasePrice || 0)
@@ -494,8 +523,9 @@ class PurchaseService {
             special_discount: special.discount,
             special_discount_type: special.type,
             status: ProductItemStatus.IN_STOCK,
-            warranty_active: warrantyActive,
-            warranty_expiry_date: warrantyExpiry,
+            warranty_active: warranty.warrantyActive,
+            warranty_years: warranty.warrantyYears,
+            warranty_expiry_date: warranty.warrantyExpiry,
             purchased_at: purchaseDate,
             version: 1,
             ...itemAudit,

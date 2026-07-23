@@ -44,7 +44,7 @@ export const StockDetail = () => {
           </Descriptions.Item>
           <Descriptions.Item label="Warranty">
             {item.warrantyActive
-              ? `Active until ${dayjs(item.warrantyExpiryDate).format('DD MMM YYYY')}`
+              ? `${item.warrantyYears != null ? `${item.warrantyYears} yr · ` : ''}until ${dayjs(item.warrantyExpiryDate).format('DD MMM YYYY')}`
               : 'Inactive'}
           </Descriptions.Item>
           <Descriptions.Item label="Supplier">{item.purchase?.supplier?.name || '—'}</Descriptions.Item>

@@ -152,7 +152,7 @@ export function ThermalReceipt({ data }: { data: ThermalReceiptData }) {
               )}
               {line.whtAmount > 0 && (
                 <div className="thermal-item__breakdown">
-                  <span>WHT 236 G/H</span>
+                  <span>Tax u/s 236 G/H</span>
                   <span>{fmt(line.whtAmount)}</span>
                 </div>
               )}
@@ -166,7 +166,7 @@ export function ThermalReceipt({ data }: { data: ThermalReceiptData }) {
       <section className="thermal-summary">
         <Row label="Subtotal" value={fmt(data.subtotal)} />
         {data.totalTax > 0 && <Row label="Sales Tax" value={fmt(data.totalTax)} />}
-        {data.totalWht > 0 && <Row label="WHT" value={fmt(data.totalWht)} />}
+        {data.totalWht > 0 && <Row label="Tax u/s 236 G/H" value={fmt(data.totalWht)} />}
       </section>
 
       <div className="thermal-grand-total">

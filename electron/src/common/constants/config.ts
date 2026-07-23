@@ -3,8 +3,8 @@
  * Only API_BASE_URL is read from process.env — everything else is static for local POS.
  */
 
-export const API_BASE_URL = "https://api.volt.madixsoft.com/api"
-// export const API_BASE_URL = "http://localhost:4000/api"
+// export const API_BASE_URL = "https://api.volt.madixsoft.com/api"
+export const API_BASE_URL = "http://localhost:4000/api"
 
 /** Local Postgres credentials (company database name is chosen at login). */
 export const LOCAL_PG = {
