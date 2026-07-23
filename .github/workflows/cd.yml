@@ -21,7 +21,7 @@ permissions:
   contents: read
 
 env:
-  DEPLOY_PATH: /tmp/ops/volt-app
+  DEPLOY_PATH: /tmp/op/volt-app
   VITE_API_URL: https://api.volt.madixsoft.com/api
 
 jobs:
