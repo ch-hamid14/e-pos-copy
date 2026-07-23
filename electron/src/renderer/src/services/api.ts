@@ -28,6 +28,28 @@ export const colorAPI = masterDataAPI(Channels.COLORS)
 export const supplierAPI = masterDataAPI(Channels.SUPPLIERS)
 export const categoryAPI = masterDataAPI(Channels.CATEGORIES)
 
+export const taxAPI = {
+  list: (companyId: string, search?: string) =>
+    ipcCall(`GET:${Channels.TAXES}`, { query: { companyId, search } }),
+  create: (
+    companyId: string,
+    audit: SessionAudit,
+    data: { name: string; defaultPercent?: number; inclusiveDefault?: boolean }
+  ) => ipcCall(`POST:${Channels.TAXES}`, { body: auditBody(audit, { companyId, data }) }),
+  update: (
+    id: string,
+    companyId: string,
+    audit: SessionAudit,
+    data: { name?: string; defaultPercent?: number; inclusiveDefault?: boolean }
+  ) =>
+    ipcCall(`PUT:${Channels.TAXES}`, {
+      params: { id },
+      body: auditBody(audit, { companyId, ...data })
+    }),
+  remove: (id: string, companyId: string, audit: SessionAudit) =>
+    ipcCall(`DELETE:${Channels.TAXES}`, { params: { id }, body: auditBody(audit, { companyId }) })
+}
+
 export const productAPI = {
   list: (companyId: string, search?: string, categoryId?: string) =>
     ipcCall(`GET:${Channels.PRODUCTS}`, { query: { companyId, search, categoryId } }),

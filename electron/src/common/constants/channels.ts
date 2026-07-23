@@ -4,6 +4,7 @@ export enum Channels {
   COLORS = 'colors',
   SUPPLIERS = 'suppliers',
   CATEGORIES = 'categories',
+  TAXES = 'taxes',
   PRODUCTS = 'products',
   PARTS = 'parts',
   PURCHASES = 'purchases',

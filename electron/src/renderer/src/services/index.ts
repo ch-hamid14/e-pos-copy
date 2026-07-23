@@ -4,6 +4,7 @@ export {
   colorAPI,
   supplierAPI,
   categoryAPI,
+  taxAPI,
   productAPI,
   partAPI,
   purchaseAPI,

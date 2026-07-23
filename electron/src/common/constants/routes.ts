@@ -3,6 +3,7 @@ export enum App_Routes {
   SETUP_COLORS = '/setup/colors',
   SETUP_SUPPLIERS = '/setup/suppliers',
   SETUP_CATEGORIES = '/setup/categories',
+  SETUP_TAXES = '/setup/taxes',
   SETUP_PRODUCTS = '/setup/products',
   SETUP_PARTS = '/setup/parts',
   CUSTOMERS = '/customers',

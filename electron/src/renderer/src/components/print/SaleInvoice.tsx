@@ -15,6 +15,7 @@ export type SaleInvoiceLine = {
   taxPercent: number
   taxAmount: number
   whtAmount: number
+  customTaxes?: { taxId?: string; name: string; percent?: number; amount: number; inclusive?: boolean }[]
   lineTotal: number
 }
 
@@ -70,6 +71,20 @@ export function mapSaleDetailToInvoice(detail: any, companyName: string): SaleIn
     const extended = roundInvoiceAmount(unitPrice * quantity)
     const taxAmount = roundInvoiceAmount(line.taxAmount ?? 0)
     const whtAmount = roundInvoiceAmount(line.whtAmount ?? 0)
+    const customTaxes = (line.customTaxes || []).map((t: any) => ({
+      taxId: t.taxId || undefined,
+      name: String(t.name || 'Tax'),
+      percent: t.percent != null ? Number(t.percent) : undefined,
+      amount: roundInvoiceAmount(t.amount ?? 0),
+      inclusive: Boolean(t.inclusive)
+    }))
+    const otherTax = roundInvoiceAmount(
+      customTaxes.reduce((s: number, t: { amount: number }) => s + t.amount, 0)
+    )
+    const lineTotal =
+      line.lineTotal != null
+        ? roundInvoiceAmount(line.lineTotal)
+        : roundInvoiceAmount(extended + taxAmount + whtAmount + otherTax)
 
     return {
       lineType: line.lineType === 'part' ? 'part' : 'product',
@@ -84,7 +99,8 @@ export function mapSaleDetailToInvoice(detail: any, companyName: string): SaleIn
       taxPercent: Number(line.taxPercent ?? 0),
       taxAmount,
       whtAmount,
-      lineTotal: roundInvoiceAmount(extended + taxAmount + whtAmount)
+      customTaxes,
+      lineTotal
     }
   })
 
@@ -178,6 +194,21 @@ export function SaleInvoice({ data }: { data: SaleInvoiceData }) {
                           <span>Tax u/s 236 G/H</span>
                           <span>{formatInvoicePrice(line.whtAmount)}</span>
                         </div>
+                        {(line.customTaxes || []).map((tax, ti) =>
+                          Number(tax.amount) > 0 ? (
+                            <div
+                              key={`${tax.taxId || tax.name}-${ti}`}
+                              className="sale-invoice-breakdown-row"
+                            >
+                              <span>
+                                {tax.name}
+                                {tax.percent != null ? ` @ ${tax.percent}%` : ''}
+                                {tax.inclusive ? ' (incl.)' : ''}
+                              </span>
+                              <span>{formatInvoicePrice(tax.amount)}</span>
+                            </div>
+                          ) : null
+                        )}
                       </div>
                       <div className="sale-invoice-particulars-desc">{description}</div>
                     </div>

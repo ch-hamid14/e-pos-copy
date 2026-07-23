@@ -10,6 +10,7 @@ export const SYNC_TABLES = [
   'colors',
   'suppliers',
   'categories',
+  'taxes',
   'products',
   'purchases',
   'product_items',
@@ -24,6 +25,7 @@ export const SYNC_TABLES = [
   'ledger_entries',
   'sales',
   'sale_lines',
+  'sale_line_taxes',
   'payments',
   'expense_categories',
   'expenses'
@@ -45,6 +47,7 @@ export const TABLE_AUDIT_COLUMNS: Record<SyncTable, readonly string[]> = {
   colors: AUDIT_COLUMNS,
   suppliers: AUDIT_COLUMNS,
   categories: AUDIT_COLUMNS,
+  taxes: AUDIT_COLUMNS,
   products: AUDIT_COLUMNS,
   purchases: [...AUDIT_COLUMNS, 'device_id'],
   product_items: AUDIT_COLUMNS,
@@ -59,6 +62,7 @@ export const TABLE_AUDIT_COLUMNS: Record<SyncTable, readonly string[]> = {
   ledger_entries: ['created_by', 'updated_by'],
   sales: [...AUDIT_COLUMNS, 'device_id'],
   sale_lines: ['created_by', 'updated_by'],
+  sale_line_taxes: AUDIT_COLUMNS,
   payments: ['created_by', 'updated_by'],
   expense_categories: AUDIT_COLUMNS,
   expenses: [...AUDIT_COLUMNS, 'device_id']

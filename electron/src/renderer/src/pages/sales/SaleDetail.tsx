@@ -193,8 +193,21 @@ export const SaleDetail = () => {
             },
             { title: 'Color', dataIndex: 'colorName', render: (v) => v || '—' },
             { title: 'Unit price', dataIndex: 'salePrice', align: 'right' as const, render: formatRs },
-            { title: 'Tax', dataIndex: 'taxAmount', align: 'right' as const, render: formatRs },
+            { title: 'Sale Tax', dataIndex: 'taxAmount', align: 'right' as const, render: formatRs },
             { title: 'Tax u/s 236 G/H', dataIndex: 'whtAmount', align: 'right' as const, render: formatRs },
+            {
+              title: 'Other taxes',
+              render: (_: unknown, r: any) => {
+                const taxes = r.customTaxes || []
+                if (!taxes.length) return '—'
+                return taxes
+                  .map(
+                    (t: any) =>
+                      `${t.name}${t.percent != null ? ` ${t.percent}%` : ''}: ${formatRs(t.amount)}`
+                  )
+                  .join(' · ')
+              }
+            },
             { title: 'Total', dataIndex: 'lineTotal', align: 'right' as const, render: formatRs }
           ]}
         />

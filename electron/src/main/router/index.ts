@@ -6,6 +6,7 @@ import {
   colorController,
   supplierController,
   categoryController,
+  taxController,
   productController,
   partController,
   partPurchaseController,
@@ -46,6 +47,11 @@ ipcMain.handle(`GET:${Channels.CATEGORIES}`, catchIpcHandler(categoryController.
 ipcMain.handle(`POST:${Channels.CATEGORIES}`, catchIpcHandler(categoryController.create))
 ipcMain.handle(`PUT:${Channels.CATEGORIES}`, catchIpcHandler(categoryController.update))
 ipcMain.handle(`DELETE:${Channels.CATEGORIES}`, catchIpcHandler(categoryController.remove))
+
+ipcMain.handle(`GET:${Channels.TAXES}`, catchIpcHandler(taxController.list))
+ipcMain.handle(`POST:${Channels.TAXES}`, catchIpcHandler(taxController.create))
+ipcMain.handle(`PUT:${Channels.TAXES}`, catchIpcHandler(taxController.update))
+ipcMain.handle(`DELETE:${Channels.TAXES}`, catchIpcHandler(taxController.remove))
 
 ipcMain.handle(`GET:${Channels.PRODUCTS}`, catchIpcHandler(productController.list))
 ipcMain.handle(`POST:${Channels.PRODUCTS}`, catchIpcHandler(productController.create))

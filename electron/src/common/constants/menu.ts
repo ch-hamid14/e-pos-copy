@@ -30,6 +30,7 @@ export const Menus: IMenu[] = [
       { key: App_Routes.SETUP_COLORS, label: 'Colors', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
       { key: App_Routes.SETUP_SUPPLIERS, label: 'Suppliers', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
       { key: App_Routes.SETUP_CATEGORIES, label: 'Categories', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
+      { key: App_Routes.SETUP_TAXES, label: 'Taxes', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
       { key: App_Routes.SETUP_PRODUCTS, label: 'Products', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
       { key: App_Routes.SETUP_PARTS, label: 'Parts', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] }
     ]

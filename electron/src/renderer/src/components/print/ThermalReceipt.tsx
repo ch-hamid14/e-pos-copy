@@ -156,6 +156,17 @@ export function ThermalReceipt({ data }: { data: ThermalReceiptData }) {
                   <span>{fmt(line.whtAmount)}</span>
                 </div>
               )}
+              {(line.customTaxes || []).map((tax, ti) =>
+                Number(tax.amount) > 0 ? (
+                  <div key={`${tax.taxId || tax.name}-${ti}`} className="thermal-item__breakdown">
+                    <span>
+                      {tax.name}
+                      {tax.percent != null ? ` @ ${tax.percent}%` : ''}
+                    </span>
+                    <span>{fmt(tax.amount)}</span>
+                  </div>
+                ) : null
+              )}
             </article>
           )
         })}

@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import {
   Button,
   Card,
+  Checkbox,
   DatePicker,
   Form,
   Input,
@@ -21,7 +22,7 @@ import {
 import { ArrowLeftOutlined, DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { App_Routes } from '@/common'
-import { customerAPI, inventoryAPI, partStockAPI, saleAPI } from '@/renderer/services'
+import { customerAPI, inventoryAPI, partStockAPI, saleAPI, taxAPI } from '@/renderer/services'
 import { useSession } from '@/renderer/hooks/useSession'
 import { formatRs, PageHeader } from '../shared/page-ui'
 import { CustomerQuickModal } from '@/renderer/components/quick/CustomerQuickModal'
@@ -31,6 +32,11 @@ import {
   scrollToElementId,
   validateAndScroll
 } from '@/renderer/utils/formScroll'
+import {
+  calcSaleLineAmounts,
+  roundAmount,
+  type CustomTaxLine
+} from '@/renderer/utils/saleTaxCalc'
 
 const { Text } = Typography
 
@@ -51,89 +57,65 @@ type SaleLine = {
   taxPercent: number
   taxInclusive: boolean
   whtPercent: number
+  customTaxes: CustomTaxLine[]
   warrantyActive: boolean
   warrantyYears?: number
   warrantyExpiryDate?: string
   availableUnits?: number
   locked?: boolean
   /** Preserved DB amounts (edit load) so rounding does not drift until the line is re-entered. */
-  fixedAmounts?: { base: number; tax: number; wht: number; total: number }
+  fixedAmounts?: { base: number; tax: number; wht: number; other: number; total: number }
 }
 
-function roundAmount(n: number): number {
-  return Math.round(Number(n) || 0)
+function calcLineAmounts(line: SaleLine) {
+  return calcSaleLineAmounts(line)
 }
 
-function calcLineAmounts(
-  line: Pick<
-    SaleLine,
-    'salePrice' | 'taxPercent' | 'taxInclusive' | 'whtPercent' | 'quantity' | 'fixedAmounts'
-  >
-) {
-  if (line.fixedAmounts) {
-    return {
-      base: line.fixedAmounts.base,
-      tax: line.fixedAmounts.tax,
-      wht: line.fixedAmounts.wht,
-      total: line.fixedAmounts.total
-    }
-  }
-
-  const entered = roundAmount(line.salePrice * line.quantity)
-  const taxPercent = Number(line.taxPercent || 0)
-  const whtPercent = Number(line.whtPercent || 0)
-  // Inclusive: entered price already contains sales tax and Tax u/s 236 G/H.
-  const inclusive = Boolean(line.taxInclusive) && (taxPercent > 0 || whtPercent > 0)
-  const factor = 1 + taxPercent / 100 + whtPercent / 100
-
-  if (inclusive) {
-    const base = roundAmount(entered / factor)
-    let tax: number
-    let wht: number
-    // Keep total = entered; put leftover paisa into the last tax component.
-    if (taxPercent > 0 && whtPercent > 0) {
-      tax = roundAmount((base * taxPercent) / 100)
-      wht = roundAmount(entered - base - tax)
-    } else if (whtPercent > 0) {
-      tax = 0
-      wht = roundAmount(entered - base)
-    } else {
-      tax = roundAmount(entered - base)
-      wht = 0
-    }
-    return { base, tax, wht, total: entered }
-  }
-
-  const base = entered
-  const tax = roundAmount((base * taxPercent) / 100)
-  const wht = roundAmount((base * whtPercent) / 100)
-  return { base, tax, wht, total: roundAmount(base + tax + wht) }
-}
-
-function calcLineTotal(
-  line: Pick<
-    SaleLine,
-    'salePrice' | 'taxPercent' | 'taxInclusive' | 'whtPercent' | 'quantity' | 'fixedAmounts'
-  >
-) {
+function calcLineTotal(line: SaleLine) {
   return calcLineAmounts(line).total
 }
 
 /** Pricing fields for create/update API — keep frozen edit totals via inclusive resubmit. */
 function lineApiPricing(l: SaleLine) {
+  const customTaxes = (l.customTaxes || []).map((t) => ({
+    taxId: t.taxId,
+    name: t.name,
+    percent: t.percent,
+    inclusive: t.inclusive
+  }))
+
   if (l.fixedAmounts) {
+    const exclCustom = (l.customTaxes || [])
+      .filter((t) => !t.inclusive)
+      .reduce((s, t) => s + Number(t.amount || 0), 0)
+    const systemExcl = !l.taxInclusive ? l.fixedAmounts.tax + l.fixedAmounts.wht : 0
+    const exclusiveSum = exclCustom + systemExcl
+    const hasIncl =
+      l.taxInclusive || (l.customTaxes || []).some((t) => t.inclusive && Number(t.percent) > 0)
+    if (hasIncl) {
+      return {
+        salePrice: roundAmount((l.fixedAmounts.total - exclusiveSum) / Math.max(1, l.quantity)),
+        taxInclusive: l.taxInclusive,
+        taxPercent: l.taxPercent,
+        whtPercent: l.whtPercent,
+        customTaxes
+      }
+    }
     return {
-      salePrice: roundAmount(l.fixedAmounts.total / Math.max(1, l.quantity)),
-      taxInclusive: true,
+      salePrice: roundAmount(l.fixedAmounts.base / Math.max(1, l.quantity)),
+      taxInclusive: false,
       taxPercent: l.taxPercent,
-      whtPercent: l.whtPercent
+      whtPercent: l.whtPercent,
+      customTaxes
     }
   }
+
   return {
     salePrice: l.salePrice,
     taxInclusive: l.taxInclusive,
     taxPercent: l.taxPercent,
-    whtPercent: l.whtPercent
+    whtPercent: l.whtPercent,
+    customTaxes
   }
 }
 
@@ -153,6 +135,7 @@ export const NewSale = () => {
   const navigate = useNavigate()
   const { companyId, branchId, audit } = useSession()
   const [customers, setCustomers] = useState<any[]>([])
+  const [taxDefs, setTaxDefs] = useState<any[]>([])
   const [customerQuickOpen, setCustomerQuickOpen] = useState(false)
   const [customerQuickEditing, setCustomerQuickEditing] = useState<any | null>(null)
   const [searchResults, setSearchResults] = useState<any[]>([])
@@ -198,10 +181,42 @@ export const NewSale = () => {
       )
   }
 
+  const loadTaxes = () => {
+    if (!companyId) return Promise.resolve([] as any[])
+    return taxAPI
+      .list(companyId)
+      .then((rows: any) => {
+        const list = (rows as any[]) || []
+        setTaxDefs(list)
+        return list
+      })
+      .catch(() => {
+        setTaxDefs([])
+        return [] as any[]
+      })
+  }
+
+  const applyTaxDefaults = (list: any[]) => {
+    const saleTax = list.find((t) => t.code === 'sale_tax')
+    const tax236 = list.find((t) => t.code === 'tax_236_gh')
+    lineForm.setFieldsValue({
+      taxPercent: Number(saleTax?.defaultPercent ?? 0),
+      whtPercent: Number(tax236?.defaultPercent ?? 0),
+      taxInclusive: true,
+      customTaxIds: [],
+      warrantyActive: false,
+      quantity: 1,
+      salePrice: 0
+    })
+  }
+
   useEffect(() => {
     if (!companyId) return
     loadCustomers()
     loadPartStocks()
+    loadTaxes().then((list) => {
+      if (!isEdit) applyTaxDefaults(list)
+    })
     if (!isEdit) {
       headerForm.setFieldsValue({
         saleDate: dayjs(),
@@ -209,14 +224,6 @@ export const NewSale = () => {
         discount: 0,
         balance: 0,
         paymentMethod: 'cash'
-      })
-      lineForm.setFieldsValue({
-        taxPercent: 0,
-        taxInclusive: true,
-        whtPercent: 0,
-        warrantyActive: false,
-        quantity: 1,
-        salePrice: 0
       })
       setPaidAmount(0)
       setDiscountAmount(0)
@@ -268,7 +275,15 @@ export const NewSale = () => {
             const base = Number(line.salePrice || 0) * quantity
             const tax = Number(line.taxAmount || 0)
             const wht = Number(line.whtAmount || 0)
-            const total = Number(line.lineTotal != null ? line.lineTotal : base + tax + wht)
+            const customTaxes: CustomTaxLine[] = (line.customTaxes || []).map((t: any) => ({
+              taxId: t.taxId || undefined,
+              name: t.name || 'Tax',
+              percent: Number(t.percent || 0),
+              inclusive: Boolean(t.inclusive),
+              amount: Number(t.amount || 0)
+            }))
+            const other = roundAmount(customTaxes.reduce((s, t) => s + Number(t.amount || 0), 0))
+            const total = Number(line.lineTotal != null ? line.lineTotal : base + tax + wht + other)
             return {
               key: line.id,
               id: line.id,
@@ -282,9 +297,9 @@ export const NewSale = () => {
               quantity,
               salePrice: Number(line.salePrice || 0),
               taxPercent: Number(line.taxPercent || 0),
-              // Stored salePrice is the ex-tax base; keep exclusive in the form until re-edited.
-              taxInclusive: false,
+              taxInclusive: Boolean(line.taxInclusive),
               whtPercent: Number(line.whtPercent || 0),
+              customTaxes,
               warrantyActive: Boolean(line.warrantyActive),
               warrantyYears: line.warrantyYears != null ? Number(line.warrantyYears) : undefined,
               warrantyExpiryDate: line.warrantyExpiryDate
@@ -294,6 +309,7 @@ export const NewSale = () => {
                 base: roundAmount(base),
                 tax: roundAmount(tax),
                 wht: roundAmount(wht),
+                other,
                 total: roundAmount(total)
               }
             }
@@ -306,6 +322,27 @@ export const NewSale = () => {
       })
       .finally(() => setLoadingDetail(false))
   }, [id, isEdit, navigate, headerForm])
+
+  const customTaxDefs = useMemo(
+    () => taxDefs.filter((t) => !t.isSystem && !t.code),
+    [taxDefs]
+  )
+
+  const resolveCustomTaxesFromForm = (customTaxIds: unknown): CustomTaxLine[] => {
+    const ids = Array.isArray(customTaxIds) ? (customTaxIds as string[]) : []
+    return ids
+      .map((id) => {
+        const def = customTaxDefs.find((t) => t.id === id)
+        if (!def) return null
+        return {
+          taxId: def.id as string,
+          name: String(def.name),
+          percent: Number(def.defaultPercent || 0),
+          inclusive: Boolean(def.inclusiveDefault)
+        } as CustomTaxLine
+      })
+      .filter(Boolean) as CustomTaxLine[]
+  }
 
   const customerOptions = customers.map((c) => {
     const outstanding = Number(c.balance ?? 0)
@@ -423,10 +460,13 @@ export const NewSale = () => {
 
   const resetLineForm = () => {
     lineForm.resetFields()
+    const saleTax = taxDefs.find((t) => t.code === 'sale_tax')
+    const tax236 = taxDefs.find((t) => t.code === 'tax_236_gh')
     lineForm.setFieldsValue({
-      taxPercent: 0,
+      taxPercent: Number(saleTax?.defaultPercent ?? 0),
       taxInclusive: true,
-      whtPercent: 0,
+      whtPercent: Number(tax236?.defaultPercent ?? 0),
+      customTaxIds: [],
       warrantyActive: false,
       quantity: 1,
       salePrice: 0
@@ -462,7 +502,8 @@ export const NewSale = () => {
       'taxInclusive',
       'whtPercent',
       'warrantyActive',
-      'warrantyYears'
+      'warrantyYears',
+      'customTaxIds'
     ])
     const item = productItemFromForm(values.productItemId)
     if (!item) {
@@ -513,6 +554,7 @@ export const NewSale = () => {
       taxPercent: Number(values.taxPercent || 0),
       taxInclusive: Boolean(values.taxInclusive),
       whtPercent: Number(values.whtPercent || 0),
+      customTaxes: resolveCustomTaxesFromForm(values.customTaxIds),
       warrantyActive: Boolean(values.warrantyActive),
       warrantyYears,
       warrantyExpiryDate
@@ -550,7 +592,8 @@ export const NewSale = () => {
       'salePrice',
       'taxPercent',
       'taxInclusive',
-      'whtPercent'
+      'whtPercent',
+      'customTaxIds'
     ])
     const stock = partStocks.find((s) => s.partId === values.partId)
     if (!stock) {
@@ -588,6 +631,7 @@ export const NewSale = () => {
       taxPercent: Number(values.taxPercent || 0),
       taxInclusive: Boolean(values.taxInclusive),
       whtPercent: Number(values.whtPercent || 0),
+      customTaxes: resolveCustomTaxesFromForm(values.customTaxIds),
       warrantyActive: false,
       availableUnits: available
     }
@@ -628,7 +672,8 @@ export const NewSale = () => {
                 salePrice: Number(values.salePrice || 0),
                 taxPercent: Number(values.taxPercent || 0),
                 taxInclusive: Boolean(values.taxInclusive),
-                whtPercent: Number(values.whtPercent || 0)
+                whtPercent: Number(values.whtPercent || 0),
+                customTaxes: resolveCustomTaxesFromForm(values.customTaxIds)
               }
             : l
         )
@@ -650,9 +695,19 @@ export const NewSale = () => {
 
     // Prefer the frozen customer-facing total so re-saving does not reintroduce rounding drift.
     const editSalePrice = line.fixedAmounts
-      ? roundAmount(line.fixedAmounts.total / Math.max(1, line.quantity))
+      ? roundAmount(
+          (line.fixedAmounts.total -
+            (line.customTaxes || [])
+              .filter((t) => !t.inclusive)
+              .reduce((s, t) => s + Number(t.amount || 0), 0) -
+            (!line.taxInclusive ? line.fixedAmounts.tax + line.fixedAmounts.wht : 0)) /
+            Math.max(1, line.quantity)
+        )
       : line.salePrice
-    const editTaxInclusive = line.fixedAmounts ? true : line.taxInclusive
+    const editTaxInclusive = line.taxInclusive
+    const customTaxIds = (line.customTaxes || [])
+      .map((t) => t.taxId)
+      .filter(Boolean) as string[]
 
     if (line.lineType === 'product') {
       if (line.productItemId) {
@@ -678,6 +733,7 @@ export const NewSale = () => {
         taxPercent: line.taxPercent,
         taxInclusive: editTaxInclusive,
         whtPercent: line.whtPercent,
+        customTaxIds,
         warrantyActive: line.warrantyActive,
         warrantyYears: line.warrantyYears
       })
@@ -691,6 +747,7 @@ export const NewSale = () => {
       taxPercent: line.taxPercent,
       taxInclusive: editTaxInclusive,
       whtPercent: line.whtPercent,
+      customTaxIds,
       warrantyActive: false,
       warrantyYears: undefined
     })
@@ -718,13 +775,15 @@ export const NewSale = () => {
   }
 
   const subtotal = lines.reduce((s, l) => s + calcLineAmounts(l).base, 0)
-  const totalTax = lines.reduce((s, l) => s + calcLineAmounts(l).tax, 0)
+  const totalSaleTax = lines.reduce((s, l) => s + calcLineAmounts(l).tax, 0)
   const totalWht = lines.reduce((s, l) => s + calcLineAmounts(l).wht, 0)
+  const totalOther = lines.reduce((s, l) => s + calcLineAmounts(l).other, 0)
   const grossTotal = lines.reduce((s, l) => s + calcLineAmounts(l).total, 0)
   const anyTaxInclusive = lines.some(
     (l) =>
       Boolean(l.fixedAmounts) ||
-      (l.taxInclusive && (Number(l.taxPercent) > 0 || Number(l.whtPercent) > 0))
+      (l.taxInclusive && (Number(l.taxPercent) > 0 || Number(l.whtPercent) > 0)) ||
+      (l.customTaxes || []).some((t) => t.inclusive && Number(t.percent) > 0)
   )
   const maxDiscount = Math.max(0, roundAmount(grossTotal - effectivePaid))
 
@@ -955,7 +1014,14 @@ export const NewSale = () => {
           form={lineForm}
           layout="vertical"
           scrollToFirstError
-          initialValues={{ taxPercent: 0, taxInclusive: true, whtPercent: 0, warrantyActive: false, quantity: 1 }}
+          initialValues={{
+            taxPercent: 0,
+            taxInclusive: true,
+            whtPercent: 0,
+            customTaxIds: [],
+            warrantyActive: false,
+            quantity: 1
+          }}
         >
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
             {lineType === 'product' ? (
@@ -1079,10 +1145,27 @@ export const NewSale = () => {
               name="taxInclusive"
               label="Tax Inclusive"
               valuePropName="checked"
-              tooltip="Applies to Sales Tax and Tax u/s 236 G/H"
+              tooltip="Applies to Sales Tax and Tax u/s 236 G/H only"
             >
               <Switch />
             </Form.Item>
+            {customTaxDefs.length > 0 && (
+              <Form.Item
+                name="customTaxIds"
+                label="Other taxes"
+                className="md:col-span-2 lg:col-span-4"
+                tooltip="Each custom tax uses its own inclusive setting from Setup → Taxes"
+              >
+                <Checkbox.Group
+                  options={customTaxDefs.map((t) => ({
+                    value: t.id,
+                    label: `${t.name} (${Number(t.defaultPercent || 0)}%${
+                      t.inclusiveDefault ? ', incl.' : ''
+                    })`
+                  }))}
+                />
+              </Form.Item>
+            )}
             {lineType === 'product' && (
               <>
                 <Form.Item name="warrantyActive" label="Warranty Active" valuePropName="checked">
@@ -1301,13 +1384,19 @@ export const NewSale = () => {
                   <span className="font-medium text-slate-800">{formatRs(subtotal)}</span>
                 </div>
                 <div className="flex justify-between gap-6 text-slate-600">
-                  <span>Tax{anyTaxInclusive ? ' (incl.)' : ''}</span>
-                  <span className="font-medium text-emerald-700">+ {formatRs(totalTax)}</span>
+                  <span>Sale Tax{anyTaxInclusive ? ' (incl.)' : ''}</span>
+                  <span className="font-medium text-emerald-700">+ {formatRs(totalSaleTax)}</span>
                 </div>
                 <div className="flex justify-between gap-6 text-slate-600">
                   <span>Tax u/s 236 G/H{anyTaxInclusive ? ' (incl.)' : ''}</span>
                   <span className="font-medium text-emerald-700">+ {formatRs(totalWht)}</span>
                 </div>
+                {totalOther > 0 && (
+                  <div className="flex justify-between gap-6 text-slate-600">
+                    <span>Other taxes</span>
+                    <span className="font-medium text-emerald-700">+ {formatRs(totalOther)}</span>
+                  </div>
+                )}
                 {discountAmount > 0 && (
                   <div className="flex justify-between gap-6 text-slate-600">
                     <span>Discount</span>

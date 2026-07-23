@@ -31,6 +31,13 @@ import { asJson, asJsonList } from '../shared/json.helpers'
 
 export type SaleLineType = 'product' | 'part'
 
+export type CustomTaxInput = {
+  taxId?: string
+  name: string
+  percent: number
+  inclusive?: boolean
+}
+
 export type SaleLineInput = {
   lineType?: SaleLineType
   productItemId?: string
@@ -38,9 +45,11 @@ export type SaleLineInput = {
   quantity?: number
   salePrice: number
   taxPercent?: number
-  /** When true, salePrice already contains sales tax; the ex-tax base is extracted. */
+  /** When true, Sale Tax + Tax u/s 236 G/H are treated as inclusive in the entered price. */
   taxInclusive?: boolean
   whtPercent?: number
+  /** Custom (non-system) taxes applied on this line. */
+  customTaxes?: CustomTaxInput[]
   warrantyActive?: boolean
   /** Integer years of warranty; expiry is computed from sale date. */
   warrantyYears?: number
@@ -95,39 +104,118 @@ function normalizeLineType(line: SaleLineInput): SaleLineType {
   return 'product'
 }
 
+type CustomTaxCalc = {
+  taxId: string | null
+  name: string
+  percent: number
+  inclusive: boolean
+  amount: number
+}
+
 function calcLine(line: SaleLineInput) {
   const quantity = Math.max(1, Math.floor(Number(line.quantity || 1)))
   const taxPercent = Number(line.taxPercent || 0)
   const whtPercent = Number(line.whtPercent || 0)
-  const taxInclusive = Boolean(line.taxInclusive) && (taxPercent > 0 || whtPercent > 0)
+  const systemInclusive = Boolean(line.taxInclusive)
   const enteredUnitPrice = Number(line.salePrice || 0)
-  // Inclusive: entered price already contains sales tax and Tax u/s 236 G/H —
-  // extract the ex-tax base and store that as the unit price.
-  const factor = 1 + taxPercent / 100 + whtPercent / 100
-  const unitPrice = taxInclusive ? round2(enteredUnitPrice / factor) : enteredUnitPrice
-  const extended = round2(unitPrice * quantity)
   const enteredTotal = round2(enteredUnitPrice * quantity)
 
-  let taxAmount: number
-  let whtAmount: number
-  let lineTotal: number
-  if (taxInclusive) {
-    if (taxPercent > 0 && whtPercent > 0) {
-      taxAmount = round2((extended * taxPercent) / 100)
-      whtAmount = round2(enteredTotal - extended - taxAmount)
-    } else if (whtPercent > 0) {
-      taxAmount = 0
-      whtAmount = round2(enteredTotal - extended)
-    } else {
-      taxAmount = round2(enteredTotal - extended)
-      whtAmount = 0
-    }
-    lineTotal = enteredTotal
-  } else {
-    taxAmount = round2((extended * taxPercent) / 100)
-    whtAmount = round2((extended * whtPercent) / 100)
-    lineTotal = round2(extended + taxAmount + whtAmount)
+  const customsIn = (line.customTaxes || [])
+    .map((t) => ({
+      taxId: t.taxId || null,
+      name: String(t.name || '').trim() || 'Tax',
+      percent: Number(t.percent || 0),
+      inclusive: Boolean(t.inclusive)
+    }))
+    .filter((t) => t.percent > 0)
+
+  type Piece = {
+    id: string
+    kind: 'sale' | 'wht' | 'custom'
+    taxId: string | null
+    name: string
+    percent: number
+    inclusive: boolean
   }
+
+  const pieces: Piece[] = []
+  if (taxPercent > 0) {
+    pieces.push({
+      id: 'sale',
+      kind: 'sale',
+      taxId: null,
+      name: 'Sale Tax',
+      percent: taxPercent,
+      inclusive: systemInclusive
+    })
+  }
+  if (whtPercent > 0) {
+    pieces.push({
+      id: 'wht',
+      kind: 'wht',
+      taxId: null,
+      name: 'Tax u/s 236 G/H',
+      percent: whtPercent,
+      inclusive: systemInclusive
+    })
+  }
+  customsIn.forEach((c, i) => {
+    pieces.push({
+      id: `custom-${i}`,
+      kind: 'custom',
+      taxId: c.taxId,
+      name: c.name,
+      percent: c.percent,
+      inclusive: c.inclusive
+    })
+  })
+
+  const inclusivePieces = pieces.filter((p) => p.inclusive)
+  const exclusivePieces = pieces.filter((p) => !p.inclusive)
+  const hasInclusive = inclusivePieces.length > 0
+  const inclusiveRateSum = inclusivePieces.reduce((s, p) => s + p.percent, 0)
+  const factor = 1 + inclusiveRateSum / 100
+
+  const unitPrice = hasInclusive ? round2(enteredUnitPrice / factor) : enteredUnitPrice
+  const extended = round2(unitPrice * quantity)
+
+  const amountById = new Map<string, number>()
+  for (const p of pieces) {
+    amountById.set(p.id, round2((extended * p.percent) / 100))
+  }
+
+  let lineTotal: number
+  if (hasInclusive) {
+    const exclusiveSum = exclusivePieces.reduce((s, p) => s + (amountById.get(p.id) || 0), 0)
+    const targetInclusive = round2(enteredTotal - extended)
+    // Reassign inclusive amounts so they sum to targetInclusive (remainder on last).
+    let allocated = 0
+    inclusivePieces.forEach((p, idx) => {
+      if (idx === inclusivePieces.length - 1) {
+        amountById.set(p.id, round2(targetInclusive - allocated))
+      } else {
+        const amt = amountById.get(p.id) || 0
+        allocated += amt
+      }
+    })
+    lineTotal = round2(enteredTotal + exclusiveSum)
+  } else {
+    const allSum = pieces.reduce((s, p) => s + (amountById.get(p.id) || 0), 0)
+    lineTotal = round2(extended + allSum)
+  }
+
+  const taxAmount = amountById.get('sale') || 0
+  const whtAmount = amountById.get('wht') || 0
+  const customTaxes: CustomTaxCalc[] = pieces
+    .filter((p) => p.kind === 'custom')
+    .map((p) => ({
+      taxId: p.taxId,
+      name: p.name,
+      percent: p.percent,
+      inclusive: p.inclusive,
+      amount: amountById.get(p.id) || 0
+    }))
+  const otherTaxAmount = round2(customTaxes.reduce((s, t) => s + t.amount, 0))
 
   return {
     quantity,
@@ -135,8 +223,11 @@ function calcLine(line: SaleLineInput) {
     extended,
     taxPercent,
     whtPercent,
+    taxInclusive: systemInclusive,
     taxAmount,
     whtAmount,
+    otherTaxAmount,
+    customTaxes,
     lineTotal
   }
 }
@@ -158,10 +249,39 @@ type LineCalc = {
   extended: number
   taxPercent: number
   whtPercent: number
+  taxInclusive: boolean
   taxAmount: number
   whtAmount: number
+  otherTaxAmount: number
+  customTaxes: CustomTaxCalc[]
   lineTotal: number
   unitCost?: number
+}
+
+async function insertSaleLineTaxes(
+  transaction: Knex.Transaction,
+  companyId: string,
+  saleId: string,
+  saleLineId: string,
+  customs: CustomTaxCalc[],
+  lineAudit: Record<string, unknown>
+): Promise<void> {
+  for (const tax of customs) {
+    await getDb()('sale_line_taxes').transacting(transaction).insert({
+      id: generateId(),
+      company_id: companyId,
+      sale_id: saleId,
+      sale_line_id: saleLineId,
+      tax_id: tax.taxId,
+      name: tax.name,
+      percent: tax.percent,
+      amount: tax.amount,
+      inclusive: tax.inclusive,
+      ...lineAudit,
+      created_at: new Date(),
+      updated_at: new Date()
+    })
+  }
 }
 
 function resolveWarranty(
@@ -526,6 +646,23 @@ class SaleService {
       )
       .orderBy('sl.created_at', 'asc')
     const payments = await getDb()('payments').where({ sale_id: id }).orderBy('payment_date', 'asc')
+    let lineTaxes: Record<string, unknown>[] = []
+    try {
+      lineTaxes = await getDb()('sale_line_taxes')
+        .where({ sale_id: id })
+        .whereNull('deleted_at')
+        .orderBy('created_at', 'asc')
+    } catch {
+      // Table may not exist until migration 019 runs
+      lineTaxes = []
+    }
+    const taxesByLine = new Map<string, Record<string, unknown>[]>()
+    for (const tax of lineTaxes) {
+      const lineId = tax.sale_line_id as string
+      const list = taxesByLine.get(lineId) || []
+      list.push(asJson(tax)!)
+      taxesByLine.set(lineId, list)
+    }
     const editable = await saleEditable(sale, lines)
 
     return {
@@ -545,7 +682,8 @@ class SaleService {
         productDescription:
           line.line_type === 'part'
             ? line.part_description || line.product_description
-            : line.product_description
+            : line.product_description,
+        customTaxes: taxesByLine.get(line.id as string) || []
       })),
       payments: asJsonList(payments),
       editable
@@ -678,7 +816,9 @@ class SaleService {
       }
 
       const subtotal = round2(lineCalcs.reduce((s, l) => s + l.extended, 0))
-      const totalTax = round2(lineCalcs.reduce((s, l) => s + l.taxAmount, 0))
+      const totalTax = round2(
+        lineCalcs.reduce((s, l) => s + l.taxAmount + l.otherTaxAmount, 0)
+      )
       const totalWht = round2(lineCalcs.reduce((s, l) => s + l.whtAmount, 0))
       const discount = round2(Number(payload.discount || 0))
       const netTotal = round2(subtotal + totalTax + totalWht - discount)
@@ -743,6 +883,7 @@ class SaleService {
               tax_amount: row.taxAmount,
               wht_percent: row.whtPercent,
               wht_amount: row.whtAmount,
+              tax_inclusive: row.taxInclusive,
               line_total: row.lineTotal,
               warranty_active: row.warrantyActive,
               warranty_years: row.warrantyYears,
@@ -751,6 +892,15 @@ class SaleService {
               created_at: new Date()
             })
             .returning('*')
+
+          await insertSaleLineTaxes(
+            transaction,
+            companyId,
+            saleId,
+            saleLine.id as string,
+            row.customTaxes,
+            lineAudit
+          )
 
           await getDb()('product_items').transacting(transaction).where({ id: item.id }).update({
             status: ProductItemStatus.SOLD,
@@ -795,6 +945,7 @@ class SaleService {
               tax_amount: row.taxAmount,
               wht_percent: row.whtPercent,
               wht_amount: row.whtAmount,
+              tax_inclusive: row.taxInclusive,
               line_total: row.lineTotal,
               unit_cost: null,
               warranty_active: false,
@@ -806,6 +957,15 @@ class SaleService {
             .returning('*')
 
           const saleLineId = saleLine.id as string
+          await insertSaleLineTaxes(
+            transaction,
+            companyId,
+            saleId,
+            saleLineId,
+            row.customTaxes,
+            lineAudit
+          )
+
           const { unitCost } = await consumePartStockFifo(transaction, {
             companyId,
             branchId,
@@ -1046,7 +1206,9 @@ class SaleService {
       }
 
       const subtotal = round2(lineCalcs.reduce((s, l) => s + l.extended, 0))
-      const totalTax = round2(lineCalcs.reduce((s, l) => s + l.taxAmount, 0))
+      const totalTax = round2(
+        lineCalcs.reduce((s, l) => s + l.taxAmount + l.otherTaxAmount, 0)
+      )
       const totalWht = round2(lineCalcs.reduce((s, l) => s + l.whtAmount, 0))
       const discount = round2(Number(payload.discount || 0))
       const netTotal = round2(subtotal + totalTax + totalWht - discount)
@@ -1108,6 +1270,7 @@ class SaleService {
               tax_amount: row.taxAmount,
               wht_percent: row.whtPercent,
               wht_amount: row.whtAmount,
+              tax_inclusive: row.taxInclusive,
               line_total: row.lineTotal,
               warranty_active: row.warrantyActive,
               warranty_years: row.warrantyYears,
@@ -1116,6 +1279,15 @@ class SaleService {
               created_at: new Date()
             })
             .returning('*')
+
+          await insertSaleLineTaxes(
+            transaction,
+            companyId,
+            id,
+            saleLine.id as string,
+            row.customTaxes,
+            lineAudit
+          )
 
           await getDb()('product_items').transacting(transaction).where({ id: item.id }).update({
             status: ProductItemStatus.SOLD,
@@ -1160,6 +1332,7 @@ class SaleService {
               tax_amount: row.taxAmount,
               wht_percent: row.whtPercent,
               wht_amount: row.whtAmount,
+              tax_inclusive: row.taxInclusive,
               line_total: row.lineTotal,
               unit_cost: null,
               warranty_active: false,
@@ -1171,6 +1344,15 @@ class SaleService {
             .returning('*')
 
           const saleLineId = saleLine.id as string
+          await insertSaleLineTaxes(
+            transaction,
+            companyId,
+            id,
+            saleLineId,
+            row.customTaxes,
+            lineAudit
+          )
+
           const { unitCost } = await consumePartStockFifo(transaction, {
             companyId,
             branchId,
