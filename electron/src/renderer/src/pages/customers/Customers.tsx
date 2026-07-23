@@ -3,10 +3,7 @@ import {
   Button,
   Card,
   Col,
-  Form,
   Input,
-  InputNumber,
-  Modal,
   Popconfirm,
   Row,
   Select,
@@ -20,6 +17,7 @@ import type { TableProps } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 import { customerAPI } from '@/renderer/services'
 import { useSession } from '@/renderer/hooks/useSession'
+import { CustomerFormModal } from '@/renderer/components/forms/CustomerFormModal'
 import { formatRs, PageHeader } from '../shared/page-ui'
 
 const { Text } = Typography
@@ -29,11 +27,9 @@ export const Customers = () => {
   const [data, setData] = useState<any[]>([])
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<any | null>(null)
-  const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
   const [dueFilter, setDueFilter] = useState<'due' | 'not_due'>()
   const [balanceSort, setBalanceSort] = useState<'asc' | 'desc'>()
-  const [form] = Form.useForm()
 
   const load = () =>
     customerAPI
@@ -67,52 +63,12 @@ export const Customers = () => {
 
   const openCreate = () => {
     setEditing(null)
-    form.resetFields()
-    form.setFieldsValue({ openingBalance: 0 })
     setOpen(true)
   }
 
   const openEdit = (record: any) => {
     setEditing(record)
-    form.setFieldsValue({
-      name: record.name,
-      phone: record.phone,
-      cnic: record.cnic,
-      address: record.address
-    })
     setOpen(true)
-  }
-
-  const handleSubmit = async (values: any) => {
-    setLoading(true)
-    try {
-      if (editing) {
-        await customerAPI.update(editing.id, companyId, audit(), {
-          name: values.name,
-          phone: values.phone,
-          cnic: values.cnic,
-          address: values.address
-        })
-        message.success('Customer updated')
-      } else {
-        await customerAPI.create(companyId, audit(), {
-          name: values.name,
-          phone: values.phone,
-          cnic: values.cnic,
-          address: values.address,
-          openingBalance: values.openingBalance ?? 0
-        })
-        message.success('Customer created')
-      }
-      setOpen(false)
-      form.resetFields()
-      setEditing(null)
-      load()
-    } catch (err: any) {
-      message.error(err.message || 'Operation failed')
-    } finally {
-      setLoading(false)
-    }
   }
 
   const handleDelete = async (id: string) => {
@@ -235,41 +191,19 @@ export const Customers = () => {
         />
       </Card>
 
-      <Modal
-        title={editing ? 'Edit Customer' : 'Add Customer'}
+      <CustomerFormModal
         open={open}
-        onCancel={() => { setOpen(false); setEditing(null) }}
-        footer={null}
-        destroyOnClose
-        width={440}
-      >
-        <Form form={form} layout="vertical" onFinish={handleSubmit}>
-          <Form.Item name="name" label="Name" rules={[{ required: true, whitespace: true }]}>
-            <Input autoFocus />
-          </Form.Item>
-          <Form.Item name="phone" label="Phone">
-            <Input />
-          </Form.Item>
-          <Form.Item name="cnic" label="CNIC">
-            <Input placeholder="Optional" />
-          </Form.Item>
-          <Form.Item name="address" label="Address">
-            <Input.TextArea rows={2} />
-          </Form.Item>
-          {!editing && (
-            <Form.Item
-              name="openingBalance"
-              label="Opening Balance"
-              extra="Amount the customer already owes you (default 0)."
-            >
-              <InputNumber className="w-full" min={0} style={{ width: '100%' }} />
-            </Form.Item>
-          )}
-          <Button type="primary" htmlType="submit" block loading={loading}>
-            {editing ? 'Save' : 'Create'}
-          </Button>
-        </Form>
-      </Modal>
+        editing={editing}
+        onCancel={() => {
+          setOpen(false)
+          setEditing(null)
+        }}
+        onSaved={() => {
+          setOpen(false)
+          setEditing(null)
+          load()
+        }}
+      />
     </div>
   )
 }

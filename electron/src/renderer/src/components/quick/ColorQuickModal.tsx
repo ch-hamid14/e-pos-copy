@@ -1,65 +1,26 @@
-import { useEffect, useState } from 'react'
-import { Button, Form, Input, Modal, message } from 'antd'
 import { colorAPI } from '@/renderer/services'
 import { useSession } from '@/renderer/hooks/useSession'
+import { NameEntityFormModal, type NameEntityRecord } from '../forms/NameEntityFormModal'
 
-export type ColorQuickRecord = {
-  id: string
-  name?: string
-}
+export type ColorQuickRecord = NameEntityRecord
 
 type Props = {
   open: boolean
   onCancel: () => void
-  onSaved: (color: ColorQuickRecord) => void
-}
-
-function asColor(row: any): ColorQuickRecord {
-  return { id: String(row.id), name: row.name }
+  onSaved: (color: NameEntityRecord) => void
 }
 
 export function ColorQuickModal({ open, onCancel, onSaved }: Props) {
   const { companyId, audit } = useSession()
-  const [form] = Form.useForm()
-  const [loading, setLoading] = useState(false)
-
-  useEffect(() => {
-    if (!open) return
-    form.resetFields()
-  }, [open, form])
-
-  const handleSubmit = async (values: { name: string }) => {
-    if (!companyId) return
-    setLoading(true)
-    try {
-      const created = await colorAPI.create(companyId, audit(), { name: values.name })
-      message.success('Color created')
-      onSaved(asColor(created))
-      form.resetFields()
-    } catch (err: any) {
-      message.error(err.message || 'Failed to create color')
-    } finally {
-      setLoading(false)
-    }
-  }
+  if (!companyId) return null
 
   return (
-    <Modal
-      title="Add Color"
+    <NameEntityFormModal
+      entityLabel="Color"
       open={open}
       onCancel={onCancel}
-      footer={null}
-      destroyOnClose
-      width={400}
-    >
-      <Form form={form} layout="vertical" onFinish={handleSubmit}>
-        <Form.Item name="name" label="Name" rules={[{ required: true, whitespace: true }]}>
-          <Input placeholder="Color name" autoFocus />
-        </Form.Item>
-        <Button type="primary" htmlType="submit" block loading={loading}>
-          Create
-        </Button>
-      </Form>
-    </Modal>
+      onSaved={onSaved}
+      onCreate={(name) => colorAPI.create(companyId, audit(), { name })}
+    />
   )
 }

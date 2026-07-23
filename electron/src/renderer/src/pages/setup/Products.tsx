@@ -2,9 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   Button,
   Card,
-  Form,
   Input,
-  Modal,
   Popconfirm,
   Select,
   Space,
@@ -16,6 +14,7 @@ import {
 import { PlusOutlined } from '@ant-design/icons'
 import { categoryAPI, productAPI } from '@/renderer/services'
 import { useSession } from '@/renderer/hooks/useSession'
+import { ProductFormModal } from '@/renderer/components/forms/ProductFormModal'
 import { PageHeader } from '../shared/page-ui'
 
 const { Text } = Typography
@@ -26,10 +25,8 @@ export const Products = () => {
   const [categories, setCategories] = useState<any[]>([])
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<any | null>(null)
-  const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
   const [categoryId, setCategoryId] = useState<string>()
-  const [form] = Form.useForm()
 
   const load = () =>
     productAPI.list(companyId, search || undefined, categoryId).then(setData)
@@ -48,44 +45,12 @@ export const Products = () => {
 
   const openCreate = () => {
     setEditing(null)
-    form.resetFields()
     setOpen(true)
   }
 
   const openEdit = (record: any) => {
     setEditing(record)
-    form.setFieldsValue({
-      name: record.name,
-      categoryId: record.categoryId,
-      description: record.description
-    })
     setOpen(true)
-  }
-
-  const handleSubmit = async (values: any) => {
-    setLoading(true)
-    try {
-      const payload = {
-        name: values.name,
-        categoryId: values.categoryId,
-        description: values.description || ''
-      }
-      if (editing) {
-        await productAPI.update(editing.id, companyId, audit(), payload)
-        message.success('Product updated')
-      } else {
-        await productAPI.create(companyId, audit(), payload)
-        message.success('Product created')
-      }
-      setOpen(false)
-      form.resetFields()
-      setEditing(null)
-      load()
-    } catch (err: any) {
-      message.error(err.message || 'Operation failed')
-    } finally {
-      setLoading(false)
-    }
   }
 
   const handleDelete = async (id: string) => {
@@ -143,9 +108,13 @@ export const Products = () => {
               width: 160,
               render: (_, record) => (
                 <Space>
-                  <Button type="link" size="small" onClick={() => openEdit(record)}>Edit</Button>
+                  <Button type="link" size="small" onClick={() => openEdit(record)}>
+                    Edit
+                  </Button>
                   <Popconfirm title="Delete this product?" onConfirm={() => handleDelete(record.id)}>
-                    <Button type="link" size="small" danger>Delete</Button>
+                    <Button type="link" size="small" danger>
+                      Delete
+                    </Button>
                   </Popconfirm>
                 </Space>
               )
@@ -154,33 +123,19 @@ export const Products = () => {
         />
       </Card>
 
-      <Modal
-        title={editing ? 'Edit Product' : 'Add Product'}
+      <ProductFormModal
         open={open}
-        onCancel={() => { setOpen(false); setEditing(null) }}
-        footer={null}
-        destroyOnClose
-        width={480}
-      >
-        <Form form={form} layout="vertical" onFinish={handleSubmit}>
-          <Form.Item name="name" label="Name" rules={[{ required: true, whitespace: true }]}>
-            <Input placeholder="Product name" autoFocus />
-          </Form.Item>
-          <Form.Item name="categoryId" label="Category" rules={[{ required: true, message: 'Select a category' }]}>
-            <Select
-              placeholder="Select category"
-              options={categoryOptions}
-              notFoundContent="No categories — add one under Setup first"
-            />
-          </Form.Item>
-          <Form.Item name="description" label="Description">
-            <Input.TextArea rows={2} placeholder="Optional description" />
-          </Form.Item>
-          <Button type="primary" htmlType="submit" block loading={loading}>
-            {editing ? 'Save' : 'Create'}
-          </Button>
-        </Form>
-      </Modal>
+        editing={editing}
+        onCancel={() => {
+          setOpen(false)
+          setEditing(null)
+        }}
+        onSaved={() => {
+          setOpen(false)
+          setEditing(null)
+          load()
+        }}
+      />
     </div>
   )
 }

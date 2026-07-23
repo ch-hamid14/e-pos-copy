@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Button, Card, Form, Input, Modal, Popconfirm, Space, Statistic, Table, Typography, message } from 'antd'
+import { Button, Card, Input, Popconfirm, Space, Statistic, Table, Typography, message } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 import type { SessionAudit } from '@/renderer/services/session-audit'
 import { PageHeader } from '../shared/page-ui'
 import { useSession } from '@/renderer/hooks/useSession'
+import { NameEntityFormModal } from '@/renderer/components/forms/NameEntityFormModal'
 
 const { Text } = Typography
 
@@ -34,11 +35,13 @@ export const SetupCrud = ({
   const [data, setData] = useState<any[]>([])
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<any | null>(null)
-  const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
-  const [form] = Form.useForm()
 
-  const singular = title.endsWith('ies') ? title.slice(0, -3) + 'y' : title.endsWith('s') ? title.slice(0, -1) : title
+  const singular = title.endsWith('ies')
+    ? title.slice(0, -3) + 'y'
+    : title.endsWith('s')
+      ? title.slice(0, -1)
+      : title
 
   const load = () => api.list(companyId, search || undefined).then(setData)
 
@@ -48,35 +51,12 @@ export const SetupCrud = ({
 
   const openCreate = () => {
     setEditing(null)
-    form.resetFields()
     setOpen(true)
   }
 
   const openEdit = (record: any) => {
     setEditing(record)
-    form.setFieldsValue({ name: record.name })
     setOpen(true)
-  }
-
-  const handleSubmit = async (values: { name: string }) => {
-    setLoading(true)
-    try {
-      if (editing) {
-        await api.update(editing.id, companyId, audit, values)
-        message.success(`${singular} updated`)
-      } else {
-        await api.create(companyId, audit, values)
-        message.success(`${singular} created`)
-      }
-      setOpen(false)
-      form.resetFields()
-      setEditing(null)
-      load()
-    } catch (err: any) {
-      message.error(err.message || 'Operation failed')
-    } finally {
-      setLoading(false)
-    }
   }
 
   const handleDelete = async (id: string) => {
@@ -119,17 +99,19 @@ export const SetupCrud = ({
           dataSource={data}
           pagination={{ pageSize: 10 }}
           columns={[
-            { title: 'Name', dataIndex: 'name', key: 'name' },
+            { title: 'Name', dataIndex: 'name', render: (v) => <Text strong>{v}</Text> },
             {
               title: 'Actions',
-              key: 'actions',
               width: 180,
-              render: (_: unknown, record: any) => (
+              render: (_, record) => (
                 <Space>
                   <Button size="small" onClick={() => openEdit(record)}>
                     Edit
                   </Button>
-                  <Popconfirm title={`Delete this ${singular.toLowerCase()}?`} onConfirm={() => handleDelete(record.id)}>
+                  <Popconfirm
+                    title={`Delete this ${singular.toLowerCase()}?`}
+                    onConfirm={() => handleDelete(record.id)}
+                  >
                     <Button size="small" danger>
                       Delete
                     </Button>
@@ -141,25 +123,22 @@ export const SetupCrud = ({
         />
       </Card>
 
-      <Modal
-        title={editing ? `Edit ${singular}` : `Add ${singular}`}
+      <NameEntityFormModal
+        entityLabel={singular}
         open={open}
-        onCancel={() => setOpen(false)}
-        footer={null}
-        destroyOnClose
-      >
-        <Form form={form} layout="vertical" onFinish={handleSubmit}>
-          <Form.Item name="name" label="Name" rules={[{ required: true, message: 'Name is required' }]}>
-            <Input />
-          </Form.Item>
-          <Space className="w-full justify-end">
-            <Button onClick={() => setOpen(false)}>Cancel</Button>
-            <Button type="primary" htmlType="submit" loading={loading}>
-              Save
-            </Button>
-          </Space>
-        </Form>
-      </Modal>
+        editing={editing}
+        onCancel={() => {
+          setOpen(false)
+          setEditing(null)
+        }}
+        onCreate={(name) => api.create(companyId, audit, { name })}
+        onUpdate={(id, name) => api.update(id, companyId, audit, { name })}
+        onSaved={() => {
+          setOpen(false)
+          setEditing(null)
+          load()
+        }}
+      />
     </div>
   )
 }
