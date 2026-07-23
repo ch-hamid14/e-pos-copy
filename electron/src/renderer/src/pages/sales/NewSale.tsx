@@ -24,6 +24,8 @@ import { App_Routes } from '@/common'
 import { customerAPI, inventoryAPI, partStockAPI, saleAPI } from '@/renderer/services'
 import { useSession } from '@/renderer/hooks/useSession'
 import { formatRs, PageHeader } from '../shared/page-ui'
+import { CustomerQuickModal } from '@/renderer/components/quick/CustomerQuickModal'
+import { SelectQuickFooter } from '@/renderer/components/quick/SelectQuickFooter'
 
 const { Text } = Typography
 
@@ -88,6 +90,8 @@ export const NewSale = () => {
   const navigate = useNavigate()
   const { companyId, branchId, audit } = useSession()
   const [customers, setCustomers] = useState<any[]>([])
+  const [customerQuickOpen, setCustomerQuickOpen] = useState(false)
+  const [customerQuickEditing, setCustomerQuickEditing] = useState<any | null>(null)
   const [searchResults, setSearchResults] = useState<any[]>([])
   const [partStocks, setPartStocks] = useState<any[]>([])
   const [lines, setLines] = useState<SaleLine[]>([])
@@ -107,6 +111,7 @@ export const NewSale = () => {
   const warrantyActive = Form.useWatch('warrantyActive', lineForm)
   const selectedPartId = Form.useWatch('partId', lineForm)
   const partQuantity = Form.useWatch('quantity', lineForm)
+  const selectedCustomerId = Form.useWatch('customerId', headerForm)
   const [partFifoPreview, setPartFifoPreview] = useState<{
     unitCost: number
     nextLotUnitCost: number
@@ -234,6 +239,29 @@ export const NewSale = () => {
       label: `${c.name}${c.phone ? ` · ${c.phone}` : ''}${outstanding > 0 ? ` · Due ${formatRs(outstanding)}` : ''}`
     }
   })
+
+  const selectedCustomer = useMemo(
+    () => customers.find((c) => c.id === selectedCustomerId) || null,
+    [customers, selectedCustomerId]
+  )
+
+  const openAddCustomer = () => {
+    setCustomerQuickEditing(null)
+    setCustomerQuickOpen(true)
+  }
+
+  const openEditCustomer = () => {
+    if (!selectedCustomer) return
+    setCustomerQuickEditing(selectedCustomer)
+    setCustomerQuickOpen(true)
+  }
+
+  const handleCustomerQuickSaved = async (customer: { id: string }) => {
+    setCustomerQuickOpen(false)
+    setCustomerQuickEditing(null)
+    await loadCustomers()
+    headerForm.setFieldValue('customerId', customer.id)
+  }
 
   const partOptions = useMemo(
     () =>
@@ -759,6 +787,16 @@ export const NewSale = () => {
                 onOpenChange={(open) => {
                   if (open) loadCustomers()
                 }}
+                dropdownRender={(menu) => (
+                  <SelectQuickFooter
+                    menu={menu}
+                    addLabel="Add customer"
+                    onAdd={openAddCustomer}
+                    editLabel="Edit customer"
+                    canEdit={Boolean(selectedCustomerId)}
+                    onEdit={openEditCustomer}
+                  />
+                )}
               />
             </Form.Item>
             <Form.Item name="saleDate" label="Sale Date" rules={[{ required: true }]}>
@@ -1159,6 +1197,16 @@ export const NewSale = () => {
           </div>
         </div>
       </Card>
+
+      <CustomerQuickModal
+        open={customerQuickOpen}
+        editing={customerQuickEditing}
+        onCancel={() => {
+          setCustomerQuickOpen(false)
+          setCustomerQuickEditing(null)
+        }}
+        onSaved={handleCustomerQuickSaved}
+      />
     </div>
   )
 }

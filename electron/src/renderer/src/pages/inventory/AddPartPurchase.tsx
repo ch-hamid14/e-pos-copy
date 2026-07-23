@@ -27,6 +27,8 @@ import {
   type SupplierDiscountType
 } from '@/renderer/utils/supplierDiscount'
 import { formatRs, PageHeader } from '../shared/page-ui'
+import { SupplierQuickModal } from '@/renderer/components/quick/SupplierQuickModal'
+import { SelectQuickFooter } from '@/renderer/components/quick/SelectQuickFooter'
 
 const { Text } = Typography
 
@@ -68,6 +70,8 @@ export const AddPartPurchase = () => {
   const navigate = useNavigate()
   const { companyId, branchId, audit } = useSession()
   const [suppliers, setSuppliers] = useState<any[]>([])
+  const [supplierQuickOpen, setSupplierQuickOpen] = useState(false)
+  const [supplierQuickEditing, setSupplierQuickEditing] = useState<any | null>(null)
   const [parts, setParts] = useState<any[]>([])
   const [lines, setLines] = useState<PartPurchaseLine[]>([])
   const [editingKey, setEditingKey] = useState<string | null>(null)
@@ -85,9 +89,14 @@ export const AddPartPurchase = () => {
     if (!isEdit) navigate(App_Routes.ADD_PURCHASE, { replace: true })
   }, [isEdit, navigate])
 
+  const loadSuppliers = () => {
+    if (!companyId) return Promise.resolve()
+    return supplierAPI.list(companyId).then(setSuppliers)
+  }
+
   useEffect(() => {
     if (!companyId || !isEdit) return
-    supplierAPI.list(companyId).then(setSuppliers)
+    loadSuppliers()
     partAPI.list(companyId).then(setParts)
   }, [companyId, isEdit])
 
@@ -177,6 +186,27 @@ export const AddPartPurchase = () => {
         )
       }))
     )
+  }
+
+  const openAddSupplier = () => {
+    setSupplierQuickEditing(null)
+    setSupplierQuickOpen(true)
+  }
+
+  const openEditSupplier = () => {
+    if (!selectedSupplier) return
+    setSupplierQuickEditing(selectedSupplier)
+    setSupplierQuickOpen(true)
+  }
+
+  const handleSupplierQuickSaved = async (supplier: { id: string }) => {
+    setSupplierQuickOpen(false)
+    setSupplierQuickEditing(null)
+    const list = (await supplierAPI.list(companyId)) as any[]
+    setSuppliers(list)
+    headerForm.setFieldValue('supplierId', supplier.id)
+    const updated = list.find((s) => s.id === supplier.id)
+    if (updated) recalcLines(updated)
   }
 
   const resetLineForm = () => {
@@ -352,6 +382,19 @@ export const AddPartPurchase = () => {
                 showSearch
                 optionFilterProp="label"
                 onChange={(supplierId) => recalcLines(supplierMap.get(supplierId))}
+                onOpenChange={(open) => {
+                  if (open) loadSuppliers()
+                }}
+                dropdownRender={(menu) => (
+                  <SelectQuickFooter
+                    menu={menu}
+                    addLabel="Add supplier"
+                    onAdd={openAddSupplier}
+                    editLabel="Edit supplier"
+                    canEdit={Boolean(selectedSupplierId)}
+                    onEdit={openEditSupplier}
+                  />
+                )}
               />
             </Form.Item>
             <Form.Item
@@ -511,6 +554,16 @@ export const AddPartPurchase = () => {
       <Button type="primary" size="large" loading={loading} onClick={handleSubmit}>
         {isEdit ? 'Save changes' : 'Create purchase'}
       </Button>
+
+      <SupplierQuickModal
+        open={supplierQuickOpen}
+        editing={supplierQuickEditing}
+        onCancel={() => {
+          setSupplierQuickOpen(false)
+          setSupplierQuickEditing(null)
+        }}
+        onSaved={handleSupplierQuickSaved}
+      />
     </div>
   )
 }

@@ -38,6 +38,10 @@ import {
   type SupplierDiscountType
 } from '@/renderer/utils/supplierDiscount'
 import { formatRs, PageHeader } from '../shared/page-ui'
+import { SupplierQuickModal } from '@/renderer/components/quick/SupplierQuickModal'
+import { ProductQuickModal } from '@/renderer/components/quick/ProductQuickModal'
+import { ColorQuickModal } from '@/renderer/components/quick/ColorQuickModal'
+import { SelectQuickFooter } from '@/renderer/components/quick/SelectQuickFooter'
 import { STATUS_COLORS } from './inventory-ui'
 
 const { Text } = Typography
@@ -156,6 +160,10 @@ export const AddPurchase = () => {
   const navigate = useNavigate()
   const { companyId, branchId, audit } = useSession()
   const [suppliers, setSuppliers] = useState<any[]>([])
+  const [supplierQuickOpen, setSupplierQuickOpen] = useState(false)
+  const [supplierQuickEditing, setSupplierQuickEditing] = useState<any | null>(null)
+  const [productQuickOpen, setProductQuickOpen] = useState(false)
+  const [colorQuickOpen, setColorQuickOpen] = useState(false)
   const [products, setProducts] = useState<any[]>([])
   const [parts, setParts] = useState<any[]>([])
   const [colors, setColors] = useState<any[]>([])
@@ -175,11 +183,26 @@ export const AddPurchase = () => {
 
   const activeLineType: LineType = isEdit ? 'product' : lineType
 
+  const loadSuppliers = () => {
+    if (!companyId) return Promise.resolve()
+    return supplierAPI.list(companyId).then(setSuppliers)
+  }
+
+  const loadProducts = () => {
+    if (!companyId) return Promise.resolve()
+    return productAPI.list(companyId).then(setProducts)
+  }
+
+  const loadColors = () => {
+    if (!companyId) return Promise.resolve()
+    return colorAPI.list(companyId).then(setColors)
+  }
+
   useEffect(() => {
     if (!companyId) return
-    supplierAPI.list(companyId).then(setSuppliers)
-    productAPI.list(companyId).then(setProducts)
-    colorAPI.list(companyId).then(setColors)
+    loadSuppliers()
+    loadProducts()
+    loadColors()
     if (!isEdit) {
       partAPI.list(companyId).then(setParts)
       headerForm.setFieldsValue({ purchaseDate: dayjs() })
@@ -327,6 +350,39 @@ export const AddPurchase = () => {
 
   const handleSupplierChange = (supplierId: string) => {
     recalcLines(supplierMap.get(supplierId))
+  }
+
+  const openAddSupplier = () => {
+    setSupplierQuickEditing(null)
+    setSupplierQuickOpen(true)
+  }
+
+  const openEditSupplier = () => {
+    if (!selectedSupplier) return
+    setSupplierQuickEditing(selectedSupplier)
+    setSupplierQuickOpen(true)
+  }
+
+  const handleSupplierQuickSaved = async (supplier: { id: string }) => {
+    setSupplierQuickOpen(false)
+    setSupplierQuickEditing(null)
+    const list = (await supplierAPI.list(companyId)) as any[]
+    setSuppliers(list)
+    headerForm.setFieldValue('supplierId', supplier.id)
+    const updated = list.find((s) => s.id === supplier.id)
+    if (updated) recalcLines(updated)
+  }
+
+  const handleProductQuickSaved = async (product: { id: string }) => {
+    setProductQuickOpen(false)
+    await loadProducts()
+    lineForm.setFieldValue('productId', product.id)
+  }
+
+  const handleColorQuickSaved = async (color: { id: string }) => {
+    setColorQuickOpen(false)
+    await loadColors()
+    lineForm.setFieldValue('colorId', color.id)
   }
 
   const resetLineForm = () => {
@@ -698,7 +754,26 @@ export const AddPurchase = () => {
         <Form form={headerForm} layout="vertical">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Form.Item name="supplierId" label="Supplier" rules={[{ required: true, message: 'Select supplier' }]}>
-              <Select placeholder="Select supplier" options={supplierOptions} onChange={handleSupplierChange} />
+              <Select
+                showSearch
+                optionFilterProp="label"
+                placeholder="Select supplier"
+                options={supplierOptions}
+                onChange={handleSupplierChange}
+                onOpenChange={(open) => {
+                  if (open) loadSuppliers()
+                }}
+                dropdownRender={(menu) => (
+                  <SelectQuickFooter
+                    menu={menu}
+                    addLabel="Add supplier"
+                    onAdd={openAddSupplier}
+                    editLabel="Edit supplier"
+                    canEdit={Boolean(selectedSupplierId)}
+                    onEdit={openEditSupplier}
+                  />
+                )}
+              />
             </Form.Item>
             <Form.Item name="purchaseDate" label="Purchase Date" rules={[{ required: true }]}>
               <DatePicker className="w-full" style={{ width: '100%' }} />
@@ -769,6 +844,16 @@ export const AddPurchase = () => {
                     optionFilterProp="label"
                     placeholder="Select product"
                     options={productOptions}
+                    onOpenChange={(open) => {
+                      if (open) loadProducts()
+                    }}
+                    dropdownRender={(menu) => (
+                      <SelectQuickFooter
+                        menu={menu}
+                        addLabel="Add product"
+                        onAdd={() => setProductQuickOpen(true)}
+                      />
+                    )}
                   />
                 </Form.Item>
                 <Form.Item label="Category">
@@ -781,6 +866,16 @@ export const AddPurchase = () => {
                     optionFilterProp="label"
                     placeholder="Select color"
                     options={colorOptions}
+                    onOpenChange={(open) => {
+                      if (open) loadColors()
+                    }}
+                    dropdownRender={(menu) => (
+                      <SelectQuickFooter
+                        menu={menu}
+                        addLabel="Add color"
+                        onAdd={() => setColorQuickOpen(true)}
+                      />
+                    )}
                   />
                 </Form.Item>
               </>
@@ -1071,6 +1166,26 @@ export const AddPurchase = () => {
           </Space>
         </div>
       </Card>
+
+      <SupplierQuickModal
+        open={supplierQuickOpen}
+        editing={supplierQuickEditing}
+        onCancel={() => {
+          setSupplierQuickOpen(false)
+          setSupplierQuickEditing(null)
+        }}
+        onSaved={handleSupplierQuickSaved}
+      />
+      <ProductQuickModal
+        open={productQuickOpen}
+        onCancel={() => setProductQuickOpen(false)}
+        onSaved={handleProductQuickSaved}
+      />
+      <ColorQuickModal
+        open={colorQuickOpen}
+        onCancel={() => setColorQuickOpen(false)}
+        onSaved={handleColorQuickSaved}
+      />
     </div>
   )
 }

@@ -157,7 +157,7 @@ export const Dashboard = () => {
   const [productId, setProductId] = useState<string>()
   const [partId, setPartId] = useState<string>()
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs]>([
-    dayjs().startOf('month'),
+    ALL_TIME_START,
     dayjs().endOf('day')
   ])
   const [refreshKey, setRefreshKey] = useState(0)
