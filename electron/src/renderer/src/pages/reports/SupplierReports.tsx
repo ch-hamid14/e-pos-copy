@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button, Card, Col, Input, Row, Statistic, Table, Typography } from 'antd'
 import type { TableProps } from 'antd'
+import { FileTextOutlined } from '@ant-design/icons'
 import { App_Routes } from '@/common'
 import { reportAPI } from '@/renderer/services'
 import { useSession } from '@/renderer/hooks/useSession'
@@ -120,17 +121,18 @@ export const SupplierReports = () => {
             },
             {
               title: '',
-              width: 100,
+              width: 110,
               render: (_, r) => (
                 <Button
                   type="link"
                   size="small"
+                  icon={<FileTextOutlined />}
                   onClick={(e) => {
                     e.stopPropagation()
                     navigate(App_Routes.SUPPLIER_REPORT_DETAIL.replace(':id', r.id))
                   }}
                 >
-                  View
+                  Report
                 </Button>
               )
             }

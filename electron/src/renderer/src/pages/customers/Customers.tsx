@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Button,
   Card,
@@ -14,7 +15,8 @@ import {
   message
 } from 'antd'
 import type { TableProps } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
+import { FileTextOutlined, PlusOutlined } from '@ant-design/icons'
+import { App_Routes } from '@/common'
 import { customerAPI } from '@/renderer/services'
 import { useSession } from '@/renderer/hooks/useSession'
 import { CustomerFormModal } from '@/renderer/components/forms/CustomerFormModal'
@@ -23,6 +25,7 @@ import { formatRs, PageHeader } from '../shared/page-ui'
 const { Text } = Typography
 
 export const Customers = () => {
+  const navigate = useNavigate()
   const { companyId, audit } = useSession()
   const [data, setData] = useState<any[]>([])
   const [open, setOpen] = useState(false)
@@ -177,12 +180,26 @@ export const Customers = () => {
             },
             {
               title: 'Actions',
-              width: 160,
+              width: 220,
               render: (_, record) => (
                 <Space>
-                  <Button type="link" size="small" onClick={() => openEdit(record)}>Edit</Button>
+                  <Button
+                    type="link"
+                    size="small"
+                    icon={<FileTextOutlined />}
+                    onClick={() =>
+                      navigate(App_Routes.CUSTOMER_REPORT_DETAIL.replace(':id', record.id))
+                    }
+                  >
+                    Report
+                  </Button>
+                  <Button type="link" size="small" onClick={() => openEdit(record)}>
+                    Edit
+                  </Button>
                   <Popconfirm title="Delete this customer?" onConfirm={() => handleDelete(record.id)}>
-                    <Button type="link" size="small" danger>Delete</Button>
+                    <Button type="link" size="small" danger>
+                      Delete
+                    </Button>
                   </Popconfirm>
                 </Space>
               )

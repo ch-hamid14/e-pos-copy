@@ -38,7 +38,11 @@ class ReportController {
     return reportService.customerDetail(
       req.query?.companyId as string,
       req.params?.id as string,
-      req.query?.branchId as string | undefined
+      req.query?.branchId as string | undefined,
+      {
+        from: req.query?.from as string | undefined,
+        to: req.query?.to as string | undefined
+      }
     )
   }
 
@@ -56,7 +60,11 @@ class ReportController {
     return reportService.supplierDetail(
       req.query?.companyId as string,
       req.params?.id as string,
-      req.query?.branchId as string | undefined
+      req.query?.branchId as string | undefined,
+      {
+        from: req.query?.from as string | undefined,
+        to: req.query?.to as string | undefined
+      }
     )
   }
 }

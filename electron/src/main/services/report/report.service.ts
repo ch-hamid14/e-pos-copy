@@ -2,7 +2,27 @@ import { getDb } from '../../db'
 import { computeCustomerBalance } from '../customer/customer.service'
 import { computeSupplierBalance } from '../purchase/supplier-ledger.helpers'
 import { asJson, asJsonList } from '../shared/json.helpers'
-import { orderAndRecomputeLedgerBalances } from '../shared/ledger-order.helpers'
+import { ledgerForPeriod } from '../shared/ledger-order.helpers'
+
+export type PartyDetailFilters = {
+  from?: string
+  to?: string
+}
+
+function inDateRange(raw: unknown, from?: string, to?: string): boolean {
+  if (!from && !to) return true
+  const t = raw ? new Date(raw as string | Date).getTime() : NaN
+  if (!Number.isFinite(t)) return false
+  if (from) {
+    const fromMs = new Date(`${from}T00:00:00`).getTime()
+    if (t < fromMs) return false
+  }
+  if (to) {
+    const toMs = new Date(`${to}T23:59:59.999`).getTime()
+    if (t > toMs) return false
+  }
+  return true
+}
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100
@@ -246,7 +266,8 @@ class ReportService {
   async customerDetail(
     companyId: string,
     customerId: string,
-    branchId?: string
+    branchId?: string,
+    filters?: PartyDetailFilters
   ): Promise<unknown> {
     const customer = await getDb()('customers')
       .where({ id: customerId, company_id: companyId })
@@ -265,8 +286,12 @@ class ReportService {
     let totalNet = 0
     let totalPaid = 0
     let totalDue = 0
+    let unitsSold = 0
+    let lastSaleDate: string | null = null
+    const productCounts = new Map<string, number>()
 
     for (const sale of sales) {
+      if (!inDateRange(sale.sale_date, filters?.from, filters?.to)) continue
       const lines = await getDb()('sale_lines').where({ sale_id: sale.id }).orderBy('created_at', 'asc')
       const net = Number(sale.net_total)
       const paid = Number(sale.paid_amount)
@@ -274,19 +299,69 @@ class ReportService {
       totalNet = round2(totalNet + net)
       totalPaid = round2(totalPaid + paid)
       totalDue = round2(totalDue + due)
+      unitsSold += lines.length
+      if (!lastSaleDate) lastSaleDate = String(sale.sale_date)
+      for (const line of lines) {
+        const name = String(line.product_name || 'Unknown')
+        productCounts.set(name, (productCounts.get(name) || 0) + 1)
+      }
       saleRows.push({ ...asJson(sale)!, lines: asJsonList(lines) })
     }
 
+    let topProduct: string | null = null
+    let topProductUnits = 0
+    for (const [name, count] of productCounts) {
+      if (count > topProductUnits) {
+        topProduct = name
+        topProductUnits = count
+      }
+    }
+
     const ledgerRows = await getDb()('ledger_entries').where({ customer_id: customerId })
-    const ledger = orderAndRecomputeLedgerBalances(ledgerRows as Record<string, unknown>[])
+    const { openingBalance, closingBalance, ledger } = ledgerForPeriod(
+      ledgerRows as Record<string, unknown>[],
+      filters?.from,
+      filters?.to
+    )
+
+    let periodDebits = 0
+    let periodCredits = 0
+    for (const entry of ledger) {
+      const amount = Number(entry.amount || 0)
+      const type = String(entry.type || '')
+      if (type === 'payment_credit') periodCredits = round2(periodCredits + amount)
+      else periodDebits = round2(periodDebits + amount)
+    }
+
     const printCompany = await printCompanyHeader(companyId, branchId)
+    const avgSale = saleRows.length ? round2(totalNet / saleRows.length) : 0
+    const collectionRate = totalNet > 0 ? round2((totalPaid / totalNet) * 100) : 0
 
     return {
       customer: { ...asJson(customer)!, balance },
       sales: saleRows,
       ledger: asJsonList(ledger),
       printCompany,
-      summary: { saleCount: saleRows.length, totalNet, totalPaid, totalDue, balance }
+      period: { from: filters?.from || null, to: filters?.to || null },
+      openingBalance,
+      closingBalance,
+      summary: {
+        saleCount: saleRows.length,
+        totalNet,
+        totalPaid,
+        totalDue,
+        balance,
+        unitsSold,
+        avgSale,
+        collectionRate,
+        lastSaleDate,
+        topProduct,
+        topProductUnits,
+        periodDebits,
+        periodCredits,
+        openingBalance,
+        closingBalance
+      }
     }
   }
 
@@ -327,7 +402,8 @@ class ReportService {
   async supplierDetail(
     companyId: string,
     supplierId: string,
-    branchId?: string
+    branchId?: string,
+    filters?: PartyDetailFilters
   ): Promise<unknown> {
     const supplier = await getDb()('suppliers')
       .where({ id: supplierId, company_id: companyId })
@@ -353,24 +429,31 @@ class ReportService {
     let totalNet = 0
     let totalPaid = 0
     let totalDue = 0
+    let productPurchaseCount = 0
+    let partPurchaseCount = 0
+    let lastPurchaseDate: string | null = null
 
     for (const purchase of productPurchases) {
+      if (!inDateRange(purchase.purchase_date, filters?.from, filters?.to)) continue
       const net = Number(purchase.net_total || 0)
       const paid = Number(purchase.paid_amount || 0)
       const due = Number(purchase.due_amount || 0)
       totalNet = round2(totalNet + net)
       totalPaid = round2(totalPaid + paid)
       totalDue = round2(totalDue + due)
+      productPurchaseCount += 1
       purchaseRows.push({ ...asJson(purchase)!, kind: 'product' })
     }
 
     for (const purchase of partPurchases) {
+      if (!inDateRange(purchase.purchase_date, filters?.from, filters?.to)) continue
       const net = Number(purchase.net_total || 0)
       const paid = Number(purchase.paid_amount || 0)
       const due = Number(purchase.due_amount || 0)
       totalNet = round2(totalNet + net)
       totalPaid = round2(totalPaid + paid)
       totalDue = round2(totalDue + due)
+      partPurchaseCount += 1
       purchaseRows.push({ ...asJson(purchase)!, kind: 'part' })
     }
 
@@ -379,22 +462,53 @@ class ReportService {
       const db = new Date(String(b.purchaseDate || b.createdAt || 0)).getTime()
       return db - da
     })
+    if (purchaseRows.length) {
+      lastPurchaseDate = String(purchaseRows[0].purchaseDate || purchaseRows[0].createdAt || '')
+    }
 
     const ledgerRows = await getDb()('ledger_entries').where({ supplier_id: supplierId })
-    const ledger = orderAndRecomputeLedgerBalances(ledgerRows as Record<string, unknown>[])
+    const { openingBalance, closingBalance, ledger } = ledgerForPeriod(
+      ledgerRows as Record<string, unknown>[],
+      filters?.from,
+      filters?.to
+    )
+
+    let periodDebits = 0
+    let periodCredits = 0
+    for (const entry of ledger) {
+      const amount = Number(entry.amount || 0)
+      const type = String(entry.type || '')
+      if (type === 'supplier_payment_credit') periodCredits = round2(periodCredits + amount)
+      else periodDebits = round2(periodDebits + amount)
+    }
+
     const printCompany = await printCompanyHeader(companyId, branchId)
+    const avgPurchase = purchaseRows.length ? round2(totalNet / purchaseRows.length) : 0
+    const paymentRate = totalNet > 0 ? round2((totalPaid / totalNet) * 100) : 0
 
     return {
       supplier: { ...asJson(supplier)!, balance },
       purchases: purchaseRows,
       ledger: asJsonList(ledger),
       printCompany,
+      period: { from: filters?.from || null, to: filters?.to || null },
+      openingBalance,
+      closingBalance,
       summary: {
         purchaseCount: purchaseRows.length,
         totalNet,
         totalPaid,
         totalDue,
-        balance
+        balance,
+        avgPurchase,
+        paymentRate,
+        lastPurchaseDate,
+        productPurchaseCount,
+        partPurchaseCount,
+        periodDebits,
+        periodCredits,
+        openingBalance,
+        closingBalance
       }
     }
   }

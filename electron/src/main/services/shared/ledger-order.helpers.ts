@@ -108,3 +108,63 @@ export function balanceFromLedgerEntries(entries: Record<string, unknown>[]): nu
   if (!ordered.length) return 0
   return roundRs(Number(ordered[ordered.length - 1].running_balance ?? 0))
 }
+
+function dayStartMs(isoDate: string): number {
+  return new Date(`${isoDate}T00:00:00`).getTime()
+}
+
+function dayEndMs(isoDate: string): number {
+  return new Date(`${isoDate}T23:59:59.999`).getTime()
+}
+
+/**
+ * Classic statement period: opening = balance before `from`, period rows only,
+ * running balances recomputed from that opening.
+ * Omit from/to for the full ledger.
+ */
+export function ledgerForPeriod<T extends Record<string, unknown>>(
+  entries: T[],
+  from?: string,
+  to?: string
+): { openingBalance: number; closingBalance: number; ledger: T[] } {
+  const ordered = orderAndRecomputeLedgerBalances(entries)
+  if (!from && !to) {
+    const closing = ordered.length
+      ? roundRs(Number(ordered[ordered.length - 1].running_balance ?? 0))
+      : 0
+    return { openingBalance: 0, closingBalance: closing, ledger: ordered }
+  }
+
+  const fromMs = from ? dayStartMs(from) : Number.NEGATIVE_INFINITY
+  const toMs = to ? dayEndMs(to) : Number.POSITIVE_INFINITY
+  const debitTimeByRef = buildDebitTimeIndex(ordered)
+
+  let openingBalance = 0
+  const inPeriod: T[] = []
+  for (const entry of ordered) {
+    const t = effectiveSortTime(entry, debitTimeByRef)
+    if (t < fromMs) {
+      openingBalance = roundRs(Number(entry.running_balance ?? 0))
+      continue
+    }
+    if (t > toMs) continue
+    inPeriod.push(entry)
+  }
+
+  let balance = openingBalance
+  const ledger = inPeriod.map((entry) => {
+    const amount = Number(entry.amount || 0)
+    balance = isCreditType(entry.type) ? roundRs(balance - amount) : roundRs(balance + amount)
+    return {
+      ...entry,
+      running_balance: balance,
+      runningBalance: balance
+    }
+  })
+
+  return {
+    openingBalance,
+    closingBalance: ledger.length ? balance : openingBalance,
+    ledger
+  }
+}

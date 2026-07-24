@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Button, Card, Input, Popconfirm, Space, Statistic, Table, Typography, message } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
+import { FileTextOutlined, PlusOutlined } from '@ant-design/icons'
+import { App_Routes } from '@/common'
 import { supplierAPI } from '@/renderer/services'
 import { useSession } from '@/renderer/hooks/useSession'
 import {
@@ -12,6 +14,7 @@ import { formatRs, PageHeader } from '../shared/page-ui'
 const { Text } = Typography
 
 export const Suppliers = () => {
+  const navigate = useNavigate()
   const { companyId, audit } = useSession()
   const [data, setData] = useState<any[]>([])
   const [open, setOpen] = useState(false)
@@ -97,9 +100,19 @@ export const Suppliers = () => {
             { title: 'Address', dataIndex: 'address', ellipsis: true, render: (v) => v || '—' },
             {
               title: 'Actions',
-              width: 160,
+              width: 220,
               render: (_, record) => (
                 <Space>
+                  <Button
+                    type="link"
+                    size="small"
+                    icon={<FileTextOutlined />}
+                    onClick={() =>
+                      navigate(App_Routes.SUPPLIER_REPORT_DETAIL.replace(':id', record.id))
+                    }
+                  >
+                    Report
+                  </Button>
                   <Button type="link" size="small" onClick={() => openEdit(record)}>
                     Edit
                   </Button>

@@ -21,6 +21,8 @@ export type LedgerPartyData = {
   ledger: LedgerEntryRow[]
   fromDate?: string
   toDate?: string
+  /** When set (e.g. filtered period), used if ledger is empty or as print opening. */
+  openingBalance?: number
 }
 
 export type LedgerStatementLine = {
@@ -136,10 +138,10 @@ export function mapLedgerToStatement(
 
   const openingBalance = lines.length
     ? Number(lines[0].balance) - Number(lines[0].debit) + Number(lines[0].credit)
-    : 0
+    : Number(party.openingBalance ?? 0)
   const closingBalance = lines.length
     ? Number(lines[lines.length - 1].balance)
-    : Number(party.balance || 0)
+    : Number(party.openingBalance ?? party.balance ?? 0)
 
   const periodLabel =
     party.fromDate || party.toDate
