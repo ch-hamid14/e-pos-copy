@@ -22,7 +22,7 @@ permissions:
 
 env:
   DEPLOY_PATH: /opt/projects/volt-app
-  VITE_API_URL: https://api.volt.madixsoft.com/api
+  VITE_API_URL: https://api-volt.madixsoft.com/api
 
 jobs:
   deploy:
