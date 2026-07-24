@@ -72,6 +72,12 @@ class PrintController {
     const html = req.body?.html as string
     return savePdf(html, fileName, 'thermal')
   }
+
+  async downloadLedgerStatement(_: Electron.IpcMainInvokeEvent, req: IRequest) {
+    const fileName = (req.body?.fileName as string) || 'ledger-statement.pdf'
+    const html = req.body?.html as string
+    return savePdf(html, fileName, 'a4')
+  }
 }
 
 export const printController = new PrintController()

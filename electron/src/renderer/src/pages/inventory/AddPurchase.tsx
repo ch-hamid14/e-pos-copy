@@ -211,7 +211,7 @@ export const AddPurchase = () => {
     loadColors()
     if (!isEdit) {
       partAPI.list(companyId).then(setParts)
-      headerForm.setFieldsValue({ purchaseDate: dayjs() })
+      headerForm.setFieldsValue({ purchaseDate: dayjs(), paidAmount: 0, paymentMethod: 'cash', balance: 0 })
       lineForm.setFieldsValue({
         specialDiscount: 0,
         specialDiscountType: 'pkr',
@@ -668,12 +668,23 @@ export const AddPurchase = () => {
   const netTotal = round2(lines.reduce((sum, l) => sum + l.purchasePrice * lineQty(l), 0))
   const discountAmount = round2(grossTotal - netTotal)
 
-  const buildProductPayload = (header: any) => ({
+  useEffect(() => {
+    if (isEdit) return
+    const paid = Math.max(0, Math.min(Number(headerForm.getFieldValue('paidAmount') || 0), netTotal))
+    headerForm.setFieldsValue({
+      paidAmount: paid,
+      balance: Math.max(0, netTotal - paid)
+    })
+  }, [netTotal, isEdit, headerForm])
+
+  const buildProductPayload = (header: any, paidAmount = 0) => ({
     supplierId: header.supplierId,
     purchaseDate: header.purchaseDate.format('YYYY-MM-DD'),
     notes: header.notes,
     specialDiscount: 0,
     specialDiscountType: 'pkr' as const,
+    paidAmount,
+    paymentMethod: header.paymentMethod || 'cash',
     lines: productLines.map((l) => ({
       ...(l.id ? { id: l.id } : {}),
       serialNumber: l.serialNumber,
@@ -689,10 +700,12 @@ export const AddPurchase = () => {
     }))
   })
 
-  const buildPartPayload = (header: any) => ({
+  const buildPartPayload = (header: any, paidAmount = 0) => ({
     supplierId: header.supplierId,
     purchaseDate: header.purchaseDate.format('YYYY-MM-DD'),
     notes: header.notes || '',
+    paidAmount,
+    paymentMethod: header.paymentMethod || 'cash',
     lines: partLines.map((l) => ({
       unitCost: l.purchasePrice,
       unitSalePrice: l.listPrice,
@@ -702,6 +715,15 @@ export const AddPurchase = () => {
       specialDiscountType: l.specialDiscountType
     }))
   })
+
+  const handlePaymentValuesChange = (changed: { paidAmount?: number }) => {
+    if (!('paidAmount' in changed)) return
+    const paid = Math.max(0, Math.min(Number(changed.paidAmount || 0), netTotal))
+    headerForm.setFieldsValue({
+      paidAmount: paid,
+      balance: Math.max(0, netTotal - paid)
+    })
+  }
 
   const handleSubmit = async () => {
     if (!lines.length) {
@@ -735,13 +757,29 @@ export const AddPurchase = () => {
         return
       }
 
+      const productNet = round2(productLines.reduce((sum, l) => sum + l.purchasePrice * lineQty(l), 0))
+      const partNet = round2(partLines.reduce((sum, l) => sum + l.purchasePrice * lineQty(l), 0))
+      const totalPaid = Math.min(Math.max(0, Number(header.paidAmount || 0)), productNet + partNet)
+      const productPaid = Math.min(totalPaid, productNet)
+      const partPaid = Math.max(0, totalPaid - productPaid)
+
       const created: string[] = []
       if (productLines.length) {
-        await purchaseAPI.create(companyId, branchId, audit(), buildProductPayload(header))
+        await purchaseAPI.create(
+          companyId,
+          branchId,
+          audit(),
+          buildProductPayload(header, productPaid)
+        )
         created.push(`${productLines.length} product unit(s)`)
       }
       if (partLines.length) {
-        await partPurchaseAPI.create(companyId, branchId, audit(), buildPartPayload(header))
+        await partPurchaseAPI.create(
+          companyId,
+          branchId,
+          audit(),
+          buildPartPayload(header, partPaid)
+        )
         created.push(`${partLines.length} part line(s)`)
       }
 
@@ -750,7 +788,12 @@ export const AddPurchase = () => {
       setEditingKey(null)
       setLineType('product')
       headerForm.resetFields()
-      headerForm.setFieldsValue({ purchaseDate: dayjs() })
+      headerForm.setFieldsValue({
+        purchaseDate: dayjs(),
+        paidAmount: 0,
+        paymentMethod: 'cash',
+        balance: 0
+      })
       resetLineForm()
       navigate(App_Routes.PURCHASE_LIST)
     } catch (err: any) {
@@ -793,7 +836,12 @@ export const AddPurchase = () => {
       />
 
       <Card bordered={false} className="shadow-sm mb-4">
-        <Form form={headerForm} layout="vertical" scrollToFirstError>
+        <Form
+          form={headerForm}
+          layout="vertical"
+          scrollToFirstError
+          onValuesChange={handlePaymentValuesChange}
+        >
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Form.Item name="supplierId" label="Supplier" rules={[{ required: true, message: 'Select supplier' }]}>
               <Select
@@ -833,6 +881,43 @@ export const AddPurchase = () => {
             <Form.Item name="notes" label="Notes" className="md:col-span-3">
               <Input placeholder="Optional notes" />
             </Form.Item>
+            {!isEdit && (
+              <>
+                <Form.Item
+                  name="paidAmount"
+                  label="Amount Paid Now"
+                  rules={[
+                    {
+                      validator: (_, value) => {
+                        if (Number(value || 0) > netTotal) {
+                          return Promise.reject(new Error('Paid cannot exceed purchase net total'))
+                        }
+                        return Promise.resolve()
+                      }
+                    }
+                  ]}
+                >
+                  <InputNumber
+                    className="w-full"
+                    min={0}
+                    max={netTotal > 0 ? netTotal : undefined}
+                    style={{ width: '100%' }}
+                  />
+                </Form.Item>
+                <Form.Item name="paymentMethod" label="Payment Method" initialValue="cash">
+                  <Select
+                    options={[
+                      { value: 'cash', label: 'Cash' },
+                      { value: 'bank', label: 'Bank' },
+                      { value: 'card', label: 'Card' }
+                    ]}
+                  />
+                </Form.Item>
+                <Form.Item name="balance" label="Balance (Due)" initialValue={0}>
+                  <InputNumber className="w-full" disabled style={{ width: '100%' }} />
+                </Form.Item>
+              </>
+            )}
           </div>
         </Form>
       </Card>

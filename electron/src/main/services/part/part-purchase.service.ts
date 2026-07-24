@@ -8,12 +8,20 @@ import {
   applyStaffScope,
   auditCreate,
   auditDelete,
+  auditUpdate,
   enrichAuditUsers,
   joinAuditUsers,
   withAuditCreateWithDevice,
   withAuditUpdate
 } from '../shared/audit.helpers'
 import { applyPartStockDelta } from './part-stock.helpers'
+import {
+  adjustPurchaseApNetChange,
+  neutralizePurchaseApLedger,
+  postPurchaseApLedger,
+  recordSupplierPayment,
+  roundRs
+} from '../purchase/supplier-ledger.helpers'
 
 export type PartPurchaseLineInput = {
   id?: string
@@ -31,10 +39,19 @@ export type CreatePartPurchasePayload = {
   supplierId: string
   purchaseDate: string
   notes?: string
+  paidAmount?: number
+  paymentMethod?: string
   lines: PartPurchaseLineInput[]
 }
 
 export type UpdatePartPurchasePayload = CreatePartPurchasePayload
+
+export type RecordPartPurchasePaymentPayload = {
+  purchaseId: string
+  amount: number
+  method?: string
+  paymentDate?: string
+}
 
 export type PartPurchaseListFilters = {
   supplierId?: string
@@ -166,6 +183,11 @@ class PartPurchaseService {
       .select('pl.*', 'pt.name as part_name', 'c.name as category_name')
       .orderBy('pt.name', 'asc')
 
+    const payments = await getDb()('purchase_payments')
+      .where({ part_purchase_id: id })
+      .orderBy('payment_date', 'asc')
+      .orderBy('created_at', 'asc')
+
     return {
       purchase: {
         ...asJson(purchase)!,
@@ -184,8 +206,29 @@ class PartPurchaseService {
         category: line.category_name ? { name: line.category_name } : null,
         lineTotal: Number(line.quantity) * Number(line.unit_cost)
       })),
+      payments: payments.map((p) => asJson(p)!),
       editable: true
     }
+  }
+
+  async listDue(companyId: string, branchId?: string, ctx?: AuditContext | null): Promise<unknown[]> {
+    let q = getDb()('part_purchases as p')
+      .leftJoin('suppliers as s', 'p.supplier_id', 's.id')
+      .where({ 'p.company_id': companyId })
+      .whereNull('p.deleted_at')
+      .where('p.due_amount', '>', 0)
+    joinAuditUsers(q, 'p')
+    q = applyStaffScope(q, ctx ?? null, 'p.created_by', 'p.branch_id')
+    q.select('p.*', 's.name as supplier_name', ...AUDIT_USER_SELECT).orderBy('p.purchase_date', 'desc')
+
+    if (branchId) q.where({ 'p.branch_id': branchId })
+
+    const purchases = await q
+    return purchases.map((p) => ({
+      ...enrichAuditUsers(p),
+      kind: 'part' as const,
+      supplier: p.supplier_name ? { name: p.supplier_name } : null
+    }))
   }
 
   async create(
@@ -273,9 +316,43 @@ class PartPurchaseService {
         createdLines.push(created)
       }
 
+      const netTotal = roundRs(
+        createdLines.reduce(
+          (sum, line) => sum + Number(line.quantity || 0) * Number(line.unit_cost || 0),
+          0
+        )
+      )
+      const paidAmount = roundRs(Math.min(Math.max(0, Number(payload.paidAmount || 0)), netTotal))
+      const dueAmount = roundRs(netTotal - paidAmount)
+
+      const [updatedPurchase] = await getDb()('part_purchases')
+        .transacting(transaction)
+        .where({ id: purchaseId })
+        .update({
+          net_total: netTotal,
+          paid_amount: paidAmount,
+          due_amount: dueAmount,
+          updated_at: new Date()
+        })
+        .returning('*')
+
+      await postPurchaseApLedger(transaction, {
+        companyId,
+        supplierId: payload.supplierId,
+        netTotal,
+        paidAmount,
+        referenceType: 'part_purchase',
+        referenceId: purchaseId,
+        paymentMethod: payload.paymentMethod,
+        purchaseId: null,
+        partPurchaseId: purchaseId,
+        ctx
+      })
+
       return {
-        purchase: asJson(purchase),
-        lines: createdLines.map((line) => asJson(line)!)
+        purchase: asJson(updatedPurchase),
+        lines: createdLines.map((line) => asJson(line)!),
+        dueAmount
       }
     })
   }
@@ -502,7 +579,130 @@ class PartPurchaseService {
           })
         )
 
-      return { success: true, id }
+      const oldNet = roundRs(Number(purchase.net_total || 0))
+      const oldPaid = roundRs(Number(purchase.paid_amount || 0))
+      const oldSupplierId = purchase.supplier_id as string
+      const newSupplierId = payload.supplierId
+
+      const finalLines = await getDb()('part_purchase_lines')
+        .transacting(transaction)
+        .where({ part_purchase_id: id })
+        .whereNull('deleted_at')
+      const netTotal = roundRs(
+        finalLines.reduce(
+          (sum, line) => sum + Number(line.quantity || 0) * Number(line.unit_cost || 0),
+          0
+        )
+      )
+      if (oldPaid > netTotal) {
+        throw new Error(
+          `Cannot reduce purchase below recorded payments (${oldPaid}). Recorded paid exceeds new net ${netTotal}.`
+        )
+      }
+      const dueAmount = roundRs(netTotal - oldPaid)
+
+      await getDb()('part_purchases')
+        .transacting(transaction)
+        .where({ id })
+        .update({
+          net_total: netTotal,
+          paid_amount: oldPaid,
+          due_amount: dueAmount,
+          updated_at: new Date()
+        })
+
+      if (oldSupplierId !== newSupplierId) {
+        await neutralizePurchaseApLedger(transaction, {
+          companyId,
+          supplierId: oldSupplierId,
+          netTotal: oldNet,
+          paidAmount: oldPaid,
+          referenceType: 'part_purchase',
+          referenceId: id,
+          ctx
+        })
+        await postPurchaseApLedger(transaction, {
+          companyId,
+          supplierId: newSupplierId,
+          netTotal,
+          paidAmount: 0,
+          referenceType: 'part_purchase',
+          referenceId: id,
+          ctx
+        })
+        if (oldPaid > 0) {
+          await recordSupplierPayment(transaction, {
+            companyId,
+            supplierId: newSupplierId,
+            amount: oldPaid,
+            referenceType: 'part_purchase',
+            referenceId: id,
+            partPurchaseId: id,
+            ctx,
+            skipPaymentRow: true
+          })
+        }
+      } else {
+        await adjustPurchaseApNetChange(transaction, {
+          companyId,
+          supplierId: newSupplierId,
+          oldNet,
+          newNet: netTotal,
+          referenceType: 'part_purchase',
+          referenceId: id,
+          ctx
+        })
+      }
+
+      return { success: true, id, dueAmount }
+    })
+  }
+
+  async recordPayment(
+    companyId: string,
+    ctx: AuditContext,
+    payload: RecordPartPurchasePaymentPayload
+  ): Promise<unknown> {
+    const amount = roundRs(Number(payload.amount || 0))
+    if (amount <= 0) throw new Error('Enter a valid payment amount')
+
+    return withTransaction(async (transaction) => {
+      const purchase = await getDb()('part_purchases')
+        .transacting(transaction)
+        .where({ id: payload.purchaseId })
+        .whereNull('deleted_at')
+        .first()
+      if (!purchase || purchase.company_id !== companyId) throw new Error('Parts purchase not found')
+
+      const dueAmount = Number(purchase.due_amount)
+      if (dueAmount <= 0) throw new Error('This purchase has no outstanding balance')
+      if (amount > dueAmount) throw new Error(`Payment cannot exceed due amount (${dueAmount})`)
+
+      const paymentDate = payload.paymentDate ? new Date(payload.paymentDate) : new Date()
+      const supplierId = purchase.supplier_id as string
+
+      await recordSupplierPayment(transaction, {
+        companyId,
+        supplierId,
+        amount,
+        method: payload.method,
+        paymentDate,
+        purchaseId: null,
+        partPurchaseId: payload.purchaseId,
+        referenceType: 'part_purchase',
+        referenceId: payload.purchaseId,
+        ctx
+      })
+
+      const newPaid = roundRs(Number(purchase.paid_amount) + amount)
+      const newDue = roundRs(dueAmount - amount)
+      const [updatedPurchase] = await getDb()('part_purchases')
+        .transacting(transaction)
+        .where({ id: payload.purchaseId })
+        .update({ paid_amount: newPaid, due_amount: newDue, ...auditUpdate(ctx) })
+        .returning('*')
+
+      return { purchase: asJson(updatedPurchase), dueAmount: newDue }
     })
   }
 }

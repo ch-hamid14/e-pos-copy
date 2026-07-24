@@ -103,6 +103,95 @@ async function insertLedger(
 }
 
 /**
+ * Supplier AP balance helpers (positive = we owe the supplier).
+ */
+async function supplierBalance(trx: Knex.Transaction, supplierId: string): Promise<number> {
+  const rows = await trx('ledger_entries')
+    .where({ supplier_id: supplierId })
+    .select('type', 'amount')
+  return roundAmount(
+    rows.reduce((balance, row) => {
+      const amount = Number(row.amount || 0)
+      return row.type === 'supplier_payment_credit' ? balance - amount : balance + amount
+    }, 0)
+  )
+}
+
+async function insertSupplierLedger(
+  trx: Knex.Transaction,
+  companyId: string,
+  supplierId: string,
+  type: 'purchase_debit' | 'supplier_payment_credit',
+  amount: number,
+  referenceType: string,
+  referenceId: string
+) {
+  if (amount <= 0) return
+  const balance = await supplierBalance(trx, supplierId)
+  const runningBalance = roundAmount(
+    type === 'supplier_payment_credit' ? balance - amount : balance + amount
+  )
+  await trx('ledger_entries').insert({
+    id: randomUUID(),
+    company_id: companyId,
+    customer_id: null,
+    supplier_id: supplierId,
+    type,
+    amount,
+    reference_type: referenceType,
+    reference_id: referenceId,
+    running_balance: runningBalance,
+    created_at: new Date()
+  })
+}
+
+/**
+ * Neutralize AP ledger effect for a voided purchase / part purchase.
+ * Positive effect = we still owe; target 0 clears the bill from supplier balance.
+ */
+async function neutralizePurchaseLedgerEffect(
+  trx: Knex.Transaction,
+  companyId: string,
+  purchaseId: string,
+  fallbackSupplierId?: string | null
+): Promise<void> {
+  const related = (await trx('ledger_entries')
+    .where({ reference_id: purchaseId })
+    .select('supplier_id', 'type', 'amount')) as Array<{
+    supplier_id: string | null
+    type: string
+    amount: string | number
+  }>
+
+  const effects = new Map<string, number>()
+  for (const entry of related) {
+    if (!entry.supplier_id) continue
+    const amount = Number(entry.amount || 0)
+    const effect = entry.type === 'supplier_payment_credit' ? -amount : amount
+    effects.set(entry.supplier_id, roundAmount((effects.get(entry.supplier_id) || 0) + effect))
+  }
+
+  if (fallbackSupplierId && !effects.has(fallbackSupplierId)) {
+    effects.set(fallbackSupplierId, 0)
+  }
+
+  for (const [supplierId, actual] of effects.entries()) {
+    const delta = roundAmount(0 - actual)
+    if (delta === 0) continue
+    const type = delta > 0 ? 'purchase_debit' : 'supplier_payment_credit'
+    await insertSupplierLedger(
+      trx,
+      companyId,
+      supplierId,
+      type,
+      Math.abs(delta),
+      'purchase_void',
+      purchaseId
+    )
+  }
+}
+
+/**
  * Append ledger corrections so this sale's net ledger effect becomes `targetEffect`
  * (0 = sale fully reversed / as if it never affected the customer balance).
  * Includes every ledger row pointing at the sale id (any reference_type).
@@ -991,6 +1080,13 @@ export async function voidPurchase(
       notes: `${purchase.notes || ''}\n[VOID ${now.toISOString()}] ${reason}`.trim()
     })
 
+    await neutralizePurchaseLedgerEffect(
+      trx,
+      companyId,
+      purchaseId,
+      purchase.supplier_id as string | null
+    )
+
     return { purchaseId, kind: 'product', voided: true, unitsRemoved: items.length, reason }
   })
 }
@@ -1053,6 +1149,13 @@ export async function voidPartPurchase(
       updated_at: now,
       notes: `${purchase.notes || ''}\n[VOID ${now.toISOString()}] ${reason}`.trim()
     })
+
+    await neutralizePurchaseLedgerEffect(
+      trx,
+      companyId,
+      purchaseId,
+      purchase.supplier_id as string | null
+    )
 
     return { purchaseId, kind: 'part', voided: true, linesRemoved: lines.length, reason }
   })

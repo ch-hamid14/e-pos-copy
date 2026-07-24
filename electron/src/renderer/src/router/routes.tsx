@@ -39,6 +39,9 @@ export const LazyPages = {
   SaleDetail: lazy(() => import('@/renderer/pages/sales/SaleDetail').then((m) => ({ default: m.SaleDetail }))),
   SaleEdit: lazy(() => import('@/renderer/pages/sales/NewSale').then((m) => ({ default: m.NewSale }))),
   DueSales: lazy(() => import('@/renderer/pages/sales/DueSales').then((m) => ({ default: m.DueSales }))),
+  DuePurchases: lazy(() =>
+    import('@/renderer/pages/inventory/DuePurchases').then((m) => ({ default: m.DuePurchases }))
+  ),
   Expenses: lazy(() => import('@/renderer/pages/finance/Expenses').then((m) => ({ default: m.Expenses }))),
   ExpenseCategories: lazy(() =>
     import('@/renderer/pages/finance/ExpenseCategories').then((m) => ({ default: m.ExpenseCategories }))
@@ -48,6 +51,12 @@ export const LazyPages = {
   CustomerReports: lazy(() => import('@/renderer/pages/reports/CustomerReports').then((m) => ({ default: m.CustomerReports }))),
   CustomerReportDetail: lazy(() =>
     import('@/renderer/pages/reports/CustomerReportDetail').then((m) => ({ default: m.CustomerReportDetail }))
+  ),
+  SupplierReports: lazy(() =>
+    import('@/renderer/pages/reports/SupplierReports').then((m) => ({ default: m.SupplierReports }))
+  ),
+  SupplierReportDetail: lazy(() =>
+    import('@/renderer/pages/reports/SupplierReportDetail').then((m) => ({ default: m.SupplierReportDetail }))
   )
 }
 
@@ -87,6 +96,7 @@ export const AppRoutes: IAppRoutes[] = [
   { path: App_Routes.SALE_EDIT, component: LazyPages.SaleEdit, roles: [Roles.COMPANY_OWNER] },
   { path: App_Routes.SALE_DETAIL, component: LazyPages.SaleDetail, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN, Roles.STAFF] },
   { path: App_Routes.DUE_SALES, component: LazyPages.DueSales, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN, Roles.STAFF] },
+  { path: App_Routes.DUE_PURCHASES, component: LazyPages.DuePurchases, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
   { path: App_Routes.EXPENSES, component: LazyPages.Expenses, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
   {
     path: App_Routes.EXPENSE_CATEGORIES,
@@ -99,6 +109,12 @@ export const AppRoutes: IAppRoutes[] = [
   {
     path: App_Routes.CUSTOMER_REPORT_DETAIL,
     component: LazyPages.CustomerReportDetail,
+    roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN]
+  },
+  { path: App_Routes.SUPPLIER_REPORTS, component: LazyPages.SupplierReports, roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
+  {
+    path: App_Routes.SUPPLIER_REPORT_DETAIL,
+    component: LazyPages.SupplierReportDetail,
     roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN]
   }
 ]

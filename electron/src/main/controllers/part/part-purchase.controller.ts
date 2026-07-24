@@ -41,6 +41,22 @@ class PartPurchaseController {
       req.body?.payload as any
     )
   }
+
+  async listDue(_: Electron.IpcMainInvokeEvent, req: IRequest) {
+    return partPurchaseService.listDue(
+      req.query?.companyId as string,
+      req.query?.branchId as string,
+      auditFromListQuery(req)
+    )
+  }
+
+  async recordPayment(_: Electron.IpcMainInvokeEvent, req: IRequest) {
+    return partPurchaseService.recordPayment(
+      req.body?.companyId as string,
+      auditFromRequest(req),
+      req.body?.payload as any
+    )
+  }
 }
 
 export const partPurchaseController = new PartPurchaseController()

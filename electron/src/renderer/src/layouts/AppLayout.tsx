@@ -37,6 +37,9 @@ function pageTitle(pathname: string): string {
   if (pathname.startsWith('/reports/customers/') && pathname !== App_Routes.CUSTOMER_REPORTS) {
     return 'Customer Detail'
   }
+  if (pathname.startsWith('/reports/suppliers/') && pathname !== App_Routes.SUPPLIER_REPORTS) {
+    return 'Supplier Detail'
+  }
   for (const menu of Menus) {
     if (menu.key === pathname) return menu.label
     const child = menu.children?.find((c) => c.key === pathname)

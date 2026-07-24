@@ -110,17 +110,49 @@ export const PurchaseDetail = () => {
       </Card>
 
       <Row gutter={[16, 16]} className="mb-4">
-        <Col xs={24} sm={12}>
+        <Col xs={24} sm={8}>
           <Card bordered={false} className="shadow-sm">
             <Statistic title="Units Received" value={detail.items?.length ?? 0} />
           </Card>
         </Col>
-        <Col xs={24} sm={12}>
+        <Col xs={24} sm={8}>
           <Card bordered={false} className="shadow-sm">
-            <Statistic title="Total Value" value={totalValue} prefix="Rs" precision={0} />
+            <Statistic
+              title="Net Total"
+              value={Number(purchase.netTotal ?? totalValue)}
+              prefix="Rs"
+              precision={0}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} sm={8}>
+          <Card bordered={false} className="shadow-sm">
+            <Statistic
+              title="Due"
+              value={Number(purchase.dueAmount || 0)}
+              prefix="Rs"
+              precision={0}
+              valueStyle={{ color: Number(purchase.dueAmount) > 0 ? '#cf1322' : undefined }}
+            />
           </Card>
         </Col>
       </Row>
+
+      <Card bordered={false} className="shadow-sm mb-4">
+        <Descriptions column={{ xs: 1, sm: 3 }} size="small">
+          <Descriptions.Item label="Paid">{formatRs(purchase.paidAmount)}</Descriptions.Item>
+          <Descriptions.Item label="Due">
+            {Number(purchase.dueAmount) > 0 ? (
+              <Text type="danger" strong>
+                {formatRs(purchase.dueAmount)}
+              </Text>
+            ) : (
+              formatRs(0)
+            )}
+          </Descriptions.Item>
+          <Descriptions.Item label="Payments">{detail.payments?.length ?? 0}</Descriptions.Item>
+        </Descriptions>
+      </Card>
 
       <Card title="Received Units" bordered={false} className="shadow-sm">
         <Table

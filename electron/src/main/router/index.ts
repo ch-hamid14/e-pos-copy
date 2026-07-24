@@ -67,11 +67,18 @@ ipcMain.handle(`GET:${Channels.PURCHASES}`, catchIpcHandler(purchaseController.l
 ipcMain.handle(`POST:${Channels.PURCHASES}`, catchIpcHandler(purchaseController.create))
 ipcMain.handle(`PUT:${Channels.PURCHASES}`, catchIpcHandler(purchaseController.update))
 ipcMain.handle(`GET:${Channels.PURCHASES}:detail`, catchIpcHandler(purchaseController.get))
+ipcMain.handle(`GET:${Channels.PURCHASES}:due`, catchIpcHandler(purchaseController.listDue))
+ipcMain.handle(`POST:${Channels.PURCHASES}:payment`, catchIpcHandler(purchaseController.recordPayment))
 
 ipcMain.handle(`GET:${Channels.PART_PURCHASES}`, catchIpcHandler(partPurchaseController.list))
 ipcMain.handle(`POST:${Channels.PART_PURCHASES}`, catchIpcHandler(partPurchaseController.create))
 ipcMain.handle(`PUT:${Channels.PART_PURCHASES}`, catchIpcHandler(partPurchaseController.update))
 ipcMain.handle(`GET:${Channels.PART_PURCHASES}:detail`, catchIpcHandler(partPurchaseController.get))
+ipcMain.handle(`GET:${Channels.PART_PURCHASES}:due`, catchIpcHandler(partPurchaseController.listDue))
+ipcMain.handle(
+  `POST:${Channels.PART_PURCHASES}:payment`,
+  catchIpcHandler(partPurchaseController.recordPayment)
+)
 
 ipcMain.handle(`GET:${Channels.PRODUCT_ITEMS}`, catchIpcHandler(inventoryController.list))
 ipcMain.handle(`GET:${Channels.INVENTORY}:search`, catchIpcHandler(inventoryController.search))
@@ -110,8 +117,11 @@ ipcMain.handle(`GET:${Channels.REPORTS}:sales`, catchIpcHandler(reportController
 ipcMain.handle(`GET:${Channels.REPORTS}:purchases`, catchIpcHandler(reportController.purchases))
 ipcMain.handle(`GET:${Channels.REPORTS}:customers`, catchIpcHandler(reportController.customers))
 ipcMain.handle(`GET:${Channels.REPORTS}:customers:detail`, catchIpcHandler(reportController.customerDetail))
+ipcMain.handle(`GET:${Channels.REPORTS}:suppliers`, catchIpcHandler(reportController.suppliers))
+ipcMain.handle(`GET:${Channels.REPORTS}:suppliers:detail`, catchIpcHandler(reportController.supplierDetail))
 ipcMain.handle(`POST:${Channels.PRINT}:sale-invoice`, catchIpcHandler(printController.downloadSaleInvoice))
 ipcMain.handle(`POST:${Channels.PRINT}:thermal-receipt`, catchIpcHandler(printController.downloadThermalReceipt))
+ipcMain.handle(`POST:${Channels.PRINT}:ledger`, catchIpcHandler(printController.downloadLedgerStatement))
 
 ipcMain.handle(`GET:${Channels.SYNC}:status`, catchIpcHandler(syncController.status))
 ipcMain.handle(`POST:${Channels.SYNC}`, catchIpcHandler(syncController.syncNow))

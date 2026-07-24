@@ -1,5 +1,6 @@
 import { getDb } from '../../db'
 import { computeCustomerBalance } from '../customer/customer.service'
+import { computeSupplierBalance } from '../purchase/supplier-ledger.helpers'
 import { asJson, asJsonList } from '../shared/json.helpers'
 
 function round2(n: number): number {
@@ -257,6 +258,110 @@ class ReportService {
       sales: saleRows,
       ledger: asJsonList(ledger),
       summary: { saleCount: saleRows.length, totalNet, totalPaid, totalDue, balance }
+    }
+  }
+
+  async suppliersReport(companyId: string, filters?: CustomersReportFilters): Promise<unknown> {
+    let q = getDb()('suppliers')
+      .where({ company_id: companyId })
+      .whereNull('deleted_at')
+      .orderBy('name', 'asc')
+
+    if (filters?.search?.trim()) q.whereILike('name', `%${filters.search.trim()}%`)
+
+    const suppliers = await q
+    const rows: Record<string, unknown>[] = []
+    let totalOutstanding = 0
+    let suppliersWithDue = 0
+
+    for (const supplier of suppliers) {
+      const balance = await computeSupplierBalance(supplier.id as string)
+      if (balance > 0) suppliersWithDue += 1
+      totalOutstanding = round2(totalOutstanding + balance)
+      rows.push({ ...asJson(supplier)!, balance })
+    }
+
+    if (filters?.sortField === 'balance') {
+      const order = filters.sortOrder === 'asc' ? 'asc' : 'desc'
+      rows.sort((a, b) => {
+        const diff = Number(a.balance) - Number(b.balance)
+        return order === 'asc' ? diff : -diff
+      })
+    }
+
+    return {
+      suppliers: rows,
+      summary: { totalSuppliers: rows.length, suppliersWithDue, totalOutstanding }
+    }
+  }
+
+  async supplierDetail(companyId: string, supplierId: string): Promise<unknown> {
+    const supplier = await getDb()('suppliers')
+      .where({ id: supplierId, company_id: companyId })
+      .whereNull('deleted_at')
+      .first()
+    if (!supplier) throw new Error('Supplier not found')
+
+    const balance = await computeSupplierBalance(supplierId)
+
+    const productPurchases = await getDb()('purchases')
+      .where({ company_id: companyId, supplier_id: supplierId })
+      .whereNull('deleted_at')
+      .orderBy('purchase_date', 'desc')
+      .orderBy('created_at', 'desc')
+
+    const partPurchases = await getDb()('part_purchases')
+      .where({ company_id: companyId, supplier_id: supplierId })
+      .whereNull('deleted_at')
+      .orderBy('purchase_date', 'desc')
+      .orderBy('created_at', 'desc')
+
+    const purchaseRows: Record<string, unknown>[] = []
+    let totalNet = 0
+    let totalPaid = 0
+    let totalDue = 0
+
+    for (const purchase of productPurchases) {
+      const net = Number(purchase.net_total || 0)
+      const paid = Number(purchase.paid_amount || 0)
+      const due = Number(purchase.due_amount || 0)
+      totalNet = round2(totalNet + net)
+      totalPaid = round2(totalPaid + paid)
+      totalDue = round2(totalDue + due)
+      purchaseRows.push({ ...asJson(purchase)!, kind: 'product' })
+    }
+
+    for (const purchase of partPurchases) {
+      const net = Number(purchase.net_total || 0)
+      const paid = Number(purchase.paid_amount || 0)
+      const due = Number(purchase.due_amount || 0)
+      totalNet = round2(totalNet + net)
+      totalPaid = round2(totalPaid + paid)
+      totalDue = round2(totalDue + due)
+      purchaseRows.push({ ...asJson(purchase)!, kind: 'part' })
+    }
+
+    purchaseRows.sort((a, b) => {
+      const da = new Date(String(a.purchaseDate || a.createdAt || 0)).getTime()
+      const db = new Date(String(b.purchaseDate || b.createdAt || 0)).getTime()
+      return db - da
+    })
+
+    const ledger = await getDb()('ledger_entries')
+      .where({ supplier_id: supplierId })
+      .orderBy('created_at', 'asc')
+
+    return {
+      supplier: { ...asJson(supplier)!, balance },
+      purchases: purchaseRows,
+      ledger: asJsonList(ledger),
+      summary: {
+        purchaseCount: purchaseRows.length,
+        totalNet,
+        totalPaid,
+        totalDue,
+        balance
+      }
     }
   }
 }

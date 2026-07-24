@@ -17,6 +17,13 @@ import {
   withAuditCreateWithDevice,
   withAuditUpdate
 } from '../shared/audit.helpers'
+import {
+  adjustPurchaseApNetChange,
+  neutralizePurchaseApLedger,
+  postPurchaseApLedger,
+  recordSupplierPayment,
+  roundRs
+} from './supplier-ledger.helpers'
 
 export type PurchaseLineInput = {
   id?: string
@@ -86,10 +93,20 @@ export type CreatePurchasePayload = {
   notes?: string
   specialDiscount?: number
   specialDiscountType?: 'pkr' | 'percent'
+  /** Amount paid now toward this purchase (0 = full due). */
+  paidAmount?: number
+  paymentMethod?: string
   lines: PurchaseLineInput[]
 }
 
 export type UpdatePurchasePayload = CreatePurchasePayload
+
+export type RecordPurchasePaymentPayload = {
+  purchaseId: string
+  amount: number
+  method?: string
+  paymentDate?: string
+}
 
 function purchaseEditable(items: { status?: string }[]): boolean {
   return items.some((item) => item.status === ProductItemStatus.IN_STOCK)
@@ -193,6 +210,11 @@ class PurchaseService {
       .select('pi.*', 'pr.name as product_name', 'c.name as category_name', 'co.name as color_name')
       .orderBy('pi.serial_number', 'asc')
 
+    const payments = await getDb()('purchase_payments')
+      .where({ purchase_id: id })
+      .orderBy('payment_date', 'asc')
+      .orderBy('created_at', 'asc')
+
     return {
       purchase: {
         ...asJson(purchase)!,
@@ -206,8 +228,29 @@ class PurchaseService {
         editable: purchaseEditable(items)
       },
       items: items.map((i) => asProductItemJson(i)),
+      payments: payments.map((p) => asJson(p)!),
       editable: purchaseEditable(items)
     }
+  }
+
+  async listDue(companyId: string, branchId?: string, ctx?: AuditContext | null): Promise<unknown[]> {
+    let q = getDb()('purchases as p')
+      .leftJoin('suppliers as s', 'p.supplier_id', 's.id')
+      .where({ 'p.company_id': companyId })
+      .whereNull('p.deleted_at')
+      .where('p.due_amount', '>', 0)
+    joinAuditUsers(q, 'p')
+    q = applyStaffScope(q, ctx ?? null, 'p.created_by', 'p.branch_id')
+    q.select('p.*', 's.name as supplier_name', ...AUDIT_USER_SELECT).orderBy('p.purchase_date', 'desc')
+
+    if (branchId) q.where({ 'p.branch_id': branchId })
+
+    const purchases = await q
+    return purchases.map((p) => ({
+      ...enrichAuditUsers(p),
+      kind: 'product' as const,
+      supplier: p.supplier_name ? { name: p.supplier_name } : null
+    }))
   }
 
   async create(
@@ -319,7 +362,37 @@ class PurchaseService {
         createdItems.push(item)
       }
 
-      return { purchase, items: createdItems }
+      const netTotal = roundRs(
+        createdItems.reduce((sum, item) => sum + Number(item.purchase_price || 0), 0)
+      )
+      const paidAmount = roundRs(Math.min(Math.max(0, Number(payload.paidAmount || 0)), netTotal))
+      const dueAmount = roundRs(netTotal - paidAmount)
+
+      const [updatedPurchase] = await getDb()('purchases')
+        .transacting(transaction)
+        .where({ id: purchaseId })
+        .update({
+          net_total: netTotal,
+          paid_amount: paidAmount,
+          due_amount: dueAmount,
+          updated_at: new Date()
+        })
+        .returning('*')
+
+      await postPurchaseApLedger(transaction, {
+        companyId,
+        supplierId: payload.supplierId,
+        netTotal,
+        paidAmount,
+        referenceType: 'purchase',
+        referenceId: purchaseId,
+        paymentMethod: payload.paymentMethod,
+        purchaseId,
+        partPurchaseId: null,
+        ctx
+      })
+
+      return { purchase: updatedPurchase, items: createdItems, dueAmount }
     })
   }
 
@@ -388,7 +461,7 @@ class PurchaseService {
       const specialDiscount = Number(payload.specialDiscount || 0)
       const specialDiscountType = payload.specialDiscountType === 'percent' ? 'percent' : 'pkr'
 
-      const [updatedPurchase] = await getDb()('purchases')
+      await getDb()('purchases')
         .transacting(transaction)
         .where({ id })
         .update(
@@ -400,7 +473,6 @@ class PurchaseService {
             special_discount_type: specialDiscountType
           })
         )
-        .returning('*')
 
       // Only in-stock units may be removed from the purchase
       for (const item of existingItems) {
@@ -549,11 +621,133 @@ class PurchaseService {
         savedItems.push(item)
       }
 
+      const oldNet = roundRs(Number(purchase.net_total || 0))
+      const oldPaid = roundRs(Number(purchase.paid_amount || 0))
+      const oldSupplierId = purchase.supplier_id as string
+      const newSupplierId = payload.supplierId
+
+      const allItems = await getDb()('product_items')
+        .transacting(transaction)
+        .where({ purchase_id: id })
+        .whereNull('deleted_at')
+      const netTotal = roundRs(
+        allItems.reduce((sum, item) => sum + Number(item.purchase_price || 0), 0)
+      )
+      if (oldPaid > netTotal) {
+        throw new Error(
+          `Cannot reduce purchase below recorded payments (${oldPaid}). Recorded paid exceeds new net ${netTotal}.`
+        )
+      }
+      const dueAmount = roundRs(netTotal - oldPaid)
+
+      const [finalPurchase] = await getDb()('purchases')
+        .transacting(transaction)
+        .where({ id })
+        .update({
+          net_total: netTotal,
+          paid_amount: oldPaid,
+          due_amount: dueAmount,
+          updated_at: new Date()
+        })
+        .returning('*')
+
+      if (oldSupplierId !== newSupplierId) {
+        await neutralizePurchaseApLedger(transaction, {
+          companyId,
+          supplierId: oldSupplierId,
+          netTotal: oldNet,
+          paidAmount: oldPaid,
+          referenceType: 'purchase',
+          referenceId: id,
+          ctx
+        })
+        await postPurchaseApLedger(transaction, {
+          companyId,
+          supplierId: newSupplierId,
+          netTotal,
+          paidAmount: 0,
+          referenceType: 'purchase',
+          referenceId: id,
+          ctx
+        })
+        if (oldPaid > 0) {
+          await recordSupplierPayment(transaction, {
+            companyId,
+            supplierId: newSupplierId,
+            amount: oldPaid,
+            referenceType: 'purchase',
+            referenceId: id,
+            purchaseId: id,
+            ctx,
+            skipPaymentRow: true
+          })
+        }
+      } else {
+        await adjustPurchaseApNetChange(transaction, {
+          companyId,
+          supplierId: newSupplierId,
+          oldNet,
+          newNet: netTotal,
+          referenceType: 'purchase',
+          referenceId: id,
+          ctx
+        })
+      }
+
       return {
-        purchase: updatedPurchase,
+        purchase: finalPurchase,
         items: savedItems,
+        dueAmount,
         editable: purchaseEditable(savedItems as { status?: string }[])
       }
+    })
+  }
+
+  async recordPayment(
+    companyId: string,
+    ctx: AuditContext,
+    payload: RecordPurchasePaymentPayload
+  ): Promise<unknown> {
+    const amount = roundRs(Number(payload.amount || 0))
+    if (amount <= 0) throw new Error('Enter a valid payment amount')
+
+    return withTransaction(async (transaction) => {
+      const purchase = await getDb()('purchases')
+        .transacting(transaction)
+        .where({ id: payload.purchaseId })
+        .whereNull('deleted_at')
+        .first()
+      if (!purchase || purchase.company_id !== companyId) throw new Error('Purchase not found')
+
+      const dueAmount = Number(purchase.due_amount)
+      if (dueAmount <= 0) throw new Error('This purchase has no outstanding balance')
+      if (amount > dueAmount) throw new Error(`Payment cannot exceed due amount (${dueAmount})`)
+
+      const paymentDate = payload.paymentDate ? new Date(payload.paymentDate) : new Date()
+      const supplierId = purchase.supplier_id as string
+
+      await recordSupplierPayment(transaction, {
+        companyId,
+        supplierId,
+        amount,
+        method: payload.method,
+        paymentDate,
+        purchaseId: payload.purchaseId,
+        partPurchaseId: null,
+        referenceType: 'purchase',
+        referenceId: payload.purchaseId,
+        ctx
+      })
+
+      const newPaid = roundRs(Number(purchase.paid_amount) + amount)
+      const newDue = roundRs(dueAmount - amount)
+      const [updatedPurchase] = await getDb()('purchases')
+        .transacting(transaction)
+        .where({ id: payload.purchaseId })
+        .update({ paid_amount: newPaid, due_amount: newDue, ...auditUpdate(ctx) })
+        .returning('*')
+
+      return { purchase: asJson(updatedPurchase), dueAmount: newDue }
     })
   }
 }

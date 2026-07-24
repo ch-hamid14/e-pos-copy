@@ -7,7 +7,7 @@ import {
   formatSupplierDiscount
 } from '@/renderer/utils/supplierDiscount'
 import { SupplierFormModal } from '@/renderer/components/forms/SupplierFormModal'
-import { PageHeader } from '../shared/page-ui'
+import { formatRs, PageHeader } from '../shared/page-ui'
 
 const { Text } = Typography
 
@@ -72,6 +72,19 @@ export const Suppliers = () => {
           columns={[
             { title: 'Name', dataIndex: 'name', render: (v) => <Text strong>{v}</Text> },
             { title: 'Phone', dataIndex: 'phone', render: (v) => v || '—' },
+            {
+              title: 'Balance',
+              dataIndex: 'balance',
+              align: 'right' as const,
+              render: (v) =>
+                Number(v) > 0 ? (
+                  <Text type="danger" strong>
+                    {formatRs(v)}
+                  </Text>
+                ) : (
+                  formatRs(0)
+                )
+            },
             {
               title: 'Discount',
               align: 'right' as const,

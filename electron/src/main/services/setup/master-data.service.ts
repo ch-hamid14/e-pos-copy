@@ -7,6 +7,7 @@ import {
   withAuditUpdate
 } from '../shared/audit.helpers'
 import { asJson, asJsonList } from '../shared/json.helpers'
+import { computeSupplierBalance } from '../purchase/supplier-ledger.helpers'
 
 type MasterTable = 'colors' | 'suppliers' | 'categories'
 
@@ -18,7 +19,15 @@ export function createMasterDataService(table: MasterTable) {
         .whereNull('deleted_at')
         .orderBy('name', 'asc')
       if (search?.trim()) q.whereILike('name', `%${search.trim()}%`)
-      return asJsonList(await q)
+      const rows = asJsonList(await q)
+      if (table !== 'suppliers') return rows
+
+      const withBalance: Record<string, unknown>[] = []
+      for (const row of rows) {
+        const balance = await computeSupplierBalance(row.id as string)
+        withBalance.push({ ...row, balance })
+      }
+      return withBalance
     },
 
     async create(

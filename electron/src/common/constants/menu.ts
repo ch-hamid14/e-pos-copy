@@ -44,6 +44,7 @@ export const Menus: IMenu[] = [
     children: [
       { key: App_Routes.ADD_PURCHASE, label: 'Add Purchase', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
       { key: App_Routes.PURCHASE_LIST, label: 'Purchase List', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
+      { key: App_Routes.DUE_PURCHASES, label: 'Due Purchases', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
       { key: App_Routes.STOCK, label: 'Stock', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
       // { key: App_Routes.TRANSFERS, label: 'Transfer', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
       // { key: App_Routes.ADJUSTMENTS, label: 'Adjustment', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] }
@@ -88,7 +89,8 @@ export const Menus: IMenu[] = [
     children: [
       // { key: App_Routes.SALES_REPORTS, label: 'Sale Reports', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
       // { key: App_Routes.PURCHASE_REPORTS, label: 'Purchase Reports', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
-      { key: App_Routes.CUSTOMER_REPORTS, label: 'Customer Reports', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] }
+      { key: App_Routes.CUSTOMER_REPORTS, label: 'Customer Reports', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] },
+      { key: App_Routes.SUPPLIER_REPORTS, label: 'Supplier Reports', roles: [Roles.COMPANY_OWNER, Roles.BRANCH_ADMIN] }
     ]
   }
 ]

@@ -106,7 +106,11 @@ export const purchaseAPI = {
       params: { id },
       body: auditBody(audit, { companyId, branchId, payload })
     }),
-  get: (id: string) => ipcCall(`GET:${Channels.PURCHASES}:detail`, { params: { id } })
+  get: (id: string) => ipcCall(`GET:${Channels.PURCHASES}:detail`, { params: { id } }),
+  due: (companyId: string, branchId: string) =>
+    ipcCall(`GET:${Channels.PURCHASES}:due`, { query: { companyId, branchId } }),
+  recordPayment: (companyId: string, audit: SessionAudit, payload: Record<string, unknown>) =>
+    ipcCall(`POST:${Channels.PURCHASES}:payment`, { body: auditBody(audit, { companyId, payload }) })
 }
 
 export const inventoryAPI = {
@@ -154,7 +158,13 @@ export const partPurchaseAPI = {
       params: { id },
       body: auditBody(audit, { companyId, branchId, payload })
     }),
-  get: (id: string) => ipcCall(`GET:${Channels.PART_PURCHASES}:detail`, { params: { id } })
+  get: (id: string) => ipcCall(`GET:${Channels.PART_PURCHASES}:detail`, { params: { id } }),
+  due: (companyId: string, branchId: string) =>
+    ipcCall(`GET:${Channels.PART_PURCHASES}:due`, { query: { companyId, branchId } }),
+  recordPayment: (companyId: string, audit: SessionAudit, payload: Record<string, unknown>) =>
+    ipcCall(`POST:${Channels.PART_PURCHASES}:payment`, {
+      body: auditBody(audit, { companyId, payload })
+    })
 }
 
 export const partStockAPI = {
@@ -311,7 +321,25 @@ export const reportAPI = {
       query: { companyId, ...filters }
     }),
   customerDetail: (companyId: string, customerId: string) =>
-    ipcCall(`GET:${Channels.REPORTS}:customers:detail`, { params: { id: customerId }, query: { companyId } })
+    ipcCall(`GET:${Channels.REPORTS}:customers:detail`, { params: { id: customerId }, query: { companyId } }),
+  suppliers: (
+    companyId: string,
+    filters?: {
+      from?: string
+      to?: string
+      search?: string
+      sortField?: string
+      sortOrder?: string
+    }
+  ) =>
+    ipcCall(`GET:${Channels.REPORTS}:suppliers`, {
+      query: { companyId, ...filters }
+    }),
+  supplierDetail: (companyId: string, supplierId: string) =>
+    ipcCall(`GET:${Channels.REPORTS}:suppliers:detail`, {
+      params: { id: supplierId },
+      query: { companyId }
+    })
 }
 
 export const printAPI = {
@@ -321,6 +349,10 @@ export const printAPI = {
     }),
   downloadThermalReceipt: (fileName: string, html: string) =>
     ipcCall<{ saved: boolean; filePath?: string }>(`POST:${Channels.PRINT}:thermal-receipt`, {
+      body: { fileName, html }
+    }),
+  downloadLedgerStatement: (fileName: string, html: string) =>
+    ipcCall<{ saved: boolean; filePath?: string }>(`POST:${Channels.PRINT}:ledger`, {
       body: { fileName, html }
     })
 }

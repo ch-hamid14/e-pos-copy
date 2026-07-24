@@ -32,7 +32,11 @@ export enum LedgerEntryType {
   OPENING_BALANCE = 'opening_balance',
   SALE_DEBIT = 'sale_debit',
   PAYMENT_CREDIT = 'payment_credit',
-  ADJUSTMENT = 'adjustment'
+  ADJUSTMENT = 'adjustment',
+  /** Increases what we owe the supplier (AP). */
+  PURCHASE_DEBIT = 'purchase_debit',
+  /** Decreases AP when we pay the supplier. */
+  SUPPLIER_PAYMENT_CREDIT = 'supplier_payment_credit'
 }
 
 export enum CompanyStatus {

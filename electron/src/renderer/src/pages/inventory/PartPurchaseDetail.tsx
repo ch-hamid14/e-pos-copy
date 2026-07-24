@@ -108,19 +108,33 @@ export const PartPurchaseDetail = () => {
       </Card>
 
       <Row gutter={16} className="mb-4">
-        <Col xs={12} md={8}>
+        <Col xs={12} md={6}>
           <Card bordered={false} className="shadow-sm">
             <Statistic title="Lines" value={(detail.lines || []).length} />
           </Card>
         </Col>
-        <Col xs={12} md={8}>
+        <Col xs={12} md={6}>
           <Card bordered={false} className="shadow-sm">
             <Statistic title="Units" value={totalUnits} />
           </Card>
         </Col>
-        <Col xs={24} md={8}>
+        <Col xs={12} md={6}>
           <Card bordered={false} className="shadow-sm">
-            <Statistic title="Total value" value={totalValue} formatter={(v) => formatRs(Number(v))} />
+            <Statistic
+              title="Net Total"
+              value={Number(purchase.netTotal ?? totalValue)}
+              formatter={(v) => formatRs(Number(v))}
+            />
+          </Card>
+        </Col>
+        <Col xs={12} md={6}>
+          <Card bordered={false} className="shadow-sm">
+            <Statistic
+              title="Due"
+              value={Number(purchase.dueAmount || 0)}
+              formatter={(v) => formatRs(Number(v))}
+              valueStyle={{ color: Number(purchase.dueAmount) > 0 ? '#cf1322' : undefined }}
+            />
           </Card>
         </Col>
       </Row>
