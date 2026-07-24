@@ -21,7 +21,7 @@ permissions:
   contents: read
 
 env:
-  DEPLOY_PATH: /tmp/op/volt-app
+  DEPLOY_PATH: /opt/projects/volt-app
   VITE_API_URL: https://api.volt.madixsoft.com/api
 
 jobs:
@@ -156,5 +156,23 @@ jobs:
 
       - name: Smoke test
         run: |
-          ssh -i ~/.ssh/deploy_key "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" \
-            "curl -fsS http://127.0.0.1:4000/api/health"
+          ssh deploy-target bash -s <<REMOTE
+          set -euo pipefail
+          for i in \$(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4020/health; then
+              echo ""
+              echo "health ok (attempt \$i)"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "health check failed after 30s"
+          export NVM_DIR="\$HOME/.nvm"
+          if [ -s "\$NVM_DIR/nvm.sh" ]; then
+            . "\$NVM_DIR/nvm.sh"
+            nvm use default >/dev/null 2>&1 || true
+          fi
+          pm2 describe "${{ env.PM2_PROCESS }}" || true
+          pm2 logs "${{ env.PM2_PROCESS }}" --nostream --lines 50 || true
+          exit 1
+          REMOTE

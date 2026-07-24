@@ -64,7 +64,7 @@ cp .env.example .env
 npm run dev
 ```
 
-Opens at `http://localhost:5174` (proxies API to backend on port 4000).
+Opens at `http://localhost:5174` (proxies API to backend on port 4020).
 
 From repo root: `npm run admin:dev`
 
