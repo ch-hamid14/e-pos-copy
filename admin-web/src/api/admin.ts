@@ -485,6 +485,47 @@ export function repairAllVoidedSaleLedgers(token: string, companyId: string) {
   })
 }
 
+export function backfillPurchaseApLedgers(token: string, companyId: string) {
+  return api<{
+    scanned: number
+    repaired: number
+    skipped: number
+    results: Array<{
+      purchaseId: string
+      kind: string
+      repaired: boolean
+      message: string
+      posted: Array<{ type: string; amount: number }>
+    }>
+  }>(`/admin/companies/${companyId}/business/repair-purchase-ledgers`, {
+    method: 'POST',
+    token
+  })
+}
+
+export function repairBusinessPurchaseLedger(
+  token: string,
+  companyId: string,
+  purchaseId: string,
+  kind: 'product' | 'part'
+) {
+  const path =
+    kind === 'part'
+      ? `/admin/companies/${companyId}/business/part-purchases/${purchaseId}/repair-ledger`
+      : `/admin/companies/${companyId}/business/purchases/${purchaseId}/repair-ledger`
+  return api<{
+    purchaseId: string
+    kind: string
+    repaired: boolean
+    skipped: boolean
+    message: string
+    posted: Array<{ type: string; amount: number }>
+  }>(path, {
+    method: 'POST',
+    token
+  })
+}
+
 export function listBusinessPurchases(
   token: string,
   companyId: string,

@@ -124,13 +124,15 @@ async function insertSupplierLedger(
   type: 'purchase_debit' | 'supplier_payment_credit',
   amount: number,
   referenceType: string,
-  referenceId: string
+  referenceId: string,
+  createdAt?: Date
 ) {
   if (amount <= 0) return
   const balance = await supplierBalance(trx, supplierId)
   const runningBalance = roundAmount(
     type === 'supplier_payment_credit' ? balance - amount : balance + amount
   )
+  const at = createdAt || new Date()
   await trx('ledger_entries').insert({
     id: randomUUID(),
     company_id: companyId,
@@ -141,7 +143,7 @@ async function insertSupplierLedger(
     reference_type: referenceType,
     reference_id: referenceId,
     running_balance: runningBalance,
-    created_at: new Date()
+    created_at: at
   })
 }
 
@@ -777,6 +779,248 @@ export async function repairAllVoidedSaleLedgers(companyId: string) {
     scanned: voided.length,
     repaired: results.length,
     results
+  }
+}
+
+type PurchaseApKind = 'product' | 'part'
+
+type PurchaseApRepairResult = {
+  purchaseId: string
+  kind: PurchaseApKind
+  supplierId: string
+  repaired: boolean
+  skipped: boolean
+  message: string
+  posted: Array<{ type: string; amount: number }>
+  expected: { debit: number; credit: number }
+  actualBefore: { debit: number; credit: number }
+}
+
+/**
+ * Top-up missing purchase/part-purchase AP ledger rows so posted debit/credit
+ * match net_total / paid_amount. Idempotent: no-op when already aligned.
+ * Does not create purchase_payments rows (payments may already exist).
+ */
+async function repairOnePurchaseApLedger(
+  trx: Knex.Transaction,
+  companyId: string,
+  purchase: {
+    id: string
+    supplier_id: string | null
+    net_total: number | string
+    paid_amount: number | string
+    purchase_date?: Date | string | null
+    created_at?: Date | string | null
+    deleted_at?: Date | string | null
+  },
+  kind: PurchaseApKind
+): Promise<PurchaseApRepairResult> {
+  const purchaseId = String(purchase.id)
+  const referenceType = kind === 'product' ? 'purchase' : 'part_purchase'
+  const supplierId = purchase.supplier_id ? String(purchase.supplier_id) : ''
+
+  if (!supplierId) {
+    return {
+      purchaseId,
+      kind,
+      supplierId: '',
+      repaired: false,
+      skipped: true,
+      message: 'No supplier on purchase',
+      posted: [],
+      expected: { debit: 0, credit: 0 },
+      actualBefore: { debit: 0, credit: 0 }
+    }
+  }
+
+  if (purchase.deleted_at) {
+    return {
+      purchaseId,
+      kind,
+      supplierId,
+      repaired: false,
+      skipped: true,
+      message: 'Purchase is voided — use purchase void ledger repair if needed',
+      posted: [],
+      expected: { debit: 0, credit: 0 },
+      actualBefore: { debit: 0, credit: 0 }
+    }
+  }
+
+  const expectedDebit = roundAmount(Number(purchase.net_total || 0))
+  const expectedCredit = roundAmount(
+    Math.min(Math.max(0, Number(purchase.paid_amount || 0)), expectedDebit)
+  )
+
+  const related = (await trx('ledger_entries')
+    .where({
+      reference_id: purchaseId,
+      reference_type: referenceType,
+      supplier_id: supplierId
+    })
+    .select('type', 'amount')) as Array<{ type: string; amount: string | number }>
+
+  let actualDebit = 0
+  let actualCredit = 0
+  for (const entry of related) {
+    const amount = Number(entry.amount || 0)
+    if (entry.type === 'supplier_payment_credit') actualCredit = roundAmount(actualCredit + amount)
+    else if (entry.type === 'purchase_debit') actualDebit = roundAmount(actualDebit + amount)
+  }
+
+  const missingDebit = roundAmount(expectedDebit - actualDebit)
+  const missingCredit = roundAmount(expectedCredit - actualCredit)
+
+  if (missingDebit <= 0 && missingCredit <= 0) {
+    return {
+      purchaseId,
+      kind,
+      supplierId,
+      repaired: false,
+      skipped: true,
+      message: 'Ledger already matches purchase totals',
+      posted: [],
+      expected: { debit: expectedDebit, credit: expectedCredit },
+      actualBefore: { debit: actualDebit, credit: actualCredit }
+    }
+  }
+
+  const baseRaw = purchase.purchase_date || purchase.created_at || new Date()
+  const baseTime = new Date(baseRaw)
+  if (!Number.isFinite(baseTime.getTime())) {
+    baseTime.setTime(Date.now())
+  }
+
+  const posted: Array<{ type: string; amount: number }> = []
+
+  if (missingDebit > 0) {
+    await insertSupplierLedger(
+      trx,
+      companyId,
+      supplierId,
+      'purchase_debit',
+      missingDebit,
+      referenceType,
+      purchaseId,
+      baseTime
+    )
+    posted.push({ type: 'purchase_debit', amount: missingDebit })
+  }
+
+  if (missingCredit > 0) {
+    const creditAt = new Date(baseTime.getTime() + (missingDebit > 0 ? 2 : 1))
+    await insertSupplierLedger(
+      trx,
+      companyId,
+      supplierId,
+      'supplier_payment_credit',
+      missingCredit,
+      referenceType,
+      purchaseId,
+      creditAt
+    )
+    posted.push({ type: 'supplier_payment_credit', amount: missingCredit })
+  }
+
+  return {
+    purchaseId,
+    kind,
+    supplierId,
+    repaired: true,
+    skipped: false,
+    message: `Posted ${posted.length} ledger row(s)`,
+    posted,
+    expected: { debit: expectedDebit, credit: expectedCredit },
+    actualBefore: { debit: actualDebit, credit: actualCredit }
+  }
+}
+
+/** Repair AP ledger for a single product or part purchase. */
+export async function repairPurchaseApLedger(
+  companyId: string,
+  purchaseId: string,
+  kind: PurchaseApKind
+): Promise<PurchaseApRepairResult> {
+  const db = await getCompanyDb(companyId, { forOps: true })
+  return db.transaction(async (trx) => {
+    if (kind === 'product') {
+      const purchase = await trx('purchases')
+        .where({ id: purchaseId, company_id: companyId })
+        .first()
+      if (!purchase) throw new Error('Purchase not found')
+      return repairOnePurchaseApLedger(trx, companyId, purchase, 'product')
+    }
+
+    const purchase = await trx('part_purchases')
+      .where({ id: purchaseId, company_id: companyId })
+      .first()
+    if (!purchase) throw new Error('Part purchase not found')
+    return repairOnePurchaseApLedger(trx, companyId, purchase, 'part')
+  })
+}
+
+/**
+ * Idempotent company-wide backfill: top-up missing purchase AP ledger rows
+ * for all active product and part purchases.
+ */
+export async function backfillMissingPurchaseApLedgers(companyId: string) {
+  const db = await getCompanyDb(companyId, { forOps: true })
+
+  const productPurchases = await db('purchases')
+    .where({ company_id: companyId })
+    .whereNull('deleted_at')
+    .select(
+      'id',
+      'supplier_id',
+      'net_total',
+      'paid_amount',
+      'purchase_date',
+      'created_at',
+      'deleted_at'
+    )
+
+  const partPurchases = (await db.schema.hasTable('part_purchases'))
+    ? await db('part_purchases')
+        .where({ company_id: companyId })
+        .whereNull('deleted_at')
+        .select(
+          'id',
+          'supplier_id',
+          'net_total',
+          'paid_amount',
+          'purchase_date',
+          'created_at',
+          'deleted_at'
+        )
+    : []
+
+  const results: PurchaseApRepairResult[] = []
+  let repaired = 0
+  let skipped = 0
+
+  for (const purchase of productPurchases) {
+    const result = await db.transaction(async (trx) =>
+      repairOnePurchaseApLedger(trx, companyId, purchase, 'product')
+    )
+    results.push(result)
+    if (result.repaired) repaired += 1
+    else skipped += 1
+  }
+
+  for (const purchase of partPurchases) {
+    const result = await db.transaction(async (trx) =>
+      repairOnePurchaseApLedger(trx, companyId, purchase, 'part')
+    )
+    results.push(result)
+    if (result.repaired) repaired += 1
+    else skipped += 1
+  }
+
+  return {
+    scanned: productPurchases.length + partPurchases.length,
+    repaired,
+    skipped,
+    results: results.filter((r) => r.repaired)
   }
 }
 

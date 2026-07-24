@@ -43,6 +43,8 @@ import {
   voidSale,
   repairSaleLedger,
   repairAllVoidedSaleLedgers,
+  repairPurchaseApLedger,
+  backfillMissingPurchaseApLedgers,
   listPurchases,
   getPurchaseDetail,
   getPartPurchaseDetail,
@@ -669,6 +671,65 @@ export function adminRouter(db: Knex): Router {
       res.status(400).json({ error: err.message })
     }
   })
+
+  router.post('/companies/:id/business/repair-purchase-ledgers', async (req: AuthRequest, res) => {
+    try {
+      const result = await backfillMissingPurchaseApLedgers(req.params.id)
+      await writeAudit(db, req, {
+        action: 'purchase.backfill_ledgers',
+        resource: 'purchase',
+        companyId: req.params.id,
+        detail: {
+          scanned: result.scanned,
+          repaired: result.repaired,
+          skipped: result.skipped
+        }
+      })
+      res.json(result)
+    } catch (err: any) {
+      res.status(400).json({ error: err.message })
+    }
+  })
+
+  router.post(
+    '/companies/:id/business/purchases/:purchaseId/repair-ledger',
+    async (req: AuthRequest, res) => {
+      try {
+        const result = await repairPurchaseApLedger(
+          req.params.id,
+          req.params.purchaseId,
+          'product'
+        )
+        await writeAudit(db, req, {
+          action: 'purchase.repair_ledger',
+          resource: 'purchase',
+          companyId: req.params.id,
+          detail: result
+        })
+        res.json(result)
+      } catch (err: any) {
+        res.status(400).json({ error: err.message })
+      }
+    }
+  )
+
+  router.post(
+    '/companies/:id/business/part-purchases/:purchaseId/repair-ledger',
+    async (req: AuthRequest, res) => {
+      try {
+        const result = await repairPurchaseApLedger(req.params.id, req.params.purchaseId, 'part')
+        await writeAudit(db, req, {
+          action: 'part_purchase.repair_ledger',
+          resource: 'part_purchase',
+          companyId: req.params.id,
+          detail: result
+        })
+        res.json(result)
+      } catch (err: any) {
+        res.status(400).json({ error: err.message })
+      }
+    }
+  )
 
   router.get('/companies/:id/business/purchases', async (req: AuthRequest, res) => {
     try {

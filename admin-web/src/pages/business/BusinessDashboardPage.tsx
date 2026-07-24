@@ -28,7 +28,7 @@ import {
   XAxis,
   YAxis
 } from 'recharts'
-import { getBusinessDashboard, getBusinessFilterOptions, repairAllVoidedSaleLedgers } from '../../api/admin'
+import { getBusinessDashboard, getBusinessFilterOptions, repairAllVoidedSaleLedgers, backfillPurchaseApLedgers } from '../../api/admin'
 import { useAuth } from '../../context/AuthContext'
 import type { BusinessAnalytics, BusinessFilterOptions } from '../../types'
 import {
@@ -333,6 +333,33 @@ export default function BusinessDashboardPage() {
               }}
             >
               Repair voided ledgers
+            </Button>
+            <Button
+              loading={repairing}
+              onClick={() => {
+                Modal.confirm({
+                  title: 'Backfill purchase AP ledgers?',
+                  content:
+                    'Scans product and part purchases and posts any missing supplier ledger debit/credit so historical bills appear on supplier statements. Safe to re-run.',
+                  onOk: async () => {
+                    if (!token) return
+                    setRepairing(true)
+                    try {
+                      const result = await backfillPurchaseApLedgers(token, companyId)
+                      message.success(
+                        `Scanned ${result.scanned} purchases · repaired ${result.repaired} · skipped ${result.skipped}`
+                      )
+                      setRefreshKey((k) => k + 1)
+                    } catch (err: any) {
+                      message.error(err.message)
+                    } finally {
+                      setRepairing(false)
+                    }
+                  }
+                })
+              }}
+            >
+              Backfill purchase ledgers
             </Button>
             <Button
               onClick={() => {

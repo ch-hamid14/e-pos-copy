@@ -20,6 +20,7 @@ import {
 import {
   getBusinessPartPurchase,
   getBusinessPurchase,
+  repairBusinessPurchaseLedger,
   voidBusinessPartPurchase,
   voidBusinessPurchase
 } from '../../api/admin'
@@ -36,6 +37,7 @@ export default function BusinessPurchaseDetailPage({ kind }: { kind: 'product' |
   const [detail, setDetail] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [repairing, setRepairing] = useState(false)
   const [voidOpen, setVoidOpen] = useState(false)
   const [reason, setReason] = useState('')
 
@@ -110,16 +112,50 @@ export default function BusinessPurchaseDetailPage({ kind }: { kind: 'product' |
             {purchase.supplier?.name ? ` · ${purchase.supplier.name}` : ''}
           </p>
         </div>
-        <Button
-          danger
-          disabled={isVoided || !impact.canVoid}
-          onClick={() => {
-            setReason('')
-            setVoidOpen(true)
-          }}
-        >
-          Void purchase
-        </Button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {!isVoided && (
+            <Button
+              loading={repairing}
+              onClick={() => {
+                Modal.confirm({
+                  title: 'Repair purchase ledger?',
+                  content:
+                    'Posts any missing supplier ledger debit/credit so this bill matches net and paid totals. Safe if already aligned.',
+                  onOk: async () => {
+                    if (!token || !purchaseId) return
+                    setRepairing(true)
+                    try {
+                      const result = await repairBusinessPurchaseLedger(
+                        token,
+                        companyId,
+                        purchaseId,
+                        kind
+                      )
+                      message.success(result.message)
+                      await load()
+                    } catch (err: any) {
+                      message.error(err.message)
+                    } finally {
+                      setRepairing(false)
+                    }
+                  }
+                })
+              }}
+            >
+              Repair ledger
+            </Button>
+          )}
+          <Button
+            danger
+            disabled={isVoided || !impact.canVoid}
+            onClick={() => {
+              setReason('')
+              setVoidOpen(true)
+            }}
+          >
+            Void purchase
+          </Button>
+        </div>
       </div>
 
       {isVoided ? (
