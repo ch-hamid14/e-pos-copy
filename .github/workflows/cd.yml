@@ -143,10 +143,10 @@ jobs:
           npm run migrate
 
           if command -v pm2 >/dev/null 2>&1; then
-            if pm2 describe madix-e-pos-backend >/dev/null 2>&1; then
-              pm2 reload madix-e-pos-backend
+            if pm2 describe volt-backend >/dev/null 2>&1; then
+              pm2 reload volt-backend
             else
-              pm2 start dist/index.js --name madix-e-pos-backend
+              pm2 start dist/index.js --name volt-backend
             fi
           else
             echo "pm2 not found — start dist/index.js with your process manager"
@@ -156,7 +156,7 @@ jobs:
 
       - name: Smoke test
         run: |
-          ssh deploy-target bash -s <<REMOTE
+          ssh -i ~/.ssh/deploy_key "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" bash -s <<REMOTE
           set -euo pipefail
           for i in \$(seq 1 30); do
             if curl -fsS http://127.0.0.1:4020/health; then
@@ -172,7 +172,7 @@ jobs:
             . "\$NVM_DIR/nvm.sh"
             nvm use default >/dev/null 2>&1 || true
           fi
-          pm2 describe "${{ env.PM2_PROCESS }}" || true
-          pm2 logs "${{ env.PM2_PROCESS }}" --nostream --lines 50 || true
+          pm2 describe volt-backend || true
+          pm2 logs volt-backend --nostream --lines 50 || true
           exit 1
           REMOTE
