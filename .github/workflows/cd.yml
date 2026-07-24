@@ -159,7 +159,7 @@ jobs:
           ssh -i ~/.ssh/deploy_key "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" bash -s <<REMOTE
           set -euo pipefail
           for i in \$(seq 1 30); do
-            if curl -fsS http://127.0.0.1:4020/health; then
+            if curl -fsS http://127.0.0.1:4020/api/health; then
               echo ""
               echo "health ok (attempt \$i)"
               exit 0
