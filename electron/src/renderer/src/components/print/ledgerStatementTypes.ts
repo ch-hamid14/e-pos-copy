@@ -35,6 +35,8 @@ export type LedgerStatementLine = {
 
 export type LedgerStatementData = {
   companyName: string
+  companyPhone: string
+  companyAddress: string
   title: string
   partyLabel: string
   partyName: string
@@ -56,18 +58,62 @@ const TYPE_META: Record<string, { code: string; label: string; side: 'debit' | '
   adjustment: { code: 'JE', label: 'Adjustment', side: 'debit' }
 }
 
-function formatDetails(entry: LedgerEntryRow): string {
-  const parts: string[] = []
-  if (entry.referenceType) parts.push(String(entry.referenceType).replace(/_/g, ' '))
-  if (entry.referenceId) parts.push(String(entry.referenceId).slice(0, 8))
-  return parts.join(' · ') || '—'
+function formatReference(entry: LedgerEntryRow): string {
+  if (!entry.referenceId) return '—'
+  return String(entry.referenceId).slice(0, 8)
+}
+
+export type PrintCompanyHeader = {
+  name: string
+  phone?: string
+  address?: string
 }
 
 export function mapLedgerToStatement(
   party: LedgerPartyData,
-  companyName: string
+  company: PrintCompanyHeader | string
 ): LedgerStatementData {
-  const lines: LedgerStatementLine[] = (party.ledger || []).map((entry) => {
+  const debitTypes = new Set(['opening_balance', 'sale_debit', 'purchase_debit', 'adjustment'])
+  const creditTypes = new Set(['payment_credit', 'supplier_payment_credit'])
+  const refKey = (e: LedgerEntryRow) => `${e.referenceType || ''}:${e.referenceId || ''}`
+
+  const debitTimes = new Map<string, number>()
+  for (const e of party.ledger || []) {
+    if (!debitTypes.has(e.type) || !e.referenceId) continue
+    const key = refKey(e)
+    const t = e.createdAt ? dayjs(e.createdAt).valueOf() : 0
+    const prev = debitTimes.get(key)
+    if (prev == null || t < prev) debitTimes.set(key, t)
+  }
+
+  const effectiveTime = (e: LedgerEntryRow) => {
+    const t = e.createdAt ? dayjs(e.createdAt).valueOf() : 0
+    if (!creditTypes.has(e.type) || !e.referenceId) return t
+    const debitAt = debitTimes.get(refKey(e))
+    if (debitAt == null) return t
+    return t < debitAt ? debitAt + 2 : t
+  }
+
+  const typeRank = (type: string) => {
+    if (type === 'opening_balance') return 0
+    if (type === 'sale_debit' || type === 'purchase_debit') return 1
+    if (type === 'adjustment') return 2
+    if (creditTypes.has(type)) return 3
+    return 5
+  }
+
+  // Defensive: keep print order aligned with classic GL (matching debit before credit).
+  const sortedLedger = [...(party.ledger || [])].sort((a, b) => {
+    const ea = effectiveTime(a)
+    const eb = effectiveTime(b)
+    if (ea !== eb) return ea - eb
+    const r = typeRank(a.type) - typeRank(b.type)
+    if (r !== 0) return r
+    return String(a.id || '').localeCompare(String(b.id || ''))
+  })
+
+  let running = 0
+  const lines: LedgerStatementLine[] = sortedLedger.map((entry) => {
     const meta = TYPE_META[entry.type] || {
       code: 'JE',
       label: entry.type,
@@ -76,14 +122,15 @@ export function mapLedgerToStatement(
     const amount = Number(entry.amount || 0)
     const isCredit =
       entry.type === 'payment_credit' || entry.type === 'supplier_payment_credit' || meta.side === 'credit'
+    running = Math.round(running + (isCredit ? -amount : amount))
     return {
       date: entry.createdAt ? dayjs(entry.createdAt).format('DD MMM YYYY') : '—',
       typeCode: meta.code,
       typeLabel: meta.label,
-      details: formatDetails(entry),
+      details: formatReference(entry),
       debit: isCredit ? 0 : amount,
       credit: isCredit ? amount : 0,
-      balance: Number(entry.runningBalance ?? 0)
+      balance: running
     }
   })
 
@@ -101,8 +148,13 @@ export function mapLedgerToStatement(
         }`
       : 'All dates'
 
+  const companyHeader: PrintCompanyHeader =
+    typeof company === 'string' ? { name: company } : company
+
   return {
-    companyName,
+    companyName: companyHeader.name || 'Company',
+    companyPhone: companyHeader.phone?.trim() || '—',
+    companyAddress: companyHeader.address?.trim() || '—',
     title: party.partyType === 'supplier' ? 'Supplier Ledger' : 'Customer Ledger',
     partyLabel: party.partyType === 'supplier' ? 'Supplier' : 'Customer',
     partyName: party.partyName || '—',

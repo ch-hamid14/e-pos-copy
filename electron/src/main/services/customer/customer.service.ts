@@ -10,6 +10,10 @@ import {
   withAuditUpdate
 } from '../shared/audit.helpers'
 import { asJsonList } from '../shared/json.helpers'
+import {
+  balanceFromLedgerEntries,
+  orderAndRecomputeLedgerBalances
+} from '../shared/ledger-order.helpers'
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100
@@ -21,18 +25,8 @@ export async function computeCustomerBalance(
 ): Promise<number> {
   const db = getDb()
   const q = transaction ? db('ledger_entries').transacting(transaction) : db('ledger_entries')
-  const entries = await q.where({ customer_id: customerId }).orderBy('created_at', 'asc')
-
-  let balance = 0
-  for (const entry of entries) {
-    const amount = Number(entry.amount)
-    if (entry.type === LedgerEntryType.PAYMENT_CREDIT) {
-      balance = round2(balance - amount)
-    } else {
-      balance = round2(balance + amount)
-    }
-  }
-  return balance
+  const entries = await q.where({ customer_id: customerId })
+  return balanceFromLedgerEntries(entries as Record<string, unknown>[])
 }
 
 class CustomerService {
@@ -182,8 +176,8 @@ class CustomerService {
   }
 
   async ledger(customerId: string): Promise<unknown[]> {
-    const rows = await getDb()('ledger_entries').where({ customer_id: customerId }).orderBy('created_at', 'asc')
-    return asJsonList(rows)
+    const rows = await getDb()('ledger_entries').where({ customer_id: customerId })
+    return asJsonList(orderAndRecomputeLedgerBalances(rows as Record<string, unknown>[]))
   }
 }
 

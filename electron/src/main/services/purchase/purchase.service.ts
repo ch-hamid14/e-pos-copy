@@ -143,15 +143,23 @@ class PurchaseService {
     }
 
     if (filters?.search?.trim()) {
-      const term = `%${filters.search.trim()}%`
-      q.whereExists(
-        getDb()('product_items as pi')
-          .whereRaw('pi.purchase_id = p.id')
-          .whereNull('pi.deleted_at')
-          .where((builder) => {
-            builder.whereILike('pi.serial_number', term).orWhereILike('pi.motor_number', term)
-          })
-      )
+      const raw = filters.search.trim()
+      const term = `%${raw}%`
+      const idTerm = `%${raw.replace(/^#/, '')}%`
+      q.where((builder) => {
+        builder
+          .whereRaw('p.id::text ILIKE ?', [idTerm])
+          .orWhereExists(
+            getDb()('product_items as pi')
+              .whereRaw('pi.purchase_id = p.id')
+              .whereNull('pi.deleted_at')
+              .where((itemBuilder) => {
+                itemBuilder
+                  .whereILike('pi.serial_number', term)
+                  .orWhereILike('pi.motor_number', term)
+              })
+          )
+      })
     }
 
     q.orderBy('p.purchase_date', 'desc').orderBy('p.created_at', 'desc')

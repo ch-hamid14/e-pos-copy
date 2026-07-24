@@ -115,14 +115,20 @@ class PartPurchaseService {
     }
 
     if (filters?.search?.trim()) {
-      const term = `%${filters.search.trim()}%`
-      q.whereExists(
-        getDb()('part_purchase_lines as pl')
-          .leftJoin('parts as pt', 'pl.part_id', 'pt.id')
-          .whereRaw('pl.part_purchase_id = p.id')
-          .whereNull('pl.deleted_at')
-          .whereILike('pt.name', term)
-      )
+      const raw = filters.search.trim()
+      const term = `%${raw}%`
+      const idTerm = `%${raw.replace(/^#/, '')}%`
+      q.where((builder) => {
+        builder
+          .whereRaw('p.id::text ILIKE ?', [idTerm])
+          .orWhereExists(
+            getDb()('part_purchase_lines as pl')
+              .leftJoin('parts as pt', 'pl.part_id', 'pt.id')
+              .whereRaw('pl.part_purchase_id = p.id')
+              .whereNull('pl.deleted_at')
+              .whereILike('pt.name', term)
+          )
+      })
     }
 
     const purchases = await q

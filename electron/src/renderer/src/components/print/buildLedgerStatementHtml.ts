@@ -2,13 +2,17 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { LedgerStatement } from './LedgerStatement'
 import { LEDGER_STATEMENT_PRINT_CSS } from './ledgerStatementPrintStyles'
-import { mapLedgerToStatement, type LedgerPartyData } from './ledgerStatementTypes'
+import {
+  mapLedgerToStatement,
+  type LedgerPartyData,
+  type PrintCompanyHeader
+} from './ledgerStatementTypes'
 
 export function buildLedgerStatementHtml(
   party: LedgerPartyData,
-  companyName: string
+  company: PrintCompanyHeader | string
 ): string | null {
-  const data = mapLedgerToStatement(party, companyName)
+  const data = mapLedgerToStatement(party, company)
   if (!data) return null
 
   const markup = renderToStaticMarkup(createElement(LedgerStatement, { data }))

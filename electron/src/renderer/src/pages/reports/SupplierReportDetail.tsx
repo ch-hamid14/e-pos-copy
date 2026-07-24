@@ -39,7 +39,7 @@ const LEDGER_TYPE_COLORS: Record<string, string> = {
 export const SupplierReportDetail = () => {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { companyId, branchName } = useSession()
+  const { companyId, branchId, branchName } = useSession()
   const [loading, setLoading] = useState(true)
   const [detail, setDetail] = useState<any>(null)
   const { printLedger, downloadLedger } = useLedgerPrint()
@@ -48,10 +48,10 @@ export const SupplierReportDetail = () => {
     if (!companyId || !id) return
     setLoading(true)
     reportAPI
-      .supplierDetail(companyId, id)
+      .supplierDetail(companyId, id, branchId || undefined)
       .then(setDetail)
       .finally(() => setLoading(false))
-  }, [companyId, id])
+  }, [companyId, branchId, id])
 
   const ledgerParty = useMemo(() => {
     if (!detail?.supplier) return null
@@ -64,6 +64,16 @@ export const SupplierReportDetail = () => {
       ledger: detail.ledger || []
     }
   }, [detail])
+
+  const printCompany = useMemo(
+    () =>
+      detail?.printCompany || {
+        name: branchName || 'Company',
+        phone: '',
+        address: ''
+      },
+    [detail, branchName]
+  )
 
   if (loading) {
     return (
@@ -111,7 +121,7 @@ export const SupplierReportDetail = () => {
             onClick={async () => {
               if (!ledgerParty) return
               try {
-                await printLedger(ledgerParty, branchName || 'Company')
+                await printLedger(ledgerParty, printCompany)
               } catch (err: any) {
                 message.error(err.message || 'Print failed')
               }
@@ -217,7 +227,7 @@ export const SupplierReportDetail = () => {
                       onClick={async () => {
                         if (!ledgerParty) return
                         try {
-                          const result = await downloadLedger(ledgerParty, branchName || 'Company')
+                          const result = await downloadLedger(ledgerParty, printCompany)
                           if (result.saved) message.success('Ledger PDF saved to Downloads')
                         } catch (err: any) {
                           message.error(err.message || 'Download failed')

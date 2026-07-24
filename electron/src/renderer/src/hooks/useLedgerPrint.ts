@@ -1,7 +1,10 @@
 import { useCallback } from 'react'
 import { printAPI } from '@/renderer/services'
 import { buildLedgerStatementHtml } from '@/renderer/components/print/buildLedgerStatementHtml'
-import type { LedgerPartyData } from '@/renderer/components/print/ledgerStatementTypes'
+import type {
+  LedgerPartyData,
+  PrintCompanyHeader
+} from '@/renderer/components/print/ledgerStatementTypes'
 import dayjs from 'dayjs'
 
 function runPrint(html: string) {
@@ -39,17 +42,23 @@ function ledgerFileName(party: LedgerPartyData): string {
 }
 
 export function useLedgerPrint() {
-  const printLedger = useCallback(async (party: LedgerPartyData, companyName: string) => {
-    const html = buildLedgerStatementHtml(party, companyName)
-    if (!html) throw new Error('Could not build ledger statement')
-    runPrint(html)
-  }, [])
+  const printLedger = useCallback(
+    async (party: LedgerPartyData, company: PrintCompanyHeader | string) => {
+      const html = buildLedgerStatementHtml(party, company)
+      if (!html) throw new Error('Could not build ledger statement')
+      runPrint(html)
+    },
+    []
+  )
 
-  const downloadLedger = useCallback(async (party: LedgerPartyData, companyName: string) => {
-    const html = buildLedgerStatementHtml(party, companyName)
-    if (!html) throw new Error('Could not build ledger statement')
-    return printAPI.downloadLedgerStatement(ledgerFileName(party), html)
-  }, [])
+  const downloadLedger = useCallback(
+    async (party: LedgerPartyData, company: PrintCompanyHeader | string) => {
+      const html = buildLedgerStatementHtml(party, company)
+      if (!html) throw new Error('Could not build ledger statement')
+      return printAPI.downloadLedgerStatement(ledgerFileName(party), html)
+    },
+    []
+  )
 
   return { printLedger, downloadLedger }
 }

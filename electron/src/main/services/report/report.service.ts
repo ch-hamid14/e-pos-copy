@@ -2,9 +2,31 @@ import { getDb } from '../../db'
 import { computeCustomerBalance } from '../customer/customer.service'
 import { computeSupplierBalance } from '../purchase/supplier-ledger.helpers'
 import { asJson, asJsonList } from '../shared/json.helpers'
+import { orderAndRecomputeLedgerBalances } from '../shared/ledger-order.helpers'
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100
+}
+
+async function printCompanyHeader(companyId: string, branchId?: string) {
+  const profile = await getDb()('company_profile').whereNull('deleted_at').first()
+  let branch: Record<string, unknown> | undefined
+  if (branchId) {
+    branch = await getDb()('branches').where({ id: branchId }).whereNull('deleted_at').first()
+  }
+  if (!branch) {
+    branch = await getDb()('branches')
+      .where({ company_id: companyId, is_active: true })
+      .whereNull('deleted_at')
+      .orderBy('name', 'asc')
+      .first()
+  }
+
+  return {
+    name: String(profile?.name || branch?.name || 'Company'),
+    phone: String(profile?.phone || '').trim(),
+    address: String(branch?.location || '').trim()
+  }
 }
 
 export type SalesReportFilters = {
@@ -221,7 +243,11 @@ class ReportService {
     }
   }
 
-  async customerDetail(companyId: string, customerId: string): Promise<unknown> {
+  async customerDetail(
+    companyId: string,
+    customerId: string,
+    branchId?: string
+  ): Promise<unknown> {
     const customer = await getDb()('customers')
       .where({ id: customerId, company_id: companyId })
       .whereNull('deleted_at')
@@ -251,12 +277,15 @@ class ReportService {
       saleRows.push({ ...asJson(sale)!, lines: asJsonList(lines) })
     }
 
-    const ledger = await getDb()('ledger_entries').where({ customer_id: customerId }).orderBy('created_at', 'asc')
+    const ledgerRows = await getDb()('ledger_entries').where({ customer_id: customerId })
+    const ledger = orderAndRecomputeLedgerBalances(ledgerRows as Record<string, unknown>[])
+    const printCompany = await printCompanyHeader(companyId, branchId)
 
     return {
       customer: { ...asJson(customer)!, balance },
       sales: saleRows,
       ledger: asJsonList(ledger),
+      printCompany,
       summary: { saleCount: saleRows.length, totalNet, totalPaid, totalDue, balance }
     }
   }
@@ -295,7 +324,11 @@ class ReportService {
     }
   }
 
-  async supplierDetail(companyId: string, supplierId: string): Promise<unknown> {
+  async supplierDetail(
+    companyId: string,
+    supplierId: string,
+    branchId?: string
+  ): Promise<unknown> {
     const supplier = await getDb()('suppliers')
       .where({ id: supplierId, company_id: companyId })
       .whereNull('deleted_at')
@@ -347,14 +380,15 @@ class ReportService {
       return db - da
     })
 
-    const ledger = await getDb()('ledger_entries')
-      .where({ supplier_id: supplierId })
-      .orderBy('created_at', 'asc')
+    const ledgerRows = await getDb()('ledger_entries').where({ supplier_id: supplierId })
+    const ledger = orderAndRecomputeLedgerBalances(ledgerRows as Record<string, unknown>[])
+    const printCompany = await printCompanyHeader(companyId, branchId)
 
     return {
       supplier: { ...asJson(supplier)!, balance },
       purchases: purchaseRows,
       ledger: asJsonList(ledger),
+      printCompany,
       summary: {
         purchaseCount: purchaseRows.length,
         totalNet,

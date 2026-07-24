@@ -320,8 +320,11 @@ export const reportAPI = {
     ipcCall(`GET:${Channels.REPORTS}:customers`, {
       query: { companyId, ...filters }
     }),
-  customerDetail: (companyId: string, customerId: string) =>
-    ipcCall(`GET:${Channels.REPORTS}:customers:detail`, { params: { id: customerId }, query: { companyId } }),
+  customerDetail: (companyId: string, customerId: string, branchId?: string) =>
+    ipcCall(`GET:${Channels.REPORTS}:customers:detail`, {
+      params: { id: customerId },
+      query: { companyId, branchId }
+    }),
   suppliers: (
     companyId: string,
     filters?: {
@@ -335,10 +338,10 @@ export const reportAPI = {
     ipcCall(`GET:${Channels.REPORTS}:suppliers`, {
       query: { companyId, ...filters }
     }),
-  supplierDetail: (companyId: string, supplierId: string) =>
+  supplierDetail: (companyId: string, supplierId: string, branchId?: string) =>
     ipcCall(`GET:${Channels.REPORTS}:suppliers:detail`, {
       params: { id: supplierId },
-      query: { companyId }
+      query: { companyId, branchId }
     })
 }
 

@@ -1,5 +1,6 @@
 import { formatInvoiceAmount } from '@/renderer/utils/invoiceFormat'
 import type { LedgerStatementData } from './ledgerStatementTypes'
+import { VOLT_LOGO_DATA_URI } from './voltLogoDataUri'
 
 function fmt(n: number): string {
   if (!n) return '—'
@@ -7,31 +8,53 @@ function fmt(n: number): string {
 }
 
 export function LedgerStatement({ data }: { data: LedgerStatementData }) {
+  const dueLabel = data.partyLabel === 'Supplier' ? 'Payable' : 'Receivable'
+
   return (
     <div className="ledger-page">
       <header className="ledger-header">
-        <div>
-          <div className="ledger-brand">{data.companyName}</div>
-          <div className="ledger-meta">Printed {data.printedAt}</div>
+        <div className="ledger-header-main">
+          <div className="ledger-company-name">{data.companyName}</div>
+          <div className="ledger-company-address">{data.companyAddress}</div>
         </div>
-        <div>
-          <div className="ledger-title">{data.title}</div>
-          <div className="ledger-meta">Period: {data.periodLabel}</div>
+        <div className="ledger-header-side">
+          <div className="ledger-contact-label">Contact</div>
+          <div className="ledger-contact-value">{data.companyPhone}</div>
         </div>
       </header>
 
-      <section className="ledger-party">
-        <div className="ledger-party-row">
-          <span className="ledger-label">{data.partyLabel}</span>
+      <div className="ledger-title-block">
+        <div className="ledger-title">{data.title}</div>
+        <div className="ledger-meta">
           <span>{data.partyName}</span>
+          <span className="ledger-meta-sep">·</span>
+          <span>Printed {data.printedAt}</span>
+          <span className="ledger-meta-sep">·</span>
+          <span>{data.periodLabel}</span>
         </div>
-        <div className="ledger-party-row">
-          <span className="ledger-label">Phone</span>
-          <span>{data.partyPhone}</span>
+        {(data.partyPhone !== '—' || data.partyAddress !== '—') && (
+          <div className="ledger-party-line">
+            {data.partyPhone !== '—' && <span>Phone {data.partyPhone}</span>}
+            {data.partyPhone !== '—' && data.partyAddress !== '—' && (
+              <span className="ledger-meta-sep">·</span>
+            )}
+            {data.partyAddress !== '—' && <span>{data.partyAddress}</span>}
+          </div>
+        )}
+      </div>
+
+      <section className="ledger-summary-strip">
+        <div className="ledger-summary-item">
+          <div className="ledger-summary-label">Opening</div>
+          <div className="ledger-summary-value">{formatInvoiceAmount(data.openingBalance)}</div>
         </div>
-        <div className="ledger-party-row" style={{ gridColumn: '1 / -1' }}>
-          <span className="ledger-label">Address</span>
-          <span>{data.partyAddress}</span>
+        <div className="ledger-summary-item">
+          <div className="ledger-summary-label">Closing</div>
+          <div className="ledger-summary-value">{formatInvoiceAmount(data.closingBalance)}</div>
+        </div>
+        <div className="ledger-summary-item ledger-summary-item--accent">
+          <div className="ledger-summary-label">{dueLabel}</div>
+          <div className="ledger-summary-value">{formatInvoiceAmount(data.closingBalance)}</div>
         </div>
       </section>
 
@@ -40,49 +63,39 @@ export function LedgerStatement({ data }: { data: LedgerStatementData }) {
           <tr>
             <th className="col-date">Post Date</th>
             <th className="col-type">Type</th>
-            <th>Details</th>
+            <th>Reference</th>
             <th className="col-amt">Debit</th>
             <th className="col-amt">Credit</th>
             <th className="col-amt">Balance</th>
           </tr>
         </thead>
         <tbody>
-          <tr>
-            <td colSpan={3}>
-              <strong>Opening balance</strong>
-            </td>
-            <td className="col-amt">—</td>
-            <td className="col-amt">—</td>
-            <td className="col-amt">
-              <strong>{formatInvoiceAmount(data.openingBalance)}</strong>
-            </td>
-          </tr>
           {data.lines.map((line, index) => (
             <tr key={`${line.date}-${line.typeCode}-${index}`}>
               <td className="col-date">{line.date}</td>
               <td className="col-type" title={line.typeLabel}>
-                {line.typeCode}
+                <span className="ledger-type-chip">{line.typeCode}</span>
               </td>
-              <td>
-                <div>{line.typeLabel}</div>
-                <div style={{ color: '#6b7280' }}>{line.details}</div>
-              </td>
+              <td className="col-ref">{line.details}</td>
               <td className="col-amt">{fmt(line.debit)}</td>
               <td className="col-amt">{fmt(line.credit)}</td>
-              <td className="col-amt">{formatInvoiceAmount(line.balance)}</td>
+              <td className="col-amt col-balance">{formatInvoiceAmount(line.balance)}</td>
             </tr>
           ))}
+          {data.lines.length === 0 && (
+            <tr>
+              <td colSpan={6} className="ledger-empty">
+                No ledger entries in this period
+              </td>
+            </tr>
+          )}
         </tbody>
       </table>
 
-      <div className="ledger-summary">
-        <span>Closing balance: {formatInvoiceAmount(data.closingBalance)}</span>
-      </div>
-
       <footer className="ledger-footer">
-        <span>MadixSoft E-POS</span>
-        <span>
-          Positive balance = {data.partyLabel === 'Supplier' ? 'amount we owe' : 'amount owed to us'}
+        <img className="ledger-footer-logo" src={VOLT_LOGO_DATA_URI} alt="VOLT POS" />
+        <span className="ledger-footer-powered">
+          Powered by <strong>MadixSoft</strong>
         </span>
       </footer>
     </div>

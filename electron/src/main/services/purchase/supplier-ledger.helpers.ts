@@ -3,6 +3,7 @@ import { LedgerEntryType, PaymentMethod } from '@madix/database'
 import { getDb } from '../../db'
 import { generateId } from '../../../common/utils/uuid'
 import { type AuditContext, auditCreate } from '../shared/audit.helpers'
+import { balanceFromLedgerEntries } from '../shared/ledger-order.helpers'
 
 function roundRs(n: number): number {
   return Math.round(Number(n) || 0)
@@ -15,19 +16,8 @@ export async function computeSupplierBalance(
 ): Promise<number> {
   const db = getDb()
   const q = transaction ? db('ledger_entries').transacting(transaction) : db('ledger_entries')
-  const entries = await q.where({ supplier_id: supplierId }).orderBy('created_at', 'asc')
-
-  let balance = 0
-  for (const entry of entries) {
-    const amount = Number(entry.amount)
-    if (entry.type === LedgerEntryType.SUPPLIER_PAYMENT_CREDIT) {
-      balance = roundRs(balance - amount)
-    } else {
-      // purchase_debit, adjustment, etc.
-      balance = roundRs(balance + amount)
-    }
-  }
-  return balance
+  const entries = await q.where({ supplier_id: supplierId })
+  return balanceFromLedgerEntries(entries as Record<string, unknown>[])
 }
 
 export async function postPurchaseApLedger(
@@ -178,7 +168,10 @@ export async function recordSupplierPayment(
   const amount = roundRs(opts.amount)
   if (amount <= 0) throw new Error('Payment amount must be greater than zero')
 
-  const payAt = opts.paymentDate || new Date()
+  // Business date for the payment row; ledger created_at must be wall-clock so
+  // same-day payments never sort before the purchase they settle.
+  const paymentDate = opts.paymentDate || new Date()
+  const postedAt = new Date()
   if (!opts.skipPaymentRow) {
     await getDb()('purchase_payments').transacting(transaction).insert({
       id: generateId(),
@@ -187,10 +180,10 @@ export async function recordSupplierPayment(
       part_purchase_id: opts.partPurchaseId || null,
       amount,
       method: opts.method || PaymentMethod.CASH,
-      payment_date: payAt,
+      payment_date: paymentDate,
       ...auditCreate(opts.ctx),
-      created_at: payAt,
-      updated_at: payAt
+      created_at: postedAt,
+      updated_at: postedAt
     })
   }
 
@@ -207,7 +200,7 @@ export async function recordSupplierPayment(
     reference_id: opts.referenceId,
     running_balance: balance,
     ...auditCreate(opts.ctx),
-    created_at: payAt
+    created_at: postedAt
   })
 }
 

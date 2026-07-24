@@ -37,7 +37,8 @@ class ReportController {
   async customerDetail(_: Electron.IpcMainInvokeEvent, req: IRequest) {
     return reportService.customerDetail(
       req.query?.companyId as string,
-      req.params?.id as string
+      req.params?.id as string,
+      req.query?.branchId as string | undefined
     )
   }
 
@@ -54,7 +55,8 @@ class ReportController {
   async supplierDetail(_: Electron.IpcMainInvokeEvent, req: IRequest) {
     return reportService.supplierDetail(
       req.query?.companyId as string,
-      req.params?.id as string
+      req.params?.id as string,
+      req.query?.branchId as string | undefined
     )
   }
 }

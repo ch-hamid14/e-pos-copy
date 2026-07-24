@@ -17,6 +17,7 @@ type UnifiedRow = {
   key: string
   kind: 'product' | 'part'
   id: string
+  reference: string
   purchaseDate: string
   supplier?: { name?: string } | null
   updatedByUser?: unknown
@@ -70,6 +71,7 @@ export const PurchaseList = () => {
           key: `product-${r.id}`,
           kind: 'product',
           id: r.id,
+          reference: String(r.id || '').slice(0, 8),
           purchaseDate: r.purchaseDate,
           supplier: r.supplier,
           updatedByUser: r.updatedByUser,
@@ -82,6 +84,7 @@ export const PurchaseList = () => {
           key: `part-${r.id}`,
           kind: 'part',
           id: r.id,
+          reference: String(r.id || '').slice(0, 8),
           purchaseDate: r.purchaseDate,
           supplier: r.supplier,
           updatedByUser: r.updatedByUser,
@@ -160,10 +163,10 @@ export const PurchaseList = () => {
             ]}
           />
           <Input.Search
-            placeholder="Search chassis, motor, or part…"
+            placeholder="Search reference, chassis, motor, or part…"
             allowClear
             onSearch={setSearch}
-            style={{ width: 280 }}
+            style={{ width: 300 }}
           />
           <Button
             onClick={() => {
@@ -193,6 +196,16 @@ export const PurchaseList = () => {
               width: 100,
               render: (v: UnifiedRow['kind']) =>
                 v === 'part' ? <Tag color="blue">Part</Tag> : <Tag>Product</Tag>
+            },
+            {
+              title: 'Reference',
+              dataIndex: 'reference',
+              width: 110,
+              render: (v: string, r) => (
+                <Tooltip title={r.id}>
+                  <span className="font-mono text-xs">{v}</span>
+                </Tooltip>
+              )
             },
             {
               title: 'Date',
