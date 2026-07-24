@@ -178,6 +178,7 @@ export const AddPurchase = () => {
   const [editingKey, setEditingKey] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [loadingDetail, setLoadingDetail] = useState(isEdit)
+  const [recordedPaid, setRecordedPaid] = useState(0)
   const [headerForm] = Form.useForm()
   const [lineForm] = Form.useForm()
 
@@ -241,10 +242,15 @@ export const AddPurchase = () => {
         }
 
         const purchase = detail.purchase
+        const totalPaid = Number(purchase.paidAmount || 0)
+        const totalDue = Number(purchase.dueAmount || 0)
+        setRecordedPaid(totalPaid)
         headerForm.setFieldsValue({
           supplierId: purchase.supplierId,
           purchaseDate: dayjs(purchase.purchaseDate),
-          notes: purchase.notes || ''
+          notes: purchase.notes || '',
+          paidAmount: totalPaid,
+          balance: totalDue
         })
 
         setLines(
@@ -288,6 +294,7 @@ export const AddPurchase = () => {
   const supplierMap = useMemo(() => new Map(suppliers.map((s) => [s.id, s])), [suppliers])
 
   const selectedSupplierId = Form.useWatch('supplierId', headerForm)
+  const watchedPaidAmount = Number(Form.useWatch('paidAmount', headerForm) || 0)
   const selectedSupplier = selectedSupplierId ? supplierMap.get(selectedSupplierId) : undefined
   const supplierDiscount = Number(selectedSupplier?.discount || 0)
   const supplierDiscountType: SupplierDiscountType =
@@ -667,15 +674,24 @@ export const AddPurchase = () => {
   const grossTotal = round2(lines.reduce((sum, l) => sum + l.listPrice * lineQty(l), 0))
   const netTotal = round2(lines.reduce((sum, l) => sum + l.purchasePrice * lineQty(l), 0))
   const discountAmount = round2(grossTotal - netTotal)
+  const effectivePaid = isEdit
+    ? recordedPaid
+    : Math.max(0, Math.min(watchedPaidAmount, netTotal))
+  const dueAmount = isEdit ? Math.max(0, netTotal - recordedPaid) : Math.max(0, netTotal - effectivePaid)
 
   useEffect(() => {
-    if (isEdit) return
+    if (isEdit) {
+      headerForm.setFieldsValue({
+        balance: Math.max(0, netTotal - recordedPaid)
+      })
+      return
+    }
     const paid = Math.max(0, Math.min(Number(headerForm.getFieldValue('paidAmount') || 0), netTotal))
     headerForm.setFieldsValue({
       paidAmount: paid,
       balance: Math.max(0, netTotal - paid)
     })
-  }, [netTotal, isEdit, headerForm])
+  }, [netTotal, isEdit, recordedPaid, headerForm])
 
   const buildProductPayload = (header: any, paidAmount = 0) => ({
     supplierId: header.supplierId,
@@ -836,12 +852,7 @@ export const AddPurchase = () => {
       />
 
       <Card bordered={false} className="shadow-sm mb-4">
-        <Form
-          form={headerForm}
-          layout="vertical"
-          scrollToFirstError
-          onValuesChange={handlePaymentValuesChange}
-        >
+        <Form form={headerForm} layout="vertical" scrollToFirstError>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Form.Item name="supplierId" label="Supplier" rules={[{ required: true, message: 'Select supplier' }]}>
               <Select
@@ -881,43 +892,6 @@ export const AddPurchase = () => {
             <Form.Item name="notes" label="Notes" className="md:col-span-3">
               <Input placeholder="Optional notes" />
             </Form.Item>
-            {!isEdit && (
-              <>
-                <Form.Item
-                  name="paidAmount"
-                  label="Amount Paid Now"
-                  rules={[
-                    {
-                      validator: (_, value) => {
-                        if (Number(value || 0) > netTotal) {
-                          return Promise.reject(new Error('Paid cannot exceed purchase net total'))
-                        }
-                        return Promise.resolve()
-                      }
-                    }
-                  ]}
-                >
-                  <InputNumber
-                    className="w-full"
-                    min={0}
-                    max={netTotal > 0 ? netTotal : undefined}
-                    style={{ width: '100%' }}
-                  />
-                </Form.Item>
-                <Form.Item name="paymentMethod" label="Payment Method" initialValue="cash">
-                  <Select
-                    options={[
-                      { value: 'cash', label: 'Cash' },
-                      { value: 'bank', label: 'Bank' },
-                      { value: 'card', label: 'Card' }
-                    ]}
-                  />
-                </Form.Item>
-                <Form.Item name="balance" label="Balance (Due)" initialValue={0}>
-                  <InputNumber className="w-full" disabled style={{ width: '100%' }} />
-                </Form.Item>
-              </>
-            )}
           </div>
         </Form>
       </Card>
@@ -1262,49 +1236,163 @@ export const AddPurchase = () => {
             }
           ]}
         />
-        <div className="flex flex-wrap justify-between items-center gap-3 mt-4 pt-4 border-t border-slate-100">
-          <div className="space-y-1">
-            <Text strong>
-              {isEdit ? (
-                <>
-                  {lines.length} unit(s)
-                  {lockedCount > 0 && <Text type="secondary"> · {lockedCount} locked</Text>}
-                </>
-              ) : (
-                <>
-                  {productLines.length} product · {partLines.length} part
-                </>
-              )}
-              <>
-                {' '}
-                · Gross {formatRs(grossTotal)}
-                {hasSupplierDiscount && (
-                  <>
-                    {' '}
-                    · Supplier ({formatSupplierDiscount(supplierDiscount, supplierDiscountType)})
-                  </>
-                )}
-                {hasSpecialDiscount && <> · Special (per unit)</>}
-                {discountAmount > 0 && <> − {formatRs(discountAmount)}</>} · Net{' '}
-                {formatRs(netTotal)}
-              </>
-            </Text>
-          </div>
-          <Space>
+        <Form
+          form={headerForm}
+          layout="vertical"
+          scrollToFirstError
+          className="mt-4 pt-4 border-t border-slate-100"
+          onValuesChange={handlePaymentValuesChange}
+        >
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {isEdit ? (
+              <Form.Item label="Recorded Payments">
+                <InputNumber className="w-full" value={recordedPaid} disabled style={{ width: '100%' }} />
+              </Form.Item>
+            ) : (
+              <Form.Item
+                name="paidAmount"
+                label="Amount Paid Now"
+                rules={[
+                  {
+                    validator: (_, value) => {
+                      if (Number(value || 0) > netTotal) {
+                        return Promise.reject(new Error('Paid cannot exceed purchase net total'))
+                      }
+                      return Promise.resolve()
+                    }
+                  }
+                ]}
+              >
+                <InputNumber
+                  className="w-full"
+                  min={0}
+                  max={netTotal > 0 ? netTotal : undefined}
+                  style={{ width: '100%' }}
+                />
+              </Form.Item>
+            )}
+            <Form.Item name="balance" label="Balance (Due)" initialValue={0}>
+              <InputNumber className="w-full" disabled style={{ width: '100%' }} />
+            </Form.Item>
             {!isEdit && (
-              <Button onClick={() => setLines([])} disabled={!lines.length}>
-                Clear
-              </Button>
+              <Form.Item name="paymentMethod" label="Payment Method" initialValue="cash">
+                <Select
+                  options={[
+                    { value: 'cash', label: 'Cash' },
+                    { value: 'bank', label: 'Bank' },
+                    { value: 'card', label: 'Card' }
+                  ]}
+                />
+              </Form.Item>
             )}
-            {isEdit && (
-              <Button onClick={() => navigate(App_Routes.PURCHASE_DETAIL.replace(':id', id!))}>
-                Cancel
+          </div>
+        </Form>
+
+        <div className="mt-6 rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-blue-50/40 overflow-hidden shadow-sm">
+          <div className="flex flex-wrap justify-between items-stretch gap-6 p-5">
+            <div className="min-w-[280px] flex-1">
+              <Text type="secondary" className="text-xs uppercase tracking-wider font-semibold">
+                Purchase Summary
+              </Text>
+              <div className="mt-4 space-y-2.5 text-sm max-w-md">
+                <div className="flex justify-between gap-6 text-slate-600">
+                  <span>
+                    {isEdit ? (
+                      <>
+                        {lines.length} unit(s)
+                        {lockedCount > 0 && <Text type="secondary"> · {lockedCount} locked</Text>}
+                      </>
+                    ) : (
+                      <>
+                        {productLines.length} product · {partLines.length} part
+                      </>
+                    )}
+                  </span>
+                  <span />
+                </div>
+                <div className="flex justify-between gap-6 text-slate-600">
+                  <span>List total</span>
+                  <span className="font-medium text-slate-800">{formatRs(grossTotal)}</span>
+                </div>
+                {hasSupplierDiscount && (
+                  <div className="flex justify-between gap-6 text-slate-600">
+                    <span>
+                      Supplier discount (
+                      {formatSupplierDiscount(supplierDiscount, supplierDiscountType)})
+                    </span>
+                    <span className="font-medium text-amber-700">applied</span>
+                  </div>
+                )}
+                {hasSpecialDiscount && (
+                  <div className="flex justify-between gap-6 text-slate-600">
+                    <span>Special discount</span>
+                    <span className="font-medium text-amber-700">applied</span>
+                  </div>
+                )}
+                {discountAmount > 0 && (
+                  <div className="flex justify-between gap-6 text-slate-600">
+                    <span>Total discount</span>
+                    <span className="font-medium text-amber-700">− {formatRs(discountAmount)}</span>
+                  </div>
+                )}
+              </div>
+              <div className="mt-4 pt-4 border-t border-slate-200/80 space-y-3">
+                <div className="flex justify-between gap-6 items-baseline">
+                  <Text strong className="text-base text-slate-800">
+                    Purchase Total
+                  </Text>
+                  <Text strong className="text-xl text-slate-900">
+                    {formatRs(netTotal)}
+                  </Text>
+                </div>
+                {netTotal > 0 && dueAmount > 0 && (
+                  <div className="flex justify-between gap-6 items-center rounded-lg bg-red-50 border border-red-100 px-4 py-3">
+                    <Text strong className="text-red-700">
+                      Amount Due
+                    </Text>
+                    <Text strong className="text-lg text-red-600">
+                      {formatRs(dueAmount)}
+                    </Text>
+                  </div>
+                )}
+                {netTotal > 0 && dueAmount === 0 && effectivePaid > 0 && (
+                  <div className="flex justify-between gap-6 items-center rounded-lg bg-emerald-50 border border-emerald-100 px-4 py-3">
+                    <Text strong className="text-emerald-700">
+                      Fully Paid
+                    </Text>
+                    <Text strong className="text-emerald-600">
+                      {formatRs(effectivePaid)}
+                    </Text>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="flex flex-col justify-end gap-3 sm:min-w-[200px]">
+              {!isEdit && (
+                <Button onClick={() => setLines([])} disabled={!lines.length} block>
+                  Clear
+                </Button>
+              )}
+              {isEdit && (
+                <Button
+                  onClick={() => navigate(App_Routes.PURCHASE_DETAIL.replace(':id', id!))}
+                  block
+                >
+                  Cancel
+                </Button>
+              )}
+              <Button
+                type="primary"
+                size="large"
+                loading={loading}
+                onClick={handleSubmit}
+                disabled={!lines.length}
+                block
+              >
+                {isEdit ? 'Update Purchase' : 'Save Purchase'}
               </Button>
-            )}
-            <Button type="primary" loading={loading} onClick={handleSubmit} disabled={!lines.length}>
-              {isEdit ? 'Update Purchase' : 'Save Purchase'}
-            </Button>
-          </Space>
+            </div>
+          </div>
         </div>
       </Card>
 

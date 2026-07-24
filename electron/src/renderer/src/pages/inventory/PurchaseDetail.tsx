@@ -33,6 +33,18 @@ export const PurchaseDetail = () => {
     () => (detail?.items || []).reduce((sum: number, item: any) => sum + Number(item.purchasePrice ?? 0), 0),
     [detail?.items]
   )
+  const listTotal = useMemo(
+    () =>
+      (detail?.items || []).reduce(
+        (sum: number, item: any) => sum + Number(item.sellingPrice ?? item.purchasePrice ?? 0),
+        0
+      ),
+    [detail?.items]
+  )
+  const discountTotal = useMemo(
+    () => Math.max(0, listTotal - Number(detail?.purchase?.netTotal ?? totalValue)),
+    [detail?.purchase?.netTotal, listTotal, totalValue]
+  )
 
   if (loading) {
     return (
@@ -96,9 +108,16 @@ export const PurchaseDetail = () => {
       />
 
       <Card bordered={false} className="shadow-sm mb-4">
-        <Descriptions column={{ xs: 1, sm: 2 }} size="small">
+        <Descriptions column={{ xs: 1, sm: 2, md: 3 }} size="small">
           <Descriptions.Item label="Supplier">{purchase.supplier?.name || '—'}</Descriptions.Item>
           <Descriptions.Item label="Date">{dayjs(purchase.purchaseDate).format('DD MMM YYYY')}</Descriptions.Item>
+          <Descriptions.Item label="Status">
+            {Number(purchase.dueAmount) > 0 ? (
+              <Tag color="red">Due {formatRs(purchase.dueAmount)}</Tag>
+            ) : (
+              <Tag color="green">Paid in full</Tag>
+            )}
+          </Descriptions.Item>
           <Descriptions.Item label="Supplier Discount">
             {formatSupplierDiscount(
               Number(purchase.supplier?.discount || 0),
@@ -110,12 +129,22 @@ export const PurchaseDetail = () => {
       </Card>
 
       <Row gutter={[16, 16]} className="mb-4">
-        <Col xs={24} sm={8}>
+        <Col xs={12} sm={8} lg={4}>
           <Card bordered={false} className="shadow-sm">
-            <Statistic title="Units Received" value={detail.items?.length ?? 0} />
+            <Statistic title="Units" value={detail.items?.length ?? 0} />
           </Card>
         </Col>
-        <Col xs={24} sm={8}>
+        <Col xs={12} sm={8} lg={4}>
+          <Card bordered={false} className="shadow-sm">
+            <Statistic title="List Total" value={listTotal} prefix="Rs" precision={0} />
+          </Card>
+        </Col>
+        <Col xs={12} sm={8} lg={4}>
+          <Card bordered={false} className="shadow-sm">
+            <Statistic title="Discount" value={discountTotal} prefix="Rs" precision={0} />
+          </Card>
+        </Col>
+        <Col xs={12} sm={8} lg={4}>
           <Card bordered={false} className="shadow-sm">
             <Statistic
               title="Net Total"
@@ -125,7 +154,18 @@ export const PurchaseDetail = () => {
             />
           </Card>
         </Col>
-        <Col xs={24} sm={8}>
+        <Col xs={12} sm={8} lg={4}>
+          <Card bordered={false} className="shadow-sm">
+            <Statistic
+              title="Paid"
+              value={Number(purchase.paidAmount || 0)}
+              prefix="Rs"
+              precision={0}
+              valueStyle={{ color: '#3f8600' }}
+            />
+          </Card>
+        </Col>
+        <Col xs={12} sm={8} lg={4}>
           <Card bordered={false} className="shadow-sm">
             <Statistic
               title="Due"
@@ -138,23 +178,7 @@ export const PurchaseDetail = () => {
         </Col>
       </Row>
 
-      <Card bordered={false} className="shadow-sm mb-4">
-        <Descriptions column={{ xs: 1, sm: 3 }} size="small">
-          <Descriptions.Item label="Paid">{formatRs(purchase.paidAmount)}</Descriptions.Item>
-          <Descriptions.Item label="Due">
-            {Number(purchase.dueAmount) > 0 ? (
-              <Text type="danger" strong>
-                {formatRs(purchase.dueAmount)}
-              </Text>
-            ) : (
-              formatRs(0)
-            )}
-          </Descriptions.Item>
-          <Descriptions.Item label="Payments">{detail.payments?.length ?? 0}</Descriptions.Item>
-        </Descriptions>
-      </Card>
-
-      <Card title="Received Units" bordered={false} className="shadow-sm">
+      <Card title="Received Units" bordered={false} className="shadow-sm mb-4">
         <Table
           rowKey="id"
           dataSource={detail.items || []}
@@ -193,6 +217,25 @@ export const PurchaseDetail = () => {
           ]}
         />
       </Card>
+
+      {(detail.payments?.length ?? 0) > 0 && (
+        <Card title="Payments" bordered={false} className="shadow-sm">
+          <Table
+            rowKey="id"
+            dataSource={detail.payments}
+            pagination={false}
+            columns={[
+              {
+                title: 'Date',
+                dataIndex: 'paymentDate',
+                render: (v) => dayjs(v).format('DD MMM YYYY')
+              },
+              { title: 'Method', dataIndex: 'method' },
+              { title: 'Amount', dataIndex: 'amount', align: 'right' as const, render: formatRs }
+            ]}
+          />
+        </Card>
+      )}
     </div>
   )
 }

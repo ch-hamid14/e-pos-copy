@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Button, Card, Col, Descriptions, Row, Spin, Statistic, Table, Typography } from 'antd'
+import { Button, Card, Col, Descriptions, Row, Spin, Statistic, Table, Tag, Typography } from 'antd'
 import { ArrowLeftOutlined, EditOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { App_Routes, Roles } from '@/common'
@@ -96,10 +96,17 @@ export const PartPurchaseDetail = () => {
       />
 
       <Card bordered={false} className="shadow-sm mb-4">
-        <Descriptions column={{ xs: 1, sm: 2 }} size="small">
+        <Descriptions column={{ xs: 1, sm: 2, md: 3 }} size="small">
           <Descriptions.Item label="Supplier">{purchase.supplier?.name || '—'}</Descriptions.Item>
           <Descriptions.Item label="Date">
             {dayjs(purchase.purchaseDate).format('DD MMM YYYY')}
+          </Descriptions.Item>
+          <Descriptions.Item label="Status">
+            {Number(purchase.dueAmount) > 0 ? (
+              <Tag color="red">Due {formatRs(purchase.dueAmount)}</Tag>
+            ) : (
+              <Tag color="green">Paid in full</Tag>
+            )}
           </Descriptions.Item>
           <Descriptions.Item label="Notes" span={2}>
             {purchase.notes || '—'}
@@ -107,18 +114,18 @@ export const PartPurchaseDetail = () => {
         </Descriptions>
       </Card>
 
-      <Row gutter={16} className="mb-4">
-        <Col xs={12} md={6}>
+      <Row gutter={[16, 16]} className="mb-4">
+        <Col xs={12} sm={8} lg={4}>
           <Card bordered={false} className="shadow-sm">
             <Statistic title="Lines" value={(detail.lines || []).length} />
           </Card>
         </Col>
-        <Col xs={12} md={6}>
+        <Col xs={12} sm={8} lg={4}>
           <Card bordered={false} className="shadow-sm">
             <Statistic title="Units" value={totalUnits} />
           </Card>
         </Col>
-        <Col xs={12} md={6}>
+        <Col xs={12} sm={8} lg={4}>
           <Card bordered={false} className="shadow-sm">
             <Statistic
               title="Net Total"
@@ -127,7 +134,17 @@ export const PartPurchaseDetail = () => {
             />
           </Card>
         </Col>
-        <Col xs={12} md={6}>
+        <Col xs={12} sm={8} lg={4}>
+          <Card bordered={false} className="shadow-sm">
+            <Statistic
+              title="Paid"
+              value={Number(purchase.paidAmount || 0)}
+              formatter={(v) => formatRs(Number(v))}
+              valueStyle={{ color: '#3f8600' }}
+            />
+          </Card>
+        </Col>
+        <Col xs={12} sm={8} lg={4}>
           <Card bordered={false} className="shadow-sm">
             <Statistic
               title="Due"
@@ -139,7 +156,7 @@ export const PartPurchaseDetail = () => {
         </Col>
       </Row>
 
-      <Card bordered={false} className="shadow-sm">
+      <Card bordered={false} className="shadow-sm mb-4">
         <Table
           rowKey="id"
           dataSource={detail.lines || []}
@@ -177,6 +194,25 @@ export const PartPurchaseDetail = () => {
           ]}
         />
       </Card>
+
+      {(detail.payments?.length ?? 0) > 0 && (
+        <Card title="Payments" bordered={false} className="shadow-sm">
+          <Table
+            rowKey="id"
+            dataSource={detail.payments}
+            pagination={false}
+            columns={[
+              {
+                title: 'Date',
+                dataIndex: 'paymentDate',
+                render: (v) => dayjs(v).format('DD MMM YYYY')
+              },
+              { title: 'Method', dataIndex: 'method' },
+              { title: 'Amount', dataIndex: 'amount', align: 'right' as const, render: formatRs }
+            ]}
+          />
+        </Card>
+      )}
     </div>
   )
 }
