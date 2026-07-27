@@ -420,6 +420,54 @@ async function reversePartSaleLine(
   })
 }
 
+async function applyCustomerPaymentAmountDelta(
+  transaction: Knex.Transaction,
+  companyId: string,
+  customerId: string,
+  saleId: string,
+  oldAmount: number,
+  newAmount: number,
+  ctx: AuditContext
+): Promise<void> {
+  const delta = round2(newAmount - oldAmount)
+  if (delta === 0) return
+
+  let balance = await computeCustomerBalance(customerId, transaction)
+  const now = new Date()
+
+  if (delta > 0) {
+    balance = round2(balance - delta)
+    await getDb()('ledger_entries').transacting(transaction).insert({
+      id: generateId(),
+      company_id: companyId,
+      customer_id: customerId,
+      type: LedgerEntryType.PAYMENT_CREDIT,
+      amount: delta,
+      reference_type: 'payment_edit',
+      reference_id: saleId,
+      running_balance: balance,
+      ...auditCreate(ctx),
+      created_at: now
+    })
+    return
+  }
+
+  const abs = round2(-delta)
+  balance = round2(balance + abs)
+  await getDb()('ledger_entries').transacting(transaction).insert({
+    id: generateId(),
+    company_id: companyId,
+    customer_id: customerId,
+    type: LedgerEntryType.SALE_DEBIT,
+    amount: abs,
+    reference_type: 'payment_edit',
+    reference_id: saleId,
+    running_balance: balance,
+    ...auditCreate(ctx),
+    created_at: now
+  })
+}
+
 async function applySaleEditLedger(
   transaction: Knex.Transaction,
   companyId: string,
@@ -1473,7 +1521,7 @@ class SaleService {
 
   /**
    * Owner/super-admin: change a recorded payment amount/method/date.
-   * Ledger-safe — reverse old credit, then re-post if amount &gt; 0.
+   * Ledger-safe — net delta keyed to sale id so void neutralize includes payment_edit rows.
    */
   async updatePayment(
     companyId: string,
@@ -1503,8 +1551,16 @@ class SaleService {
       const oldAmount = round2(Number(payment.amount || 0))
       const customerId = sale.customer_id as string
       const netTotal = round2(Number(sale.net_total || 0))
-      const currentPaid = round2(Number(sale.paid_amount || 0))
-      const newPaid = round2(currentPaid - oldAmount + newAmount)
+      const saleId = String(sale.id)
+
+      const otherPayments = await getDb()('payments')
+        .transacting(transaction)
+        .where({ sale_id: saleId })
+        .whereNot({ id: payload.paymentId })
+      const otherPaid = round2(
+        otherPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0)
+      )
+      const newPaid = round2(otherPaid + (newAmount <= 0 ? 0 : newAmount))
       if (newPaid < 0) throw new Error('Payment edit would make paid amount negative')
       if (newPaid > netTotal) {
         throw new Error(`Paid total cannot exceed sale net (${netTotal})`)
@@ -1515,24 +1571,6 @@ class SaleService {
         ? new Date(payload.paymentDate)
         : new Date(payment.payment_date as string | Date)
       const method = payload.method || (payment.method as string) || PaymentMethod.CASH
-
-      if (amountChanged && oldAmount > 0) {
-        // Reverse prior payment credit (restore receivable).
-        let balance = await computeCustomerBalance(customerId, transaction)
-        balance = round2(balance + oldAmount)
-        await getDb()('ledger_entries').transacting(transaction).insert({
-          id: generateId(),
-          company_id: companyId,
-          customer_id: customerId,
-          type: LedgerEntryType.SALE_DEBIT,
-          amount: oldAmount,
-          reference_type: 'payment_edit',
-          reference_id: payload.paymentId,
-          running_balance: balance,
-          ...auditCreate(ctx),
-          created_at: new Date()
-        })
-      }
 
       if (newAmount <= 0) {
         await getDb()('payments').transacting(transaction).where({ id: payload.paymentId }).del()
@@ -1546,23 +1584,18 @@ class SaleService {
             payment_date: paymentDate,
             updated_by: ctx.userId
           })
+      }
 
-        if (amountChanged) {
-          let balance = await computeCustomerBalance(customerId, transaction)
-          balance = round2(balance - newAmount)
-          await getDb()('ledger_entries').transacting(transaction).insert({
-            id: generateId(),
-            company_id: companyId,
-            customer_id: customerId,
-            type: LedgerEntryType.PAYMENT_CREDIT,
-            amount: newAmount,
-            reference_type: 'sale',
-            reference_id: sale.id,
-            running_balance: balance,
-            ...auditCreate(ctx),
-            created_at: new Date()
-          })
-        }
+      if (amountChanged) {
+        await applyCustomerPaymentAmountDelta(
+          transaction,
+          companyId,
+          customerId,
+          saleId,
+          oldAmount,
+          newAmount <= 0 ? 0 : newAmount,
+          ctx
+        )
       }
 
       const newDue = round2(netTotal - newPaid)

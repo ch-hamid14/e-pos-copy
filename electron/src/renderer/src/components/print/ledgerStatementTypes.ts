@@ -60,6 +60,29 @@ const TYPE_META: Record<string, { code: string; label: string; side: 'debit' | '
   adjustment: { code: 'JE', label: 'Adjustment', side: 'debit' }
 }
 
+const REFERENCE_TYPE_LABELS: Record<string, { code: string; label: string }> = {
+  payment_edit: { code: 'PA', label: 'Payment adjustment' },
+  sale_edit: { code: 'SA', label: 'Sale adjustment' },
+  purchase_edit: { code: 'PA', label: 'Purchase adjustment' },
+  sale_void: { code: 'VD', label: 'Void reversal' },
+  purchase_void: { code: 'VD', label: 'Void reversal' },
+  part_purchase_void: { code: 'VD', label: 'Void reversal' },
+  sale_reconcile: { code: 'RC', label: 'Reconciliation' }
+}
+
+function resolveEntryMeta(entry: LedgerEntryRow): { code: string; label: string; side: 'debit' | 'credit' } {
+  const refOverride = entry.referenceType ? REFERENCE_TYPE_LABELS[entry.referenceType] : undefined
+  const typeMeta = TYPE_META[entry.type] || {
+    code: 'JE',
+    label: entry.type,
+    side: 'debit' as const
+  }
+  if (refOverride) {
+    return { ...typeMeta, code: refOverride.code, label: refOverride.label }
+  }
+  return typeMeta
+}
+
 function formatReference(entry: LedgerEntryRow): string {
   if (!entry.referenceId) return '—'
   return String(entry.referenceId).slice(0, 8)
@@ -116,11 +139,7 @@ export function mapLedgerToStatement(
 
   let running = 0
   const lines: LedgerStatementLine[] = sortedLedger.map((entry) => {
-    const meta = TYPE_META[entry.type] || {
-      code: 'JE',
-      label: entry.type,
-      side: 'debit' as const
-    }
+    const meta = resolveEntryMeta(entry)
     const amount = Number(entry.amount || 0)
     const isCredit =
       entry.type === 'payment_credit' || entry.type === 'supplier_payment_credit' || meta.side === 'credit'

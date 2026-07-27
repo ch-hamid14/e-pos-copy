@@ -42,6 +42,20 @@ const LEDGER_TYPE_LABELS: Record<string, string> = {
   adjustment: 'Adjustment'
 }
 
+const LEDGER_REFERENCE_LABELS: Record<string, string> = {
+  payment_edit: 'Payment adjustment',
+  sale_edit: 'Sale adjustment',
+  sale_void: 'Void reversal',
+  sale_reconcile: 'Reconciliation'
+}
+
+function ledgerEntryLabel(entry: { type?: string; referenceType?: string }): string {
+  const ref = entry.referenceType ? LEDGER_REFERENCE_LABELS[entry.referenceType] : undefined
+  if (ref) return ref
+  const t = entry.type || ''
+  return LEDGER_TYPE_LABELS[t] || formatStatus(t)
+}
+
 const LEDGER_TYPE_COLORS: Record<string, string> = {
   opening_balance: 'blue',
   sale_debit: 'orange',
@@ -439,9 +453,9 @@ export const CustomerReportDetail = () => {
                     {
                       title: 'Type',
                       dataIndex: 'type',
-                      render: (t) => (
-                        <Tag color={LEDGER_TYPE_COLORS[t] || 'default'}>
-                          {LEDGER_TYPE_LABELS[t] || formatStatus(t)}
+                      render: (_t, r: any) => (
+                        <Tag color={LEDGER_TYPE_COLORS[r.type] || 'default'}>
+                          {ledgerEntryLabel(r)}
                         </Tag>
                       )
                     },

@@ -18,6 +18,7 @@ import {
 import { applyPartStockDelta } from './part-stock.helpers'
 import {
   adjustPurchaseApNetChange,
+  hasPurchaseApLedger,
   neutralizePurchaseApLedger,
   postPurchaseApLedger,
   recordSupplierPayment,
@@ -65,6 +66,12 @@ export type UpdatePartPurchasePaymentPayload = {
 function assertCanEditPayment(ctx: AuditContext): void {
   if (ctx.role !== Roles.COMPANY_OWNER && ctx.role !== Roles.SUPER_ADMIN) {
     throw new Error('Only company owners can edit payments')
+  }
+}
+
+function assertCanEditPurchase(ctx: AuditContext): void {
+  if (ctx.role !== Roles.COMPANY_OWNER && ctx.role !== Roles.SUPER_ADMIN) {
+    throw new Error('Only company owners can edit purchases')
   }
 }
 
@@ -385,6 +392,7 @@ class PartPurchaseService {
     ctx: AuditContext,
     payload: UpdatePartPurchasePayload
   ): Promise<unknown> {
+    assertCanEditPurchase(ctx)
     if (!payload.supplierId) throw new Error('Select a supplier')
     const nextLines = normalizeLines(payload.lines)
 
@@ -664,15 +672,29 @@ class PartPurchaseService {
           })
         }
       } else {
-        await adjustPurchaseApNetChange(transaction, {
-          companyId,
-          supplierId: newSupplierId,
-          oldNet,
-          newNet: netTotal,
-          referenceType: 'part_purchase',
-          referenceId: id,
-          ctx
-        })
+        if (!(await hasPurchaseApLedger(transaction, id, 'part_purchase'))) {
+          await postPurchaseApLedger(transaction, {
+            companyId,
+            supplierId: newSupplierId,
+            netTotal,
+            paidAmount: oldPaid,
+            referenceType: 'part_purchase',
+            referenceId: id,
+            partPurchaseId: id,
+            skipPaymentRow: true,
+            ctx
+          })
+        } else {
+          await adjustPurchaseApNetChange(transaction, {
+            companyId,
+            supplierId: newSupplierId,
+            oldNet,
+            newNet: netTotal,
+            referenceType: 'part_purchase',
+            referenceId: id,
+            ctx
+          })
+        }
       }
 
       return { success: true, id, dueAmount }
@@ -753,28 +775,27 @@ class PartPurchaseService {
       const oldAmount = roundRs(Number(payment.amount || 0))
       const supplierId = purchase.supplier_id as string
       const netTotal = roundRs(Number(purchase.net_total || 0))
-      const currentPaid = roundRs(Number(purchase.paid_amount || 0))
-      const newPaid = roundRs(currentPaid - oldAmount + newAmount)
+      const purchaseId = String(purchase.id)
+
+      const otherPayments = await getDb()('purchase_payments')
+        .transacting(transaction)
+        .where({ part_purchase_id: purchaseId })
+        .whereNot({ id: payload.paymentId })
+      const otherPaid = roundRs(
+        otherPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0)
+      )
+      const effectiveNewAmount = newAmount <= 0 ? 0 : newAmount
+      const newPaid = roundRs(otherPaid + effectiveNewAmount)
       if (newPaid < 0) throw new Error('Payment edit would make paid amount negative')
       if (newPaid > netTotal) {
         throw new Error(`Paid total cannot exceed purchase net (${netTotal})`)
       }
 
+      const amountChanged = effectiveNewAmount !== oldAmount
       const paymentDate = payload.paymentDate
         ? new Date(payload.paymentDate)
         : new Date(payment.payment_date as string | Date)
       const method = payload.method || (payment.method as string) || 'cash'
-
-      await reviseSupplierPaymentLedger(transaction, {
-        companyId,
-        supplierId,
-        oldAmount,
-        newAmount,
-        paymentId: payload.paymentId,
-        referenceType: 'part_purchase',
-        referenceId: String(purchase.id),
-        ctx
-      })
 
       if (newAmount <= 0) {
         await getDb()('purchase_payments')
@@ -791,6 +812,18 @@ class PartPurchaseService {
             payment_date: paymentDate,
             ...auditUpdate(ctx)
           })
+      }
+
+      if (amountChanged) {
+        await reviseSupplierPaymentLedger(transaction, {
+          companyId,
+          supplierId,
+          oldAmount,
+          newAmount: effectiveNewAmount,
+          referenceType: 'part_purchase',
+          referenceId: purchaseId,
+          ctx
+        })
       }
 
       const newDue = roundRs(netTotal - newPaid)

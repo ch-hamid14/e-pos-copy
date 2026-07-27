@@ -147,6 +147,57 @@ async function insertSupplierLedger(
   })
 }
 
+/** Net payment amount change keyed to bill id (void-safe). */
+async function applySalePaymentAmountDelta(
+  trx: Knex.Transaction,
+  companyId: string,
+  customerId: string,
+  saleId: string,
+  oldAmount: number,
+  newAmount: number
+): Promise<void> {
+  const delta = roundAmount(newAmount - oldAmount)
+  if (delta === 0) return
+  if (delta > 0) {
+    await insertLedger(trx, companyId, customerId, 'payment_credit', delta, 'payment_edit', saleId)
+    return
+  }
+  await insertLedger(trx, companyId, customerId, 'sale_debit', Math.abs(delta), 'payment_edit', saleId)
+}
+
+async function applyPurchasePaymentAmountDelta(
+  trx: Knex.Transaction,
+  companyId: string,
+  supplierId: string,
+  purchaseId: string,
+  oldAmount: number,
+  newAmount: number
+): Promise<void> {
+  const delta = roundAmount(newAmount - oldAmount)
+  if (delta === 0) return
+  if (delta > 0) {
+    await insertSupplierLedger(
+      trx,
+      companyId,
+      supplierId,
+      'supplier_payment_credit',
+      delta,
+      'payment_edit',
+      purchaseId
+    )
+    return
+  }
+  await insertSupplierLedger(
+    trx,
+    companyId,
+    supplierId,
+    'purchase_debit',
+    Math.abs(delta),
+    'payment_edit',
+    purchaseId
+  )
+}
+
 /**
  * Neutralize AP ledger effect for a voided purchase / part purchase.
  * Positive effect = we still owe; target 0 clears the bill from supplier balance.
@@ -571,7 +622,7 @@ export async function getSaleDetail(companyId: string, saleId: string) {
   const payments = await db('payments').where({ sale_id: saleId }).orderBy('payment_date', 'asc')
   const ledger = await db('ledger_entries')
     .where({ reference_id: saleId })
-    .whereIn('reference_type', ['sale', 'sale_edit', 'sale_reconcile', 'sale_void'])
+    .whereIn('reference_type', ['sale', 'sale_edit', 'sale_reconcile', 'sale_void', 'payment_edit'])
     .orderBy('created_at', 'asc')
 
   const voidCheck = await saleCanVoid(db, sale, lines)
@@ -1024,7 +1075,7 @@ export async function backfillMissingPurchaseApLedgers(companyId: string) {
   }
 }
 
-/** Super-admin: edit a sale payment with ledger reverse + re-post. */
+/** Super-admin: edit a sale payment with ledger net delta keyed to sale id. */
 export async function updateSalePayment(
   companyId: string,
   paymentId: string,
@@ -1047,28 +1098,24 @@ export async function updateSalePayment(
     const oldAmount = roundAmount(Number(payment.amount || 0))
     const customerId = String(sale.customer_id)
     const netTotal = roundAmount(Number(sale.net_total || 0))
-    const currentPaid = roundAmount(Number(sale.paid_amount || 0))
-    const newPaid = roundAmount(currentPaid - oldAmount + newAmount)
+    const saleId = String(sale.id)
+
+    const otherPayments = await trx('payments')
+      .where({ sale_id: saleId })
+      .whereNot({ id: paymentId })
+    const otherPaid = roundAmount(
+      otherPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0)
+    )
+    const effectiveNewAmount = newAmount <= 0 ? 0 : newAmount
+    const newPaid = roundAmount(otherPaid + effectiveNewAmount)
     if (newPaid < 0) throw new Error('Payment edit would make paid amount negative')
     if (newPaid > netTotal) throw new Error(`Paid total cannot exceed sale net (${netTotal})`)
 
-    const amountChanged = newAmount !== oldAmount
+    const amountChanged = effectiveNewAmount !== oldAmount
     const paymentDate = payload.paymentDate
       ? new Date(payload.paymentDate)
       : new Date(payment.payment_date as string | Date)
     const method = payload.method || String(payment.method || 'cash')
-
-    if (amountChanged && oldAmount > 0) {
-      await insertLedger(
-        trx,
-        companyId,
-        customerId,
-        'sale_debit',
-        oldAmount,
-        'payment_edit',
-        paymentId
-      )
-    }
 
     if (newAmount <= 0) {
       await trx('payments').where({ id: paymentId }).del()
@@ -1078,17 +1125,17 @@ export async function updateSalePayment(
         method,
         payment_date: paymentDate
       })
-      if (amountChanged) {
-        await insertLedger(
-          trx,
-          companyId,
-          customerId,
-          'payment_credit',
-          newAmount,
-          'sale',
-          String(sale.id)
-        )
-      }
+    }
+
+    if (amountChanged) {
+      await applySalePaymentAmountDelta(
+        trx,
+        companyId,
+        customerId,
+        saleId,
+        oldAmount,
+        effectiveNewAmount
+      )
     }
 
     const newDue = roundAmount(netTotal - newPaid)
@@ -1100,7 +1147,7 @@ export async function updateSalePayment(
 
     return {
       paymentId,
-      saleId: String(sale.id),
+      saleId,
       paidAmount: newPaid,
       dueAmount: newDue,
       removed: newAmount <= 0
@@ -1108,7 +1155,7 @@ export async function updateSalePayment(
   })
 }
 
-/** Super-admin: edit a purchase / part-purchase payment with AP ledger reverse + re-post. */
+/** Super-admin: edit a purchase / part-purchase payment with AP ledger net delta. */
 export async function updatePurchasePayment(
   companyId: string,
   paymentId: string,
@@ -1139,31 +1186,28 @@ export async function updatePurchasePayment(
     const oldAmount = roundAmount(Number(payment.amount || 0))
     const supplierId = String(purchase.supplier_id)
     const netTotal = roundAmount(Number(purchase.net_total || 0))
-    const currentPaid = roundAmount(Number(purchase.paid_amount || 0))
-    const newPaid = roundAmount(currentPaid - oldAmount + newAmount)
+    const purchaseIdStr = String(purchaseId)
+
+    const paymentScope =
+      kind === 'product' ? { purchase_id: purchaseIdStr } : { part_purchase_id: purchaseIdStr }
+    const otherPayments = await trx('purchase_payments')
+      .where({ ...paymentScope, company_id: companyId })
+      .whereNot({ id: paymentId })
+    const otherPaid = roundAmount(
+      otherPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0)
+    )
+    const effectiveNewAmount = newAmount <= 0 ? 0 : newAmount
+    const newPaid = roundAmount(otherPaid + effectiveNewAmount)
     if (newPaid < 0) throw new Error('Payment edit would make paid amount negative')
     if (newPaid > netTotal) {
       throw new Error(`Paid total cannot exceed purchase net (${netTotal})`)
     }
 
-    const amountChanged = newAmount !== oldAmount
+    const amountChanged = effectiveNewAmount !== oldAmount
     const paymentDate = payload.paymentDate
       ? new Date(payload.paymentDate)
       : new Date(payment.payment_date as string | Date)
     const method = payload.method || String(payment.method || 'cash')
-    const referenceType = kind === 'product' ? 'purchase' : 'part_purchase'
-
-    if (amountChanged && oldAmount > 0) {
-      await insertSupplierLedger(
-        trx,
-        companyId,
-        supplierId,
-        'purchase_debit',
-        oldAmount,
-        'payment_edit',
-        paymentId
-      )
-    }
 
     if (newAmount <= 0) {
       await trx('purchase_payments').where({ id: paymentId }).del()
@@ -1174,17 +1218,17 @@ export async function updatePurchasePayment(
         payment_date: paymentDate,
         updated_at: new Date()
       })
-      if (amountChanged) {
-        await insertSupplierLedger(
-          trx,
-          companyId,
-          supplierId,
-          'supplier_payment_credit',
-          newAmount,
-          referenceType,
-          String(purchaseId)
-        )
-      }
+    }
+
+    if (amountChanged) {
+      await applyPurchasePaymentAmountDelta(
+        trx,
+        companyId,
+        supplierId,
+        purchaseIdStr,
+        oldAmount,
+        effectiveNewAmount
+      )
     }
 
     const newDue = roundAmount(netTotal - newPaid)
@@ -1196,7 +1240,7 @@ export async function updatePurchasePayment(
 
     return {
       paymentId,
-      purchaseId: String(purchaseId),
+      purchaseId: purchaseIdStr,
       kind,
       paidAmount: newPaid,
       dueAmount: newDue,

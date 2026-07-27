@@ -80,7 +80,7 @@ export async function reconcileSaleFinances(companyId: string, saleId: string) {
 
     const relatedEntries = (await trx('ledger_entries')
       .where({ reference_id: saleId })
-      .whereIn('reference_type', ['sale', 'sale_edit', 'sale_reconcile'])
+      .whereIn('reference_type', ['sale', 'sale_edit', 'sale_reconcile', 'payment_edit'])
       .select('customer_id', 'type', 'amount')) as LedgerEffectRow[]
 
     const effects = new Map<string, number>()

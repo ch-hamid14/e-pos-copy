@@ -34,6 +34,8 @@ export async function postPurchaseApLedger(
     purchaseId?: string | null
     partPurchaseId?: string | null
     ctx: AuditContext
+    /** When true, only posts ledger credit (payment rows already exist). */
+    skipPaymentRow?: boolean
   }
 ): Promise<void> {
   const netTotal = roundRs(opts.netTotal)
@@ -61,18 +63,20 @@ export async function postPurchaseApLedger(
   }
 
   if (paidAmount > 0) {
-    await getDb()('purchase_payments').transacting(transaction).insert({
-      id: generateId(),
-      company_id: opts.companyId,
-      purchase_id: opts.purchaseId || null,
-      part_purchase_id: opts.partPurchaseId || null,
-      amount: paidAmount,
-      method: opts.paymentMethod || PaymentMethod.CASH,
-      payment_date: opts.paymentDate || debitAt,
-      ...auditCreate(opts.ctx),
-      created_at: debitAt,
-      updated_at: debitAt
-    })
+    if (!opts.skipPaymentRow) {
+      await getDb()('purchase_payments').transacting(transaction).insert({
+        id: generateId(),
+        company_id: opts.companyId,
+        purchase_id: opts.purchaseId || null,
+        part_purchase_id: opts.partPurchaseId || null,
+        amount: paidAmount,
+        method: opts.paymentMethod || PaymentMethod.CASH,
+        payment_date: opts.paymentDate || debitAt,
+        ...auditCreate(opts.ctx),
+        created_at: debitAt,
+        updated_at: debitAt
+      })
+    }
 
     balance = roundRs(balance - paidAmount)
     const creditAt = new Date(debitAt.getTime() + 1)
@@ -244,9 +248,26 @@ export async function adjustPurchaseApNetChange(
   })
 }
 
+/** True when this purchase already has AP ledger rows (not pre-AP history). */
+export async function hasPurchaseApLedger(
+  transaction: Knex.Transaction,
+  referenceId: string,
+  referenceType: 'purchase' | 'part_purchase'
+): Promise<boolean> {
+  const row = await getDb()('ledger_entries')
+    .transacting(transaction)
+    .where({ reference_id: referenceId, reference_type: referenceType })
+    .whereIn('type', [LedgerEntryType.PURCHASE_DEBIT, LedgerEntryType.SUPPLIER_PAYMENT_CREDIT])
+    .first()
+  return Boolean(row)
+}
+
 export { roundRs }
 
-/** Owner edit of a supplier payment — reverse AP credit then re-post if needed. */
+/**
+ * Owner edit of a supplier payment amount — single net delta keyed to the bill id
+ * so void neutralize picks up payment_edit rows.
+ */
 export async function reviseSupplierPaymentLedger(
   transaction: Knex.Transaction,
   opts: {
@@ -254,7 +275,6 @@ export async function reviseSupplierPaymentLedger(
     supplierId: string
     oldAmount: number
     newAmount: number
-    paymentId: string
     referenceType: 'purchase' | 'part_purchase'
     referenceId: string
     ctx: AuditContext
@@ -262,43 +282,43 @@ export async function reviseSupplierPaymentLedger(
 ): Promise<void> {
   const oldAmount = roundRs(opts.oldAmount)
   const newAmount = roundRs(opts.newAmount)
-  if (oldAmount === newAmount) return
+  const delta = roundRs(newAmount - oldAmount)
+  if (delta === 0) return
 
   let balance = await computeSupplierBalance(opts.supplierId, transaction)
   const now = new Date()
 
-  if (oldAmount > 0) {
-    // Undo prior payment credit → increase AP.
-    balance = roundRs(balance + oldAmount)
-    await getDb()('ledger_entries').transacting(transaction).insert({
-      id: generateId(),
-      company_id: opts.companyId,
-      customer_id: null,
-      supplier_id: opts.supplierId,
-      type: LedgerEntryType.PURCHASE_DEBIT,
-      amount: oldAmount,
-      reference_type: 'payment_edit',
-      reference_id: opts.paymentId,
-      running_balance: balance,
-      ...auditCreate(opts.ctx),
-      created_at: now
-    })
-  }
-
-  if (newAmount > 0) {
-    balance = roundRs(balance - newAmount)
+  if (delta > 0) {
+    balance = roundRs(balance - delta)
     await getDb()('ledger_entries').transacting(transaction).insert({
       id: generateId(),
       company_id: opts.companyId,
       customer_id: null,
       supplier_id: opts.supplierId,
       type: LedgerEntryType.SUPPLIER_PAYMENT_CREDIT,
-      amount: newAmount,
-      reference_type: opts.referenceType,
+      amount: delta,
+      reference_type: 'payment_edit',
       reference_id: opts.referenceId,
       running_balance: balance,
       ...auditCreate(opts.ctx),
-      created_at: new Date(now.getTime() + 1)
+      created_at: now
     })
+    return
   }
+
+  const abs = roundRs(-delta)
+  balance = roundRs(balance + abs)
+  await getDb()('ledger_entries').transacting(transaction).insert({
+    id: generateId(),
+    company_id: opts.companyId,
+    customer_id: null,
+    supplier_id: opts.supplierId,
+    type: LedgerEntryType.PURCHASE_DEBIT,
+    amount: abs,
+    reference_type: 'payment_edit',
+    reference_id: opts.referenceId,
+    running_balance: balance,
+    ...auditCreate(opts.ctx),
+    created_at: now
+  })
 }
