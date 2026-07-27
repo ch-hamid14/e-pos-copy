@@ -1,3 +1,4 @@
+@use './theme/scroll.scss' as scroll;
 @use './theme/ant-overrides.scss';
 @use './theme/sale-invoice.scss';
 @use './theme/thermal-receipt.scss';
@@ -16,4 +17,31 @@ body,
 #root {
   height: 100%;
   overflow: hidden;
+}
+
+/* Reusable scroll utilities */
+.app-scroll {
+  @include scroll.scroll-container(both);
+}
+
+.app-scroll-y {
+  @include scroll.scroll-container(y);
+}
+
+.app-scroll-x {
+  @include scroll.scroll-container(x);
+}
+
+.app-scroll-dark {
+  @include scroll.scrollbar-dark();
+}
+
+/* Ant Design & shared scroll surfaces */
+.ant-table-body,
+.ant-table-content,
+.ant-table-sticky-scroll,
+.ant-select-dropdown .rc-virtual-list-holder,
+.ant-modal-body,
+.ant-drawer-body {
+  @include scroll.scrollbar();
 }

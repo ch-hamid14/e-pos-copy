@@ -1,0 +1,63 @@
+// Shared scroll mixins — thin overlay scrollbars, consistent across the app.
+
+$scroll-size: 6px;
+$scroll-size-sm: 4px;
+$scroll-thumb: rgba(15, 23, 42, 0.2);
+$scroll-thumb-hover: rgba(15, 23, 42, 0.34);
+$scroll-thumb-dark: rgba(255, 255, 255, 0.16);
+$scroll-thumb-dark-hover: rgba(255, 255, 255, 0.3);
+
+@mixin scrollbar(
+  $size: $scroll-size,
+  $thumb: $scroll-thumb,
+  $thumb-hover: $scroll-thumb-hover
+) {
+  scrollbar-width: thin;
+  scrollbar-color: $thumb transparent;
+  overscroll-behavior: contain;
+
+  &::-webkit-scrollbar {
+    width: $size;
+    height: $size;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background-color: $thumb;
+    border-radius: 999px;
+    min-height: 40px;
+    transition: background-color 0.15s ease;
+  }
+
+  &::-webkit-scrollbar-thumb:hover {
+    background-color: $thumb-hover;
+  }
+
+  &::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+}
+
+@mixin scrollbar-dark($size: $scroll-size-sm) {
+  @include scrollbar($size, $scroll-thumb-dark, $scroll-thumb-dark-hover);
+}
+
+@mixin scroll-container($axis: y) {
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+
+  @if $axis == y {
+    overflow-y: auto;
+    overflow-x: hidden;
+  } @else if $axis == x {
+    overflow-x: auto;
+    overflow-y: hidden;
+  } @else {
+    overflow: auto;
+  }
+
+  @include scrollbar();
+}

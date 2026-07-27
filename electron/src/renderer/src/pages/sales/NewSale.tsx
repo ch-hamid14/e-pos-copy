@@ -15,16 +15,22 @@ import {
   Table,
   Tabs,
   Tag,
-  Tooltip,
   Typography,
   message
 } from 'antd'
-import { ArrowLeftOutlined, DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons'
+import {
+  ArrowLeftOutlined,
+  DeleteOutlined,
+  DownOutlined,
+  EditOutlined,
+  PlusOutlined,
+  UpOutlined
+} from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { App_Routes } from '@/common'
 import { customerAPI, inventoryAPI, partStockAPI, saleAPI, taxAPI } from '@/renderer/services'
 import { useSession } from '@/renderer/hooks/useSession'
-import { formatRs, PageHeader } from '../shared/page-ui'
+import { formatRs } from '../shared/page-ui'
 import { CustomerQuickModal } from '@/renderer/components/quick/CustomerQuickModal'
 import { SelectQuickFooter } from '@/renderer/components/quick/SelectQuickFooter'
 import {
@@ -149,6 +155,8 @@ export const NewSale = () => {
   const [recordedPaid, setRecordedPaid] = useState(0)
   const [discountAmount, setDiscountAmount] = useState(0)
   const [dueAmount, setDueAmount] = useState(0)
+  const [cartSearch, setCartSearch] = useState('')
+  const [showAdvanced, setShowAdvanced] = useState(false)
   const [headerForm] = Form.useForm()
   const [lineForm] = Form.useForm()
 
@@ -204,7 +212,8 @@ export const NewSale = () => {
       whtPercent: Number(tax236?.defaultPercent ?? 0),
       taxInclusive: true,
       customTaxIds: [],
-      warrantyActive: false,
+      warrantyActive: true,
+      warrantyYears: 1,
       quantity: 1,
       salePrice: 0
     })
@@ -421,11 +430,10 @@ export const NewSale = () => {
     if (selectedItem && !editingKey) {
       lineForm.setFieldsValue({
         salePrice: Number(selectedItem.sellingPrice || selectedItem.purchasePrice || 0),
-        warrantyActive: Boolean(selectedItem.warrantyActive),
+        warrantyActive:
+          selectedItem.warrantyActive != null ? Boolean(selectedItem.warrantyActive) : true,
         warrantyYears:
-          selectedItem.warrantyYears != null
-            ? Number(selectedItem.warrantyYears)
-            : undefined,
+          selectedItem.warrantyYears != null ? Number(selectedItem.warrantyYears) : 1,
         quantity: 1
       })
     }
@@ -467,7 +475,8 @@ export const NewSale = () => {
       taxInclusive: true,
       whtPercent: Number(tax236?.defaultPercent ?? 0),
       customTaxIds: [],
-      warrantyActive: false,
+      warrantyActive: true,
+      warrantyYears: 1,
       quantity: 1,
       salePrice: 0
     })
@@ -774,7 +783,6 @@ export const NewSale = () => {
     if (editingKey === key) cancelEditLine()
   }
 
-  const subtotal = lines.reduce((s, l) => s + calcLineAmounts(l).base, 0)
   const totalSaleTax = lines.reduce((s, l) => s + calcLineAmounts(l).tax, 0)
   const totalWht = lines.reduce((s, l) => s + calcLineAmounts(l).wht, 0)
   const totalOther = lines.reduce((s, l) => s + calcLineAmounts(l).other, 0)
@@ -786,6 +794,22 @@ export const NewSale = () => {
       (l.customTaxes || []).some((t) => t.inclusive && Number(t.percent) > 0)
   )
   const maxDiscount = Math.max(0, roundAmount(grossTotal - effectivePaid))
+
+  const lockedCount = lines.filter((l) => l.locked).length
+  const productLines = lines.filter((l) => l.lineType === 'product')
+  const partLines = lines.filter((l) => l.lineType === 'part')
+
+  const filteredLines = useMemo(() => {
+    const term = cartSearch.trim().toLowerCase()
+    if (!term) return lines
+    return lines.filter((l) => {
+      const hay = [l.serialNumber, l.productName, l.categoryName, l.colorName, l.lineType]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+      return hay.includes(term)
+    })
+  }, [lines, cartSearch])
 
   useEffect(() => {
     const due = calcDueAmount(grossTotal, effectivePaid, discountAmount)
@@ -943,32 +967,49 @@ export const NewSale = () => {
     )
   }
 
+  const lineCountLabel = isEdit
+    ? `${lines.length} line(s)${lockedCount > 0 ? ` · ${lockedCount} locked` : ''}`
+    : `${productLines.length} product · ${partLines.length} part`
+
   return (
-    <div>
-      {isEdit && (
-        <Button
-          type="link"
-          icon={<ArrowLeftOutlined />}
-          className="!px-0 mb-2"
-          onClick={() => navigate(App_Routes.SALE_DETAIL.replace(':id', id!))}
-        >
-          Back to Sale Detail
-        </Button>
-      )}
+    <div className="flex flex-col gap-2 min-h-0" style={{ height: 'calc(100vh - 112px)' }}>
+      <div className="flex-1 min-h-0 app-scroll-y flex flex-col gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 shrink-0">
+        <div className="flex items-center gap-3 min-w-0">
+          {isEdit && (
+            <Button
+              type="text"
+              size="small"
+              icon={<ArrowLeftOutlined />}
+              onClick={() => navigate(App_Routes.SALE_DETAIL.replace(':id', id!))}
+            />
+          )}
+          <div className="min-w-0">
+            <Text strong className="text-base">
+              {isEdit ? 'Edit Sale' : 'New Sale'}
+            </Text>
+            <div className="text-xs text-slate-500">{lineCountLabel}</div>
+          </div>
+        </div>
+        <Space size="small" wrap>
+          <Tag>{formatRs(grossTotal)} total</Tag>
+          {dueAmount > 0 ? (
+            <Tag color="red">Due {formatRs(dueAmount)}</Tag>
+          ) : effectivePaid > 0 ? (
+            <Tag color="green">Paid</Tag>
+          ) : null}
+        </Space>
+      </div>
 
-      <PageHeader
-        title={isEdit ? 'Edit Sale' : 'New Sale'}
-        subtitle={
-          isEdit
-            ? 'Update sale lines, pricing, and customer details. Recorded payments cannot be changed here.'
-            : 'Sell products and spare parts to a customer.'
-        }
-      />
-
-      <Card bordered={false} className="shadow-sm mb-4">
-        <Form form={headerForm} layout="vertical" scrollToFirstError>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Form.Item name="customerId" label="Customer" rules={[{ required: true, message: 'Select customer' }]}>
+      <Card size="small" bordered={false} className="shadow-sm shrink-0">
+        <Form form={headerForm} layout="vertical" size="small" scrollToFirstError>
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-x-3 gap-y-1">
+            <Form.Item
+              name="customerId"
+              label="Customer"
+              className="!mb-1 col-span-2"
+              rules={[{ required: true, message: 'Select customer' }]}
+            >
               <Select
                 showSearch
                 optionFilterProp="label"
@@ -989,8 +1030,11 @@ export const NewSale = () => {
                 )}
               />
             </Form.Item>
-            <Form.Item name="saleDate" label="Sale Date" rules={[{ required: true }]}>
+            <Form.Item name="saleDate" label="Date" className="!mb-1" rules={[{ required: true }]}>
               <DatePicker className="w-full" style={{ width: '100%' }} />
+            </Form.Item>
+            <Form.Item name="notes" label="Notes" className="!mb-1 col-span-2">
+              <Input placeholder="Optional" />
             </Form.Item>
           </div>
         </Form>
@@ -998,188 +1042,103 @@ export const NewSale = () => {
 
       <Card
         id="sale-line-form"
-        title={editingKey ? (lineType === 'part' ? 'Edit part line' : 'Edit product line') : 'Add line'}
+        size="small"
         bordered={false}
-        className="shadow-sm mb-4"
+        className="shadow-sm shrink-0 sticky top-0 z-20"
+        styles={{
+          header: { background: '#fff' },
+          body: { background: '#fff' }
+        }}
+        title={
+          <div className="flex flex-wrap items-center justify-between gap-2 py-0.5">
+            <span className="text-sm font-semibold">
+              {editingKey ? (lineType === 'part' ? 'Edit part' : 'Edit unit') : 'Add line'}
+            </span>
+            {!isEdit && (
+              <Tabs
+                size="small"
+                activeKey={lineType}
+                onChange={handleTabChange}
+                className="!mb-0 [&_.ant-tabs-nav]:!mb-0"
+                items={[
+                  { key: 'product', label: 'Product' },
+                  { key: 'part', label: 'Part' }
+                ]}
+              />
+            )}
+          </div>
+        }
       >
-        <Tabs
-          activeKey={lineType}
-          onChange={handleTabChange}
-          items={[
-            { key: 'product', label: 'Product' },
-            { key: 'part', label: 'Part' }
-          ]}
-        />
         <Form
           form={lineForm}
           layout="vertical"
+          size="small"
           scrollToFirstError
           initialValues={{
             taxPercent: 0,
             taxInclusive: true,
             whtPercent: 0,
             customTaxIds: [],
-            warrantyActive: false,
+            warrantyActive: true,
+            warrantyYears: 1,
             quantity: 1
           }}
         >
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-x-3 gap-y-0">
             {lineType === 'product' ? (
               <>
-                <Form.Item name="serialSearch" label="Chassis Number">
+                <Form.Item name="serialSearch" label="Chassis" className="!mb-2">
                   <Select
                     showSearch
                     filterOption={false}
-                    placeholder="Search chassis number"
+                    placeholder="Search chassis"
                     onSearch={searchSerial}
-                    notFoundContent="Type to search in-stock units"
+                    notFoundContent="Type to search"
                     options={searchResults.map((r) => ({
                       value: r.id,
                       label: `${r.serialNumber} · ${r.product?.name || ''}`
                     }))}
-                    onChange={(id) => lineForm.setFieldValue('productItemId', id)}
+                    onChange={(itemId) => lineForm.setFieldValue('productItemId', itemId)}
                   />
                 </Form.Item>
-                <Form.Item name="productItemId" hidden rules={[{ required: true, message: 'Select a unit' }]}>
+                <Form.Item
+                  name="productItemId"
+                  hidden
+                  rules={[{ required: true, message: 'Select a unit' }]}
+                >
                   <Input />
                 </Form.Item>
-                <Form.Item label="Product">
+                <Form.Item label="Product" className="!mb-2 col-span-2">
                   <Input value={selectedItem?.product?.name || '—'} disabled />
                 </Form.Item>
-                <Form.Item label="Category">
+                <Form.Item label="Category" className="!mb-2">
                   <Input value={selectedItem?.category?.name || '—'} disabled />
                 </Form.Item>
                 <Form.Item
                   name="salePrice"
-                  label="Sale Price"
-                  rules={[{ required: true }]}
-                  tooltip="Defaults to retail; you can charge more (or any amount)."
-                >
-                  <InputNumber className="w-full" min={0} style={{ width: '100%' }} />
-                </Form.Item>
-              </>
-            ) : (
-              <>
-                <Form.Item
-                  name="partId"
-                  label="Part"
-                  rules={[{ required: true, message: 'Select a part' }]}
-                  className="md:col-span-2"
-                >
-                  <Select
-                    showSearch
-                    optionFilterProp="label"
-                    placeholder="Select part in stock"
-                    options={partOptions}
-                    onOpenChange={(open) => {
-                      if (open) loadPartStocks()
-                    }}
-                  />
-                </Form.Item>
-                <Form.Item label="Available">
-                  <Input
-                    value={selectedPartStock ? String(selectedPartStock.quantityOnHand) : '—'}
-                    disabled
-                  />
-                </Form.Item>
-                <Form.Item label="Category">
-                  <Input value={selectedPartStock?.category?.name || '—'} disabled />
-                </Form.Item>
-                <Form.Item
-                  label="Purchase price"
-                  tooltip="FIFO cost per purchase batch. Profit uses these costs, not the sale price you enter."
-                >
-                  <Input
-                    value={partFifoPreview ? formatFifoLayers(partFifoPreview.layers) : '—'}
-                    disabled
-                  />
-                </Form.Item>
-                <Form.Item
-                  name="quantity"
-                  label="Units"
-                  rules={[{ required: true, message: 'Enter units' }]}
-                >
-                  <InputNumber
-                    className="w-full"
-                    min={1}
-                    max={partQtyMax}
-                    step={1}
-                    precision={0}
-                    style={{ width: '100%' }}
-                  />
-                </Form.Item>
-                <Form.Item
-                  name="salePrice"
                   label="Sale price"
+                  className="!mb-2"
                   rules={[{ required: true }]}
-                  tooltip="Editable — charge any price; old stock can be sold at today's rate or a custom amount."
                 >
                   <InputNumber className="w-full" min={0} style={{ width: '100%' }} />
                 </Form.Item>
-              </>
-            )}
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-            <Form.Item
-              label="Sales Tax %"
-              tooltip="On: sale price already includes sales tax (tax is extracted from it). Off: tax is added on top of the sale price."
-            >
-              <Form.Item name="taxPercent" noStyle>
-                <InputNumber
-                  className="w-full"
-                  min={0}
-                  max={100}
-                  addonAfter="%"
-                  style={{ width: '100%' }}
-                />
-              </Form.Item>
-            </Form.Item>
-            <Form.Item
-              name="whtPercent"
-              label="Tax u/s 236 G/H %"
-              tooltip="Withholding tax under section 236 G/H"
-            >
-              <InputNumber className="w-full" min={0} max={100} style={{ width: '100%' }} />
-            </Form.Item>
-            <Form.Item
-              name="taxInclusive"
-              label="Tax Inclusive"
-              valuePropName="checked"
-              tooltip="Applies to Sales Tax and Tax u/s 236 G/H only"
-            >
-              <Switch />
-            </Form.Item>
-            {customTaxDefs.length > 0 && (
-              <Form.Item
-                name="customTaxIds"
-                label="Other taxes"
-                className="md:col-span-2 lg:col-span-4"
-                tooltip="Each custom tax uses its own inclusive setting from Setup → Taxes"
-              >
-                <Checkbox.Group
-                  options={customTaxDefs.map((t) => ({
-                    value: t.id,
-                    label: `${t.name} (${Number(t.defaultPercent || 0)}%${
-                      t.inclusiveDefault ? ', incl.' : ''
-                    })`
-                  }))}
-                />
-              </Form.Item>
-            )}
-            {lineType === 'product' && (
-              <>
-                <Form.Item name="warrantyActive" label="Warranty Active" valuePropName="checked">
-                  <Switch />
+                <Form.Item
+                  name="warrantyActive"
+                  label="Warranty"
+                  className="!mb-2"
+                  valuePropName="checked"
+                >
+                  <Switch size="small" />
                 </Form.Item>
                 {warrantyActive && (
                   <Form.Item
                     name="warrantyYears"
-                    label="Warranty (years)"
+                    label="Years"
+                    className="!mb-2"
                     rules={[
-                      { required: true, message: 'Enter warranty years' },
-                      { type: 'number', min: 1, message: 'Must be at least 1 year' }
+                      { required: true, message: 'Enter years' },
+                      { type: 'number', min: 1, message: 'Min 1' }
                     ]}
-                    extra="Expiry is calculated from the sale date"
                   >
                     <InputNumber
                       className="w-full"
@@ -1191,136 +1150,332 @@ export const NewSale = () => {
                   </Form.Item>
                 )}
               </>
+            ) : (
+              <>
+                <Form.Item
+                  name="partId"
+                  label="Part"
+                  className="!mb-2 col-span-2"
+                  rules={[{ required: true, message: 'Select a part' }]}
+                >
+                  <Select
+                    showSearch
+                    optionFilterProp="label"
+                    placeholder="Select part"
+                    options={partOptions}
+                    onOpenChange={(open) => {
+                      if (open) loadPartStocks()
+                    }}
+                  />
+                </Form.Item>
+                <Form.Item label="Available" className="!mb-2">
+                  <Input
+                    value={selectedPartStock ? String(selectedPartStock.quantityOnHand) : '—'}
+                    disabled
+                  />
+                </Form.Item>
+                <Form.Item
+                  name="quantity"
+                  label="Units"
+                  className="!mb-2"
+                  rules={[{ required: true, message: 'Enter units' }]}
+                >
+                  <InputNumber
+                    className="w-full"
+                    min={1}
+                    max={partQtyMax}
+                    step={1}
+                    precision={0}
+                    style={{ width: '100%' }}
+                    onPressEnter={(e) => {
+                      e.preventDefault()
+                      void addLine()
+                    }}
+                  />
+                </Form.Item>
+                <Form.Item
+                  name="salePrice"
+                  label="Sale price"
+                  className="!mb-2"
+                  rules={[{ required: true }]}
+                >
+                  <InputNumber className="w-full" min={0} style={{ width: '100%' }} />
+                </Form.Item>
+                <Form.Item label="Category" className="!mb-2">
+                  <Input value={selectedPartStock?.category?.name || '—'} disabled />
+                </Form.Item>
+              </>
             )}
+            <Form.Item label=" " className="!mb-2">
+              <Space size="small" wrap>
+                <Button
+                  type="primary"
+                  size="small"
+                  icon={editingKey ? <EditOutlined /> : <PlusOutlined />}
+                  onClick={addLine}
+                >
+                  {editingKey ? 'Update' : 'Add'}
+                </Button>
+                {editingKey && (
+                  <Button size="small" onClick={cancelEditLine}>
+                    Cancel
+                  </Button>
+                )}
+                <Button
+                  type="link"
+                  size="small"
+                  className="!px-1"
+                  icon={showAdvanced ? <UpOutlined /> : <DownOutlined />}
+                  onClick={() => setShowAdvanced((v) => !v)}
+                >
+                  More
+                </Button>
+              </Space>
+            </Form.Item>
           </div>
-          <Space>
-            <Button type="dashed" icon={editingKey ? <EditOutlined /> : <PlusOutlined />} onClick={addLine}>
-              {editingKey ? 'Update line' : 'Add to sale'}
-            </Button>
-            {editingKey && <Button onClick={cancelEditLine}>Cancel edit</Button>}
-          </Space>
+
+          {showAdvanced && (
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-x-3 gap-y-0 pt-1 border-t border-slate-100 mt-1">
+              {lineType === 'part' && (
+                <Form.Item
+                  label="FIFO cost"
+                  className="!mb-2 col-span-2"
+                  tooltip="FIFO cost per purchase batch"
+                >
+                  <Input
+                    value={partFifoPreview ? formatFifoLayers(partFifoPreview.layers) : '—'}
+                    disabled
+                  />
+                </Form.Item>
+              )}
+              <Form.Item label="Sales tax %" className="!mb-2">
+                <Form.Item name="taxPercent" noStyle>
+                  <InputNumber
+                    className="w-full"
+                    min={0}
+                    max={100}
+                    addonAfter="%"
+                    style={{ width: '100%' }}
+                  />
+                </Form.Item>
+              </Form.Item>
+              <Form.Item name="whtPercent" label="236 G/H %" className="!mb-2">
+                <InputNumber className="w-full" min={0} max={100} style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item
+                name="taxInclusive"
+                label="Tax inclusive"
+                className="!mb-2"
+                valuePropName="checked"
+              >
+                <Switch size="small" />
+              </Form.Item>
+              {customTaxDefs.length > 0 && (
+                <Form.Item
+                  name="customTaxIds"
+                  label="Other taxes"
+                  className="!mb-2 col-span-2 lg:col-span-4"
+                >
+                  <Checkbox.Group
+                    options={customTaxDefs.map((t) => ({
+                      value: t.id,
+                      label: `${t.name} (${Number(t.defaultPercent || 0)}%${
+                        t.inclusiveDefault ? ', incl.' : ''
+                      })`
+                    }))}
+                  />
+                </Form.Item>
+              )}
+            </div>
+          )}
         </Form>
       </Card>
 
-      <Card bordered={false} className="shadow-sm mb-4">
-        <Table
-          rowKey="key"
-          dataSource={lines}
-          pagination={false}
-          scroll={{ x: 'max-content' }}
-          className="[&_.ant-table-cell]:!whitespace-nowrap"
-          locale={{ emptyText: 'No lines added yet' }}
-          columns={[
-            {
-              title: 'Type',
-              dataIndex: 'lineType',
-              width: 90,
-              render: (v: SaleLineType) => (
-                <Tag color={v === 'part' ? 'blue' : 'default'}>{v === 'part' ? 'Part' : 'Product'}</Tag>
+      <Card
+        size="small"
+        bordered={false}
+        className="shadow-sm shrink-0"
+        styles={{ body: { paddingTop: 8 } }}
+        title={
+          <div className="flex flex-wrap items-center justify-between gap-2 py-0.5">
+            <span className="text-sm font-semibold">
+              Cart ({filteredLines.length}
+              {cartSearch.trim() && filteredLines.length !== lines.length
+                ? ` / ${lines.length}`
+                : ''}
               )
-            },
-            {
-              title: 'Chassis / Ref',
-              render: (_: unknown, r: SaleLine) =>
-                r.lineType === 'product' ? <Text strong>{r.serialNumber}</Text> : '—'
-            },
-            { title: 'Name', dataIndex: 'productName' },
-            { title: 'Category', dataIndex: 'categoryName' },
-            {
-              title: 'Qty',
-              dataIndex: 'quantity',
-              align: 'right' as const
-            },
-            {
-              title: 'Sale Price',
-              dataIndex: 'salePrice',
-              align: 'right' as const,
-              render: formatRs
-            },
-            {
-              title: 'Tax %',
-              dataIndex: 'taxPercent',
-              render: (v: number, r: SaleLine) =>
-                r.taxInclusive && v > 0 ? `${v} (incl.)` : v
-            },
-            {
-              title: 'Tax u/s 236 G/H %',
-              dataIndex: 'whtPercent',
-              render: (v: number, r: SaleLine) =>
-                r.taxInclusive && v > 0 ? `${v} (incl.)` : v
-            },
-            {
-              title: 'Line Total',
-              align: 'right' as const,
-              render: (_: unknown, r: SaleLine) => formatRs(calcLineTotal(r))
-            },
-            {
-              title: 'Warranty',
-              render: (_: unknown, r: SaleLine) =>
-                r.lineType === 'product'
-                  ? r.warrantyActive
-                    ? `${r.warrantyYears || '—'} yr${r.warrantyExpiryDate ? ` · ${r.warrantyExpiryDate}` : ''}`
-                    : 'No'
-                  : '—'
-            },
-            {
-              title: '',
-              width: 88,
-              fixed: 'right' as const,
-              render: (_: unknown, r: SaleLine) =>
-                r.locked ? (
-                  <Space size={0}>
-                    <Tooltip title="This line cannot be edited">
-                      <Button type="text" icon={<EditOutlined />} disabled />
-                    </Tooltip>
-                    <Tooltip title="This line cannot be removed">
-                      <Button type="text" danger icon={<DeleteOutlined />} disabled />
-                    </Tooltip>
-                  </Space>
-                ) : (
-                  <Space size={0}>
-                    <Button type="text" icon={<EditOutlined />} onClick={() => startEditLine(r)} />
-                    <Button type="text" danger icon={<DeleteOutlined />} onClick={() => removeLine(r.key)} />
-                  </Space>
+            </span>
+            <Input.Search
+              allowClear
+              size="small"
+              placeholder="Filter cart…"
+              style={{ width: 220 }}
+              value={cartSearch}
+              onChange={(e) => setCartSearch(e.target.value)}
+            />
+          </div>
+        }
+      >
+          <Table
+            rowKey="key"
+            size="small"
+            dataSource={filteredLines}
+            pagination={false}
+            scroll={{ x: 900 }}
+            className="[&_.ant-table-cell]:!whitespace-nowrap [&_.ant-table-cell]:!py-1.5"
+            locale={{
+              emptyText: cartSearch.trim() ? 'No matching lines' : 'No lines yet — add above'
+            }}
+            columns={[
+              {
+                title: '',
+                dataIndex: 'lineType',
+                width: 56,
+                render: (v: SaleLineType) => (
+                  <Tag className="!m-0" color={v === 'part' ? 'blue' : 'default'}>
+                    {v === 'part' ? 'P' : 'U'}
+                  </Tag>
                 )
-            }
-          ]}
-        />
-        <Form
-          form={headerForm}
-          layout="vertical"
-          scrollToFirstError
-          className="mt-4 pt-4 border-t border-slate-100"
-          onValuesChange={handlePaymentValuesChange}
-        >
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              },
+              {
+                title: 'Chassis / Qty',
+                width: 130,
+                render: (_: unknown, r: SaleLine) =>
+                  r.lineType === 'product' ? (
+                    <Text strong className="text-xs whitespace-nowrap">
+                      {r.serialNumber}
+                    </Text>
+                  ) : (
+                    <Text strong className="text-xs">
+                      ×{r.quantity}
+                    </Text>
+                  )
+              },
+              {
+                title: 'Name',
+                dataIndex: 'productName',
+                ellipsis: true,
+                render: (v: string) => <span className="text-xs">{v}</span>
+              },
+              {
+                title: 'Color',
+                width: 90,
+                ellipsis: true,
+                dataIndex: 'colorName',
+                render: (v: string | undefined, r: SaleLine) =>
+                  r.lineType === 'product' ? <span className="text-xs">{v || '—'}</span> : '—'
+              },
+              {
+                title: 'Price',
+                dataIndex: 'salePrice',
+                width: 100,
+                align: 'right' as const,
+                render: (v: number) => <span className="text-xs">{formatRs(v)}</span>
+              },
+              {
+                title: 'Tax',
+                width: 72,
+                render: (_: unknown, r: SaleLine) => (
+                  <span className="text-xs">
+                    {r.taxPercent > 0 ? `${r.taxPercent}%` : '—'}
+                  </span>
+                )
+              },
+              {
+                title: 'Total',
+                width: 100,
+                align: 'right' as const,
+                render: (_: unknown, r: SaleLine) => (
+                  <span className="text-xs font-medium">{formatRs(calcLineTotal(r))}</span>
+                )
+              },
+              {
+                title: 'Warr.',
+                width: 72,
+                render: (_: unknown, r: SaleLine) =>
+                  r.lineType === 'product' ? (
+                    <span className="text-xs">
+                      {r.warrantyActive ? `${r.warrantyYears || '—'}y` : '—'}
+                    </span>
+                  ) : (
+                    '—'
+                  )
+              },
+              {
+                title: '',
+                width: 72,
+                fixed: 'right' as const,
+                render: (_: unknown, r: SaleLine) =>
+                  r.locked ? (
+                    <Space size={0}>
+                      <Button type="text" size="small" icon={<EditOutlined />} disabled />
+                      <Button type="text" size="small" danger icon={<DeleteOutlined />} disabled />
+                    </Space>
+                  ) : (
+                    <Space size={0}>
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<EditOutlined />}
+                        onClick={() => startEditLine(r)}
+                      />
+                      <Button
+                        type="text"
+                        size="small"
+                        danger
+                        icon={<DeleteOutlined />}
+                        onClick={() => removeLine(r.key)}
+                      />
+                    </Space>
+                  )
+              }
+            ]}
+          />
+      </Card>
+      </div>
+
+      <div className="shrink-0 border border-slate-200 rounded-lg bg-white px-3 py-2 shadow-sm z-30">
+        <div className="flex flex-wrap items-center gap-3 justify-between">
+          <Form
+            form={headerForm}
+            layout="inline"
+            size="small"
+            onValuesChange={handlePaymentValuesChange}
+            className="flex flex-wrap gap-y-1"
+          >
             {isEdit ? (
-              <Form.Item label="Recorded Payments">
-                <InputNumber className="w-full" value={recordedPaid} disabled style={{ width: '100%' }} />
+              <Form.Item label="Paid" className="!mb-0">
+                <InputNumber value={recordedPaid} disabled style={{ width: 110 }} />
               </Form.Item>
             ) : (
               <Form.Item
                 name="paidAmount"
-                label="Amount Paid Now"
+                label="Paid now"
+                className="!mb-0"
                 rules={[
                   {
                     validator: (_, value) => {
                       const paid = Number(value || 0)
                       const discount = Number(headerForm.getFieldValue('discount') || 0)
                       if (grossTotal > 0 && paid + discount > grossTotal) {
-                        return Promise.reject(new Error('Paid + discount cannot exceed sale total'))
+                        return Promise.reject(new Error('Exceeds total'))
                       }
                       return Promise.resolve()
                     }
                   }
                 ]}
               >
-                <InputNumber className="w-full" min={0} max={grossTotal > 0 ? grossTotal : undefined} style={{ width: '100%' }} />
+                <InputNumber
+                  min={0}
+                  max={grossTotal > 0 ? grossTotal : undefined}
+                  style={{ width: 110 }}
+                />
               </Form.Item>
             )}
             <Form.Item
               name="discount"
               label="Discount"
+              className="!mb-0"
               rules={[
                 {
                   validator: (_, value) => {
@@ -1329,36 +1484,32 @@ export const NewSale = () => {
                       ? recordedPaid
                       : Number(headerForm.getFieldValue('paidAmount') || 0)
                     if (grossTotal > 0 && paid + discount > grossTotal) {
-                      return Promise.reject(
-                        new Error(
-                          isEdit
-                            ? 'Discount cannot exceed sale total minus recorded payments'
-                            : 'Discount cannot exceed sale total minus amount paid'
-                        )
-                      )
+                      return Promise.reject(new Error('Exceeds total'))
                     }
                     return Promise.resolve()
                   }
                 }
               ]}
             >
-              <InputNumber className="w-full" min={0} max={maxDiscount || undefined} style={{ width: '100%' }} />
+              <InputNumber min={0} max={maxDiscount || undefined} style={{ width: 110 }} />
             </Form.Item>
-            <Form.Item name="balance" label="Balance (Due)">
-              <InputNumber className="w-full" disabled style={{ width: '100%' }} />
+            <Form.Item name="balance" label="Due" className="!mb-0" initialValue={0}>
+              <InputNumber disabled style={{ width: 110 }} />
             </Form.Item>
             {dueAmount > 0 && (
               <Form.Item
                 name="dueReminderDate"
-                label="Due Reminder Date"
-                rules={[{ required: true, message: 'Select a reminder date for the due amount' }]}
+                label="Reminder"
+                className="!mb-0"
+                rules={[{ required: true, message: 'Select reminder date' }]}
               >
-                <DatePicker className="w-full" style={{ width: '100%' }} />
+                <DatePicker style={{ width: 130 }} />
               </Form.Item>
             )}
             {!isEdit && (
-              <Form.Item name="paymentMethod" label="Payment Method">
+              <Form.Item name="paymentMethod" label="Method" className="!mb-0" initialValue="cash">
                 <Select
+                  style={{ width: 100 }}
                   options={[
                     { value: 'cash', label: 'Cash' },
                     { value: 'bank', label: 'Bank' },
@@ -1367,99 +1518,60 @@ export const NewSale = () => {
                 />
               </Form.Item>
             )}
-            <Form.Item name="notes" label="Notes" className="md:col-span-2 lg:col-span-4">
-              <Input placeholder="Optional notes" />
-            </Form.Item>
-          </div>
-        </Form>
-        <div className="mt-6 rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-blue-50/40 overflow-hidden shadow-sm">
-          <div className="flex flex-wrap justify-between items-stretch gap-6 p-5">
-            <div className="min-w-[280px] flex-1">
-              <Text type="secondary" className="text-xs uppercase tracking-wider font-semibold">
-                Sale Summary
-              </Text>
-              <div className="mt-4 space-y-2.5 text-sm max-w-md">
-                <div className="flex justify-between gap-6 text-slate-600">
-                  <span>Subtotal</span>
-                  <span className="font-medium text-slate-800">{formatRs(subtotal)}</span>
-                </div>
-                <div className="flex justify-between gap-6 text-slate-600">
-                  <span>Sale Tax{anyTaxInclusive ? ' (incl.)' : ''}</span>
-                  <span className="font-medium text-emerald-700">+ {formatRs(totalSaleTax)}</span>
-                </div>
-                <div className="flex justify-between gap-6 text-slate-600">
-                  <span>Tax u/s 236 G/H{anyTaxInclusive ? ' (incl.)' : ''}</span>
-                  <span className="font-medium text-emerald-700">+ {formatRs(totalWht)}</span>
-                </div>
-                {totalOther > 0 && (
-                  <div className="flex justify-between gap-6 text-slate-600">
-                    <span>Other taxes</span>
-                    <span className="font-medium text-emerald-700">+ {formatRs(totalOther)}</span>
-                  </div>
-                )}
-                {discountAmount > 0 && (
-                  <div className="flex justify-between gap-6 text-slate-600">
-                    <span>Discount</span>
-                    <span className="font-medium text-amber-700">− {formatRs(discountAmount)}</span>
-                  </div>
-                )}
-              </div>
-              <div className="mt-4 pt-4 border-t border-slate-200/80 space-y-3">
-                <div className="flex justify-between gap-6 items-baseline">
-                  <Text strong className="text-base text-slate-800">
-                    Sale Total
-                  </Text>
-                  <Text strong className="text-xl text-slate-900">
-                    {formatRs(grossTotal)}
-                  </Text>
-                </div>
-                {grossTotal > 0 && dueAmount > 0 && (
-                  <div className="flex justify-between gap-6 items-center rounded-lg bg-red-50 border border-red-100 px-4 py-3">
-                    <Text strong className="text-red-700">
-                      Amount Due
-                    </Text>
-                    <Text strong className="text-lg text-red-600">
-                      {formatRs(dueAmount)}
-                    </Text>
-                  </div>
-                )}
-                {grossTotal > 0 && dueAmount === 0 && effectivePaid > 0 && (
-                  <div className="flex justify-between gap-6 items-center rounded-lg bg-emerald-50 border border-emerald-100 px-4 py-3">
-                    <Text strong className="text-emerald-700">
-                      Fully Paid
-                    </Text>
-                    <Text strong className="text-emerald-600">
-                      {formatRs(effectivePaid)}
-                    </Text>
-                  </div>
-                )}
-              </div>
+          </Form>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="text-xs text-slate-600 hidden sm:block">
+              {discountAmount > 0 && (
+                <span className="mr-3">Disc −{formatRs(discountAmount)}</span>
+              )}
+              {totalSaleTax + totalWht + totalOther > 0 && (
+                <span className="mr-3">
+                  Tax +{formatRs(totalSaleTax + totalWht + totalOther)}
+                  {anyTaxInclusive ? ' (incl.)' : ''}
+                </span>
+              )}
+              <span className="font-semibold text-slate-900">Total {formatRs(grossTotal)}</span>
+              {dueAmount > 0 && (
+                <span className="ml-3 text-red-600 font-semibold">Due {formatRs(dueAmount)}</span>
+              )}
             </div>
-            <div className="flex flex-col justify-end gap-3 sm:min-w-[200px]">
-              <Button
-                onClick={() => {
-                  setLines([])
-                  cancelEditLine()
-                }}
-                disabled={!lines.length}
-                block
-              >
-                Clear
-              </Button>
+            <Space size="small">
+              {!isEdit && (
+                <Button
+                  size="small"
+                  disabled={!lines.length}
+                  onClick={() => {
+                    if (lines.length > 20 && !window.confirm(`Clear ${lines.length} lines?`)) return
+                    setLines([])
+                    setCartSearch('')
+                    cancelEditLine()
+                  }}
+                >
+                  Clear
+                </Button>
+              )}
+              {isEdit && (
+                <Button
+                  size="small"
+                  onClick={() => navigate(App_Routes.SALE_DETAIL.replace(':id', id!))}
+                >
+                  Cancel
+                </Button>
+              )}
               <Button
                 type="primary"
-                size="large"
+                size="small"
                 loading={loading}
                 onClick={handleSubmit}
                 disabled={!lines.length}
-                block
               >
-                {isEdit ? 'Save Changes' : 'Complete Sale'}
+                {isEdit ? 'Update' : 'Save sale'}
               </Button>
-            </div>
+            </Space>
           </div>
         </div>
-      </Card>
+      </div>
 
       <CustomerQuickModal
         open={customerQuickOpen}

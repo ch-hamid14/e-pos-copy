@@ -139,7 +139,7 @@ const AppLayout = () => {
 
         <div className="app-sider-footer">
           {!collapsed ? (
-            <Text className="app-copyright">Copyright © Madix Soft</Text>
+            <Text className="app-copyright cursor-pointer" onClick={() => window.open('https://madixsoft.com', '_blank')}>Copyright © Madix Soft</Text>
           ) : (
             <Text className="app-copyright app-copyright--collapsed">©</Text>
           )}
