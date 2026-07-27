@@ -69,6 +69,7 @@ ipcMain.handle(`PUT:${Channels.PURCHASES}`, catchIpcHandler(purchaseController.u
 ipcMain.handle(`GET:${Channels.PURCHASES}:detail`, catchIpcHandler(purchaseController.get))
 ipcMain.handle(`GET:${Channels.PURCHASES}:due`, catchIpcHandler(purchaseController.listDue))
 ipcMain.handle(`POST:${Channels.PURCHASES}:payment`, catchIpcHandler(purchaseController.recordPayment))
+ipcMain.handle(`PUT:${Channels.PURCHASES}:payment`, catchIpcHandler(purchaseController.updatePayment))
 
 ipcMain.handle(`GET:${Channels.PART_PURCHASES}`, catchIpcHandler(partPurchaseController.list))
 ipcMain.handle(`POST:${Channels.PART_PURCHASES}`, catchIpcHandler(partPurchaseController.create))
@@ -78,6 +79,10 @@ ipcMain.handle(`GET:${Channels.PART_PURCHASES}:due`, catchIpcHandler(partPurchas
 ipcMain.handle(
   `POST:${Channels.PART_PURCHASES}:payment`,
   catchIpcHandler(partPurchaseController.recordPayment)
+)
+ipcMain.handle(
+  `PUT:${Channels.PART_PURCHASES}:payment`,
+  catchIpcHandler(partPurchaseController.updatePayment)
 )
 
 ipcMain.handle(`GET:${Channels.PRODUCT_ITEMS}`, catchIpcHandler(inventoryController.list))
@@ -93,6 +98,7 @@ ipcMain.handle(`GET:${Channels.PART_STOCKS}:fifo`, catchIpcHandler(partStockCont
 ipcMain.handle(`POST:${Channels.SALES}`, catchIpcHandler(saleController.create))
 ipcMain.handle(`PUT:${Channels.SALES}`, catchIpcHandler(saleController.update))
 ipcMain.handle(`POST:${Channels.SALES}:payment`, catchIpcHandler(saleController.recordPayment))
+ipcMain.handle(`PUT:${Channels.SALES}:payment`, catchIpcHandler(saleController.updatePayment))
 ipcMain.handle(`GET:${Channels.SALES}`, catchIpcHandler(saleController.list))
 ipcMain.handle(`GET:${Channels.SALES}:detail`, catchIpcHandler(saleController.get))
 ipcMain.handle(`GET:${Channels.SALES}:due`, catchIpcHandler(saleController.listDue))

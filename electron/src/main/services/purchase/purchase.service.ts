@@ -2,9 +2,10 @@ import {
   MovementType,
   ProductItemStatus
 } from '@madix/database'
+import { Roles } from '../../../common/constants/roles'
 import { getDb, withTransaction } from '../../db'
 import { generateId } from '../../../common/utils/uuid'
-import { asJson, asProductItemJson } from '../shared/json.helpers'
+import { asJson, asJsonList, asProductItemJson } from '../shared/json.helpers'
 import {
   AUDIT_USER_SELECT,
   type AuditContext,
@@ -22,6 +23,7 @@ import {
   neutralizePurchaseApLedger,
   postPurchaseApLedger,
   recordSupplierPayment,
+  reviseSupplierPaymentLedger,
   roundRs
 } from './supplier-ledger.helpers'
 
@@ -106,6 +108,19 @@ export type RecordPurchasePaymentPayload = {
   amount: number
   method?: string
   paymentDate?: string
+}
+
+export type UpdatePurchasePaymentPayload = {
+  paymentId: string
+  amount: number
+  method?: string
+  paymentDate?: string
+}
+
+function assertCanEditPayment(ctx: AuditContext): void {
+  if (ctx.role !== Roles.COMPANY_OWNER && ctx.role !== Roles.SUPER_ADMIN) {
+    throw new Error('Only company owners can edit payments')
+  }
 }
 
 function purchaseEditable(items: { status?: string }[]): boolean {
@@ -756,6 +771,93 @@ class PurchaseService {
         .returning('*')
 
       return { purchase: asJson(updatedPurchase), dueAmount: newDue }
+    })
+  }
+
+  async updatePayment(
+    companyId: string,
+    ctx: AuditContext,
+    payload: UpdatePurchasePaymentPayload
+  ): Promise<unknown> {
+    assertCanEditPayment(ctx)
+    const newAmount = roundRs(Number(payload.amount || 0))
+    if (newAmount < 0) throw new Error('Payment amount cannot be negative')
+
+    return withTransaction(async (transaction) => {
+      const payment = await getDb()('purchase_payments')
+        .transacting(transaction)
+        .where({ id: payload.paymentId, company_id: companyId })
+        .first()
+      if (!payment || !payment.purchase_id) throw new Error('Payment not found')
+
+      const purchase = await getDb()('purchases')
+        .transacting(transaction)
+        .where({ id: payment.purchase_id, company_id: companyId })
+        .first()
+      if (!purchase) throw new Error('Purchase not found')
+      if (purchase.deleted_at) throw new Error('Cannot edit payment on a voided purchase')
+
+      const oldAmount = roundRs(Number(payment.amount || 0))
+      const supplierId = purchase.supplier_id as string
+      const netTotal = roundRs(Number(purchase.net_total || 0))
+      const currentPaid = roundRs(Number(purchase.paid_amount || 0))
+      const newPaid = roundRs(currentPaid - oldAmount + newAmount)
+      if (newPaid < 0) throw new Error('Payment edit would make paid amount negative')
+      if (newPaid > netTotal) {
+        throw new Error(`Paid total cannot exceed purchase net (${netTotal})`)
+      }
+
+      const paymentDate = payload.paymentDate
+        ? new Date(payload.paymentDate)
+        : new Date(payment.payment_date as string | Date)
+      const method = payload.method || (payment.method as string) || 'cash'
+
+      await reviseSupplierPaymentLedger(transaction, {
+        companyId,
+        supplierId,
+        oldAmount,
+        newAmount,
+        paymentId: payload.paymentId,
+        referenceType: 'purchase',
+        referenceId: String(purchase.id),
+        ctx
+      })
+
+      if (newAmount <= 0) {
+        await getDb()('purchase_payments')
+          .transacting(transaction)
+          .where({ id: payload.paymentId })
+          .del()
+      } else {
+        await getDb()('purchase_payments')
+          .transacting(transaction)
+          .where({ id: payload.paymentId })
+          .update({
+            amount: newAmount,
+            method,
+            payment_date: paymentDate,
+            ...auditUpdate(ctx)
+          })
+      }
+
+      const newDue = roundRs(netTotal - newPaid)
+      const [updatedPurchase] = await getDb()('purchases')
+        .transacting(transaction)
+        .where({ id: purchase.id })
+        .update({ paid_amount: newPaid, due_amount: newDue, ...auditUpdate(ctx) })
+        .returning('*')
+
+      const payments = await getDb()('purchase_payments')
+        .transacting(transaction)
+        .where({ purchase_id: purchase.id })
+        .orderBy('payment_date', 'asc')
+        .orderBy('created_at', 'asc')
+
+      return {
+        purchase: asJson(updatedPurchase),
+        payments: asJsonList(payments),
+        dueAmount: newDue
+      }
     })
   }
 }

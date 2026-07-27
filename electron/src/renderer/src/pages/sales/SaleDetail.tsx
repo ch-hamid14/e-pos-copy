@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Button, Card, Col, Descriptions, Row, Spin, Statistic, Table, Tag, Typography } from 'antd'
+import { Button, Card, Col, Descriptions, Row, Spin, Statistic, Table, Tag, Typography, message } from 'antd'
 import { ArrowLeftOutlined, EditOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { App_Routes, Roles } from '@/common'
@@ -10,6 +10,7 @@ import { useSaleInvoicePrint } from '@/renderer/hooks/useSaleInvoicePrint'
 import { PrintInvoiceButton } from '@/renderer/components/print/PrintInvoiceButton'
 import { SaleInvoicePrint } from '@/renderer/components/print/SaleInvoicePrint'
 import { ThermalReceiptPrint } from '@/renderer/components/print/ThermalReceiptPrint'
+import { EditPaymentModal } from '@/renderer/components/forms/EditPaymentModal'
 import { formatRs, PageHeader } from '../shared/page-ui'
 
 const { Text } = Typography
@@ -17,9 +18,11 @@ const { Text } = Typography
 export const SaleDetail = () => {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { branchName, user } = useSession()
+  const { companyId, branchName, user, audit } = useSession()
   const canEditSales = user?.role === Roles.COMPANY_OWNER
+  const canEditPayments = user?.role === Roles.COMPANY_OWNER
   const [editable, setEditable] = useState(false)
+  const [editPayment, setEditPayment] = useState<any>(null)
   const {
     preparePrint,
     clearPrint,
@@ -29,7 +32,7 @@ export const SaleDetail = () => {
     hasPrintDetail
   } = useSaleInvoicePrint(branchName || 'Company')
 
-  useEffect(() => {
+  const load = useCallback(() => {
     if (!id) return
     saleAPI.get(id).then((res) => {
       if (res?.sale) {
@@ -37,8 +40,12 @@ export const SaleDetail = () => {
         setEditable(Boolean(res.editable ?? res.sale.editable))
       }
     })
+  }, [id, preparePrint])
+
+  useEffect(() => {
+    load()
     return () => clearPrint()
-  }, [id, preparePrint, clearPrint])
+  }, [load, clearPrint])
 
   const detail = printDetail
   const loading = Boolean(id && !detail?.sale)
@@ -69,6 +76,11 @@ export const SaleDetail = () => {
 
   const sale = detail.sale
   const canEdit = editable && canEditSales
+  const payments = detail.payments || []
+  const otherPaid = (excludeId: string) =>
+    payments
+      .filter((p: any) => p.id !== excludeId)
+      .reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0)
 
   return (
     <div>
@@ -217,12 +229,13 @@ export const SaleDetail = () => {
         <Text type={sale.notes ? undefined : 'secondary'}>{sale.notes || '—'}</Text>
       </Card>
 
-      {(detail.payments?.length ?? 0) > 0 && (
+      {(payments.length > 0 || canEditPayments) && (
         <Card title="Payments" bordered={false} className="shadow-sm">
           <Table
             rowKey="id"
-            dataSource={detail.payments}
+            dataSource={payments}
             pagination={false}
+            locale={{ emptyText: 'No payments recorded' }}
             columns={[
               {
                 title: 'Date',
@@ -230,10 +243,47 @@ export const SaleDetail = () => {
                 render: (v) => dayjs(v).format('DD MMM YYYY')
               },
               { title: 'Method', dataIndex: 'method' },
-              { title: 'Amount', dataIndex: 'amount', align: 'right' as const, render: formatRs }
+              { title: 'Amount', dataIndex: 'amount', align: 'right' as const, render: formatRs },
+              ...(canEditPayments
+                ? [
+                    {
+                      title: '',
+                      width: 80,
+                      render: (_: unknown, record: any) => (
+                        <Button type="link" size="small" onClick={() => setEditPayment(record)}>
+                          Edit
+                        </Button>
+                      )
+                    }
+                  ]
+                : [])
             ]}
           />
         </Card>
+      )}
+
+      {editPayment && (
+        <EditPaymentModal
+          open={Boolean(editPayment)}
+          maxAmount={Math.max(0, Number(sale.netTotal || 0) - otherPaid(editPayment.id))}
+          initial={{
+            amount: Number(editPayment.amount || 0),
+            method: editPayment.method,
+            paymentDate: editPayment.paymentDate
+          }}
+          onCancel={() => setEditPayment(null)}
+          onSave={async (values) => {
+            try {
+              await saleAPI.updatePayment(companyId, audit(), editPayment.id, values)
+              message.success(values.amount > 0 ? 'Payment updated' : 'Payment removed')
+              setEditPayment(null)
+              load()
+            } catch (err: any) {
+              message.error(err.message || 'Update failed')
+              throw err
+            }
+          }}
+        />
       )}
 
       {printDetail?.sale && (

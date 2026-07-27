@@ -474,6 +474,50 @@ export function repairBusinessSaleLedger(token: string, companyId: string, saleI
   })
 }
 
+export function updateBusinessSalePayment(
+  token: string,
+  companyId: string,
+  paymentId: string,
+  body: { amount: number; method?: string; paymentDate?: string }
+) {
+  return api<{
+    paymentId: string
+    saleId: string
+    paidAmount: number
+    dueAmount: number
+    removed: boolean
+  }>(`/admin/companies/${companyId}/business/sales/payments/${paymentId}`, {
+    method: 'PUT',
+    token,
+    body: JSON.stringify(body)
+  })
+}
+
+export function updateBusinessPurchasePayment(
+  token: string,
+  companyId: string,
+  paymentId: string,
+  kind: 'product' | 'part',
+  body: { amount: number; method?: string; paymentDate?: string }
+) {
+  const path =
+    kind === 'part'
+      ? `/admin/companies/${companyId}/business/part-purchases/payments/${paymentId}`
+      : `/admin/companies/${companyId}/business/purchases/payments/${paymentId}`
+  return api<{
+    paymentId: string
+    purchaseId: string
+    kind: string
+    paidAmount: number
+    dueAmount: number
+    removed: boolean
+  }>(path, {
+    method: 'PUT',
+    token,
+    body: JSON.stringify(body)
+  })
+}
+
 export function repairAllVoidedSaleLedgers(token: string, companyId: string) {
   return api<{
     scanned: number

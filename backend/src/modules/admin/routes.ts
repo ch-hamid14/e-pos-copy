@@ -45,6 +45,8 @@ import {
   repairAllVoidedSaleLedgers,
   repairPurchaseApLedger,
   backfillMissingPurchaseApLedgers,
+  updateSalePayment,
+  updatePurchasePayment,
   listPurchases,
   getPurchaseDetail,
   getPartPurchaseDetail,
@@ -656,6 +658,77 @@ export function adminRouter(db: Knex): Router {
       res.status(400).json({ error: err.message })
     }
   })
+
+  router.put(
+    '/companies/:id/business/sales/payments/:paymentId',
+    async (req: AuthRequest, res) => {
+      try {
+        const result = await updateSalePayment(req.params.id, req.params.paymentId, {
+          amount: Number(req.body?.amount),
+          method: req.body?.method as string | undefined,
+          paymentDate: req.body?.paymentDate as string | undefined
+        })
+        await writeAudit(db, req, {
+          action: 'sale.update_payment',
+          resource: 'payment',
+          companyId: req.params.id,
+          detail: result
+        })
+        res.json(result)
+      } catch (err: any) {
+        res.status(400).json({ error: err.message })
+      }
+    }
+  )
+
+  router.put(
+    '/companies/:id/business/purchases/payments/:paymentId',
+    async (req: AuthRequest, res) => {
+      try {
+        const result = await updatePurchasePayment(
+          req.params.id,
+          req.params.paymentId,
+          'product',
+          {
+            amount: Number(req.body?.amount),
+            method: req.body?.method as string | undefined,
+            paymentDate: req.body?.paymentDate as string | undefined
+          }
+        )
+        await writeAudit(db, req, {
+          action: 'purchase.update_payment',
+          resource: 'payment',
+          companyId: req.params.id,
+          detail: result
+        })
+        res.json(result)
+      } catch (err: any) {
+        res.status(400).json({ error: err.message })
+      }
+    }
+  )
+
+  router.put(
+    '/companies/:id/business/part-purchases/payments/:paymentId',
+    async (req: AuthRequest, res) => {
+      try {
+        const result = await updatePurchasePayment(req.params.id, req.params.paymentId, 'part', {
+          amount: Number(req.body?.amount),
+          method: req.body?.method as string | undefined,
+          paymentDate: req.body?.paymentDate as string | undefined
+        })
+        await writeAudit(db, req, {
+          action: 'part_purchase.update_payment',
+          resource: 'payment',
+          companyId: req.params.id,
+          detail: result
+        })
+        res.json(result)
+      } catch (err: any) {
+        res.status(400).json({ error: err.message })
+      }
+    }
+  )
 
   router.post('/companies/:id/business/repair-voided-ledgers', async (req: AuthRequest, res) => {
     try {

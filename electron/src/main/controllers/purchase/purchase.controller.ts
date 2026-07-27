@@ -57,6 +57,19 @@ class PurchaseController {
       req.body?.payload as any
     )
   }
+
+  async updatePayment(_: Electron.IpcMainInvokeEvent, req: IRequest) {
+    const payload = (req.body?.payload || {}) as {
+      paymentId?: string
+      amount: number
+      method?: string
+      paymentDate?: string
+    }
+    return purchaseService.updatePayment(req.body?.companyId as string, auditFromRequest(req), {
+      ...payload,
+      paymentId: (req.params?.id as string) || payload.paymentId || ''
+    })
+  }
 }
 
 export const purchaseController = new PurchaseController()

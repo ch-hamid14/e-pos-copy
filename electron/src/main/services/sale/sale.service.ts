@@ -84,6 +84,13 @@ export type RecordPaymentPayload = {
   paymentDate?: string
 }
 
+export type UpdatePaymentPayload = {
+  paymentId: string
+  amount: number
+  method?: string
+  paymentDate?: string
+}
+
 export type SaleListFilters = {
   customerId?: string
   fromDate?: string
@@ -311,6 +318,12 @@ function resolveWarranty(
 function assertCanEditSale(ctx: AuditContext): void {
   if (ctx.role !== Roles.COMPANY_OWNER && ctx.role !== Roles.SUPER_ADMIN) {
     throw new Error('Only company owners can edit sales')
+  }
+}
+
+function assertCanEditPayment(ctx: AuditContext): void {
+  if (ctx.role !== Roles.COMPANY_OWNER && ctx.role !== Roles.SUPER_ADMIN) {
+    throw new Error('Only company owners can edit payments')
   }
 }
 
@@ -1455,6 +1468,121 @@ class SaleService {
       })
 
       return { sale: asJson(updatedSale), dueAmount: newDue }
+    })
+  }
+
+  /**
+   * Owner/super-admin: change a recorded payment amount/method/date.
+   * Ledger-safe — reverse old credit, then re-post if amount &gt; 0.
+   */
+  async updatePayment(
+    companyId: string,
+    ctx: AuditContext,
+    payload: UpdatePaymentPayload
+  ): Promise<unknown> {
+    assertCanEditPayment(ctx)
+    const newAmount = round2(Number(payload.amount || 0))
+    if (newAmount < 0) throw new Error('Payment amount cannot be negative')
+
+    return withTransaction(async (transaction) => {
+      const payment = await getDb()('payments')
+        .transacting(transaction)
+        .where({ id: payload.paymentId })
+        .first()
+      if (!payment) throw new Error('Payment not found')
+
+      const sale = await getDb()('sales')
+        .transacting(transaction)
+        .where({ id: payment.sale_id })
+        .first()
+      if (!sale || sale.company_id !== companyId) throw new Error('Sale not found')
+      if (sale.deleted_at || sale.status === SaleStatus.CANCELLED) {
+        throw new Error('Cannot edit payment on a voided sale')
+      }
+
+      const oldAmount = round2(Number(payment.amount || 0))
+      const customerId = sale.customer_id as string
+      const netTotal = round2(Number(sale.net_total || 0))
+      const currentPaid = round2(Number(sale.paid_amount || 0))
+      const newPaid = round2(currentPaid - oldAmount + newAmount)
+      if (newPaid < 0) throw new Error('Payment edit would make paid amount negative')
+      if (newPaid > netTotal) {
+        throw new Error(`Paid total cannot exceed sale net (${netTotal})`)
+      }
+
+      const amountChanged = newAmount !== oldAmount
+      const paymentDate = payload.paymentDate
+        ? new Date(payload.paymentDate)
+        : new Date(payment.payment_date as string | Date)
+      const method = payload.method || (payment.method as string) || PaymentMethod.CASH
+
+      if (amountChanged && oldAmount > 0) {
+        // Reverse prior payment credit (restore receivable).
+        let balance = await computeCustomerBalance(customerId, transaction)
+        balance = round2(balance + oldAmount)
+        await getDb()('ledger_entries').transacting(transaction).insert({
+          id: generateId(),
+          company_id: companyId,
+          customer_id: customerId,
+          type: LedgerEntryType.SALE_DEBIT,
+          amount: oldAmount,
+          reference_type: 'payment_edit',
+          reference_id: payload.paymentId,
+          running_balance: balance,
+          ...auditCreate(ctx),
+          created_at: new Date()
+        })
+      }
+
+      if (newAmount <= 0) {
+        await getDb()('payments').transacting(transaction).where({ id: payload.paymentId }).del()
+      } else {
+        await getDb()('payments')
+          .transacting(transaction)
+          .where({ id: payload.paymentId })
+          .update({
+            amount: newAmount,
+            method,
+            payment_date: paymentDate,
+            updated_by: ctx.userId
+          })
+
+        if (amountChanged) {
+          let balance = await computeCustomerBalance(customerId, transaction)
+          balance = round2(balance - newAmount)
+          await getDb()('ledger_entries').transacting(transaction).insert({
+            id: generateId(),
+            company_id: companyId,
+            customer_id: customerId,
+            type: LedgerEntryType.PAYMENT_CREDIT,
+            amount: newAmount,
+            reference_type: 'sale',
+            reference_id: sale.id,
+            running_balance: balance,
+            ...auditCreate(ctx),
+            created_at: new Date()
+          })
+        }
+      }
+
+      const newDue = round2(netTotal - newPaid)
+      const [updatedSale] = await getDb()('sales')
+        .transacting(transaction)
+        .where({ id: sale.id })
+        .update({ paid_amount: newPaid, due_amount: newDue, ...auditUpdate(ctx) })
+        .returning('*')
+
+      const payments = await getDb()('payments')
+        .transacting(transaction)
+        .where({ sale_id: sale.id })
+        .orderBy('payment_date', 'asc')
+        .orderBy('created_at', 'asc')
+
+      return {
+        sale: asJson(updatedSale),
+        payments: asJsonList(payments),
+        dueAmount: newDue
+      }
     })
   }
 }

@@ -6,10 +6,14 @@ import {
   Button,
   Card,
   Col,
+  DatePicker,
   Descriptions,
+  Form,
   Input,
+  InputNumber,
   Modal,
   Row,
+  Select,
   Spin,
   Statistic,
   Table,
@@ -17,10 +21,12 @@ import {
   Typography,
   message
 } from 'antd'
+import dayjs from 'dayjs'
 import {
   getBusinessPartPurchase,
   getBusinessPurchase,
   repairBusinessPurchaseLedger,
+  updateBusinessPurchasePayment,
   voidBusinessPartPurchase,
   voidBusinessPurchase
 } from '../../api/admin'
@@ -40,6 +46,9 @@ export default function BusinessPurchaseDetailPage({ kind }: { kind: 'product' |
   const [repairing, setRepairing] = useState(false)
   const [voidOpen, setVoidOpen] = useState(false)
   const [reason, setReason] = useState('')
+  const [editPayment, setEditPayment] = useState<any>(null)
+  const [payForm] = Form.useForm()
+  const [payBusy, setPayBusy] = useState(false)
 
   const load = async () => {
     if (!token || !companyId || !purchaseId) return
@@ -89,6 +98,11 @@ export default function BusinessPurchaseDetailPage({ kind }: { kind: 'product' |
   const purchase = detail.purchase as Record<string, any>
   const impact = detail.impact
   const isVoided = Boolean(purchase.deletedAt)
+  const payments = detail.payments || []
+  const otherPaid = (excludeId: string) =>
+    payments
+      .filter((p: any) => p.id !== excludeId)
+      .reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0)
 
   return (
     <div>
@@ -243,6 +257,44 @@ export default function BusinessPurchaseDetailPage({ kind }: { kind: 'product' |
         </Card>
       )}
 
+      <Card title="Payments" bordered={false} className="madix-detail-card" style={{ marginTop: 16 }}>
+        <Table
+          rowKey="id"
+          dataSource={payments}
+          pagination={false}
+          locale={{ emptyText: 'No payments' }}
+          columns={[
+            { title: 'Date', dataIndex: 'paymentDate', render: formatDate },
+            { title: 'Method', dataIndex: 'method' },
+            { title: 'Amount', dataIndex: 'amount', align: 'right', render: formatRs },
+            ...(!isVoided
+              ? [
+                  {
+                    title: '',
+                    width: 80,
+                    render: (_: unknown, record: any) => (
+                      <Button
+                        type="link"
+                        size="small"
+                        onClick={() => {
+                          setEditPayment(record)
+                          payForm.setFieldsValue({
+                            amount: Number(record.amount || 0),
+                            method: record.method || 'cash',
+                            paymentDate: record.paymentDate ? dayjs(record.paymentDate) : dayjs()
+                          })
+                        }}
+                      >
+                        Edit
+                      </Button>
+                    )
+                  }
+                ]
+              : [])
+          ]}
+        />
+      </Card>
+
       <Modal
         title="Void purchase"
         open={voidOpen}
@@ -293,6 +345,69 @@ export default function BusinessPurchaseDetailPage({ kind }: { kind: 'product' |
           onChange={(e) => setReason(e.target.value)}
           placeholder="e.g. Duplicate purchase / wrong supplier"
         />
+      </Modal>
+
+      <Modal
+        title="Edit payment"
+        open={Boolean(editPayment)}
+        okText="Save"
+        confirmLoading={payBusy}
+        onCancel={() => setEditPayment(null)}
+        onOk={async () => {
+          if (!token || !editPayment) return
+          const values = await payForm.validateFields()
+          const amount = Number(values.amount || 0)
+          const max = Math.max(0, Number(purchase.netTotal || 0) - otherPaid(editPayment.id))
+          if (amount > max) {
+            message.error(`Amount cannot exceed ${max}`)
+            return
+          }
+          setPayBusy(true)
+          try {
+            const result = await updateBusinessPurchasePayment(
+              token,
+              companyId,
+              editPayment.id,
+              kind,
+              {
+                amount,
+                method: values.method,
+                paymentDate: values.paymentDate.format('YYYY-MM-DD')
+              }
+            )
+            message.success(result.removed ? 'Payment removed' : 'Payment updated')
+            setEditPayment(null)
+            await load()
+          } catch (err: any) {
+            message.error(err.message)
+          } finally {
+            setPayBusy(false)
+          }
+        }}
+      >
+        <Form form={payForm} layout="vertical">
+          <Form.Item
+            name="amount"
+            label="Amount"
+            rules={[{ required: true }]}
+            extra="Set 0 to remove this payment"
+          >
+            <InputNumber min={0} style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="method" label="Method" rules={[{ required: true }]}>
+            <Select
+              options={[
+                { value: 'cash', label: 'Cash' },
+                { value: 'bank', label: 'Bank' },
+                { value: 'card', label: 'Card' },
+                { value: 'mixed', label: 'Mixed' }
+              ]}
+            />
+          </Form.Item>
+          <Form.Item name="paymentDate" label="Payment date" rules={[{ required: true }]}>
+            <DatePicker style={{ width: '100%' }} />
+          </Form.Item>
+        </Form>
       </Modal>
     </div>
   )

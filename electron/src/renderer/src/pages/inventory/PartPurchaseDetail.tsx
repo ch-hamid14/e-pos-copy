@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Button, Card, Col, Descriptions, Row, Spin, Statistic, Table, Tag, Typography } from 'antd'
+import { Button, Card, Col, Descriptions, Row, Spin, Statistic, Table, Tag, Typography, message } from 'antd'
 import { ArrowLeftOutlined, EditOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { App_Routes, Roles } from '@/common'
 import { partPurchaseAPI } from '@/renderer/services'
 import { useSession } from '@/renderer/hooks/useSession'
+import { EditPaymentModal } from '@/renderer/components/forms/EditPaymentModal'
 import { formatRs, PageHeader } from '../shared/page-ui'
 
 const { Text } = Typography
@@ -13,18 +14,24 @@ const { Text } = Typography
 export const PartPurchaseDetail = () => {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { user } = useSession()
+  const { companyId, user, audit } = useSession()
   const canEditPurchases = user?.role === Roles.COMPANY_OWNER
+  const canEditPayments = user?.role === Roles.COMPANY_OWNER
   const [loading, setLoading] = useState(true)
   const [detail, setDetail] = useState<any>(null)
+  const [editPayment, setEditPayment] = useState<any>(null)
 
-  useEffect(() => {
+  const load = () => {
     if (!id) return
     setLoading(true)
     partPurchaseAPI
       .get(id)
       .then(setDetail)
       .finally(() => setLoading(false))
+  }
+
+  useEffect(() => {
+    load()
   }, [id])
 
   const totalUnits = useMemo(
@@ -65,6 +72,11 @@ export const PartPurchaseDetail = () => {
   }
 
   const purchase = detail.purchase
+  const payments = detail.payments || []
+  const otherPaid = (excludeId: string) =>
+    payments
+      .filter((p: any) => p.id !== excludeId)
+      .reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0)
 
   return (
     <div>
@@ -195,12 +207,13 @@ export const PartPurchaseDetail = () => {
         />
       </Card>
 
-      {(detail.payments?.length ?? 0) > 0 && (
+      {(payments.length > 0 || canEditPayments) && (
         <Card title="Payments" bordered={false} className="shadow-sm">
           <Table
             rowKey="id"
-            dataSource={detail.payments}
+            dataSource={payments}
             pagination={false}
+            locale={{ emptyText: 'No payments recorded' }}
             columns={[
               {
                 title: 'Date',
@@ -208,10 +221,47 @@ export const PartPurchaseDetail = () => {
                 render: (v) => dayjs(v).format('DD MMM YYYY')
               },
               { title: 'Method', dataIndex: 'method' },
-              { title: 'Amount', dataIndex: 'amount', align: 'right' as const, render: formatRs }
+              { title: 'Amount', dataIndex: 'amount', align: 'right' as const, render: formatRs },
+              ...(canEditPayments
+                ? [
+                    {
+                      title: '',
+                      width: 80,
+                      render: (_: unknown, record: any) => (
+                        <Button type="link" size="small" onClick={() => setEditPayment(record)}>
+                          Edit
+                        </Button>
+                      )
+                    }
+                  ]
+                : [])
             ]}
           />
         </Card>
+      )}
+
+      {editPayment && (
+        <EditPaymentModal
+          open={Boolean(editPayment)}
+          maxAmount={Math.max(0, Number(purchase.netTotal || 0) - otherPaid(editPayment.id))}
+          initial={{
+            amount: Number(editPayment.amount || 0),
+            method: editPayment.method,
+            paymentDate: editPayment.paymentDate
+          }}
+          onCancel={() => setEditPayment(null)}
+          onSave={async (values) => {
+            try {
+              await partPurchaseAPI.updatePayment(companyId, audit(), editPayment.id, values)
+              message.success(values.amount > 0 ? 'Payment updated' : 'Payment removed')
+              setEditPayment(null)
+              load()
+            } catch (err: any) {
+              message.error(err.message || 'Update failed')
+              throw err
+            }
+          }}
+        />
       )}
     </div>
   )

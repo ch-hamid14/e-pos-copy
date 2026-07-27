@@ -110,7 +110,17 @@ export const purchaseAPI = {
   due: (companyId: string, branchId: string) =>
     ipcCall(`GET:${Channels.PURCHASES}:due`, { query: { companyId, branchId } }),
   recordPayment: (companyId: string, audit: SessionAudit, payload: Record<string, unknown>) =>
-    ipcCall(`POST:${Channels.PURCHASES}:payment`, { body: auditBody(audit, { companyId, payload }) })
+    ipcCall(`POST:${Channels.PURCHASES}:payment`, { body: auditBody(audit, { companyId, payload }) }),
+  updatePayment: (
+    companyId: string,
+    audit: SessionAudit,
+    paymentId: string,
+    payload: Record<string, unknown>
+  ) =>
+    ipcCall(`PUT:${Channels.PURCHASES}:payment`, {
+      params: { id: paymentId },
+      body: auditBody(audit, { companyId, payload: { ...payload, paymentId } })
+    })
 }
 
 export const inventoryAPI = {
@@ -164,6 +174,16 @@ export const partPurchaseAPI = {
   recordPayment: (companyId: string, audit: SessionAudit, payload: Record<string, unknown>) =>
     ipcCall(`POST:${Channels.PART_PURCHASES}:payment`, {
       body: auditBody(audit, { companyId, payload })
+    }),
+  updatePayment: (
+    companyId: string,
+    audit: SessionAudit,
+    paymentId: string,
+    payload: Record<string, unknown>
+  ) =>
+    ipcCall(`PUT:${Channels.PART_PURCHASES}:payment`, {
+      params: { id: paymentId },
+      body: auditBody(audit, { companyId, payload: { ...payload, paymentId } })
     })
 }
 
@@ -216,7 +236,17 @@ export const saleAPI = {
       body: auditBody(audit, { companyId, branchId, payload })
     }),
   recordPayment: (companyId: string, audit: SessionAudit, payload: Record<string, unknown>) =>
-    ipcCall(`POST:${Channels.SALES}:payment`, { body: auditBody(audit, { companyId, payload }) })
+    ipcCall(`POST:${Channels.SALES}:payment`, { body: auditBody(audit, { companyId, payload }) }),
+  updatePayment: (
+    companyId: string,
+    audit: SessionAudit,
+    paymentId: string,
+    payload: Record<string, unknown>
+  ) =>
+    ipcCall(`PUT:${Channels.SALES}:payment`, {
+      params: { id: paymentId },
+      body: auditBody(audit, { companyId, payload: { ...payload, paymentId } })
+    })
 }
 
 export const customerAPI = {

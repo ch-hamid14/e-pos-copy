@@ -1024,6 +1024,187 @@ export async function backfillMissingPurchaseApLedgers(companyId: string) {
   }
 }
 
+/** Super-admin: edit a sale payment with ledger reverse + re-post. */
+export async function updateSalePayment(
+  companyId: string,
+  paymentId: string,
+  payload: { amount: number; method?: string; paymentDate?: string }
+) {
+  const db = await getCompanyDb(companyId, { forOps: true })
+  const newAmount = roundAmount(Number(payload.amount || 0))
+  if (newAmount < 0) throw new Error('Payment amount cannot be negative')
+
+  return db.transaction(async (trx) => {
+    const payment = await trx('payments').where({ id: paymentId }).first()
+    if (!payment) throw new Error('Payment not found')
+
+    const sale = await trx('sales').where({ id: payment.sale_id, company_id: companyId }).first()
+    if (!sale) throw new Error('Sale not found')
+    if (sale.deleted_at || sale.status === SaleStatus.CANCELLED) {
+      throw new Error('Cannot edit payment on a voided sale')
+    }
+
+    const oldAmount = roundAmount(Number(payment.amount || 0))
+    const customerId = String(sale.customer_id)
+    const netTotal = roundAmount(Number(sale.net_total || 0))
+    const currentPaid = roundAmount(Number(sale.paid_amount || 0))
+    const newPaid = roundAmount(currentPaid - oldAmount + newAmount)
+    if (newPaid < 0) throw new Error('Payment edit would make paid amount negative')
+    if (newPaid > netTotal) throw new Error(`Paid total cannot exceed sale net (${netTotal})`)
+
+    const amountChanged = newAmount !== oldAmount
+    const paymentDate = payload.paymentDate
+      ? new Date(payload.paymentDate)
+      : new Date(payment.payment_date as string | Date)
+    const method = payload.method || String(payment.method || 'cash')
+
+    if (amountChanged && oldAmount > 0) {
+      await insertLedger(
+        trx,
+        companyId,
+        customerId,
+        'sale_debit',
+        oldAmount,
+        'payment_edit',
+        paymentId
+      )
+    }
+
+    if (newAmount <= 0) {
+      await trx('payments').where({ id: paymentId }).del()
+    } else {
+      await trx('payments').where({ id: paymentId }).update({
+        amount: newAmount,
+        method,
+        payment_date: paymentDate
+      })
+      if (amountChanged) {
+        await insertLedger(
+          trx,
+          companyId,
+          customerId,
+          'payment_credit',
+          newAmount,
+          'sale',
+          String(sale.id)
+        )
+      }
+    }
+
+    const newDue = roundAmount(netTotal - newPaid)
+    await trx('sales').where({ id: sale.id }).update({
+      paid_amount: newPaid,
+      due_amount: newDue,
+      updated_at: new Date()
+    })
+
+    return {
+      paymentId,
+      saleId: String(sale.id),
+      paidAmount: newPaid,
+      dueAmount: newDue,
+      removed: newAmount <= 0
+    }
+  })
+}
+
+/** Super-admin: edit a purchase / part-purchase payment with AP ledger reverse + re-post. */
+export async function updatePurchasePayment(
+  companyId: string,
+  paymentId: string,
+  kind: 'product' | 'part',
+  payload: { amount: number; method?: string; paymentDate?: string }
+) {
+  const db = await getCompanyDb(companyId, { forOps: true })
+  const newAmount = roundAmount(Number(payload.amount || 0))
+  if (newAmount < 0) throw new Error('Payment amount cannot be negative')
+
+  return db.transaction(async (trx) => {
+    const payment = await trx('purchase_payments')
+      .where({ id: paymentId, company_id: companyId })
+      .first()
+    if (!payment) throw new Error('Payment not found')
+
+    const purchaseId =
+      kind === 'product' ? payment.purchase_id : payment.part_purchase_id
+    if (!purchaseId) throw new Error('Payment does not match purchase kind')
+
+    const table = kind === 'product' ? 'purchases' : 'part_purchases'
+    const purchase = await trx(table)
+      .where({ id: purchaseId, company_id: companyId })
+      .first()
+    if (!purchase) throw new Error('Purchase not found')
+    if (purchase.deleted_at) throw new Error('Cannot edit payment on a voided purchase')
+
+    const oldAmount = roundAmount(Number(payment.amount || 0))
+    const supplierId = String(purchase.supplier_id)
+    const netTotal = roundAmount(Number(purchase.net_total || 0))
+    const currentPaid = roundAmount(Number(purchase.paid_amount || 0))
+    const newPaid = roundAmount(currentPaid - oldAmount + newAmount)
+    if (newPaid < 0) throw new Error('Payment edit would make paid amount negative')
+    if (newPaid > netTotal) {
+      throw new Error(`Paid total cannot exceed purchase net (${netTotal})`)
+    }
+
+    const amountChanged = newAmount !== oldAmount
+    const paymentDate = payload.paymentDate
+      ? new Date(payload.paymentDate)
+      : new Date(payment.payment_date as string | Date)
+    const method = payload.method || String(payment.method || 'cash')
+    const referenceType = kind === 'product' ? 'purchase' : 'part_purchase'
+
+    if (amountChanged && oldAmount > 0) {
+      await insertSupplierLedger(
+        trx,
+        companyId,
+        supplierId,
+        'purchase_debit',
+        oldAmount,
+        'payment_edit',
+        paymentId
+      )
+    }
+
+    if (newAmount <= 0) {
+      await trx('purchase_payments').where({ id: paymentId }).del()
+    } else {
+      await trx('purchase_payments').where({ id: paymentId }).update({
+        amount: newAmount,
+        method,
+        payment_date: paymentDate,
+        updated_at: new Date()
+      })
+      if (amountChanged) {
+        await insertSupplierLedger(
+          trx,
+          companyId,
+          supplierId,
+          'supplier_payment_credit',
+          newAmount,
+          referenceType,
+          String(purchaseId)
+        )
+      }
+    }
+
+    const newDue = roundAmount(netTotal - newPaid)
+    await trx(table).where({ id: purchaseId }).update({
+      paid_amount: newPaid,
+      due_amount: newDue,
+      updated_at: new Date()
+    })
+
+    return {
+      paymentId,
+      purchaseId: String(purchaseId),
+      kind,
+      paidAmount: newPaid,
+      dueAmount: newDue,
+      removed: newAmount <= 0
+    }
+  })
+}
+
 export async function listPurchases(companyId: string, filters: ListFilters & { kind?: string } = {}) {
   const db = await getCompanyDb(companyId, { forOps: true })
   const page = Math.max(1, filters.page || 1)
@@ -1188,6 +1369,11 @@ export async function getPurchaseDetail(companyId: string, purchaseId: string) {
     .orderBy('pi.serial_number', 'asc')
 
   const sold = items.filter((i) => i.status !== ProductItemStatus.IN_STOCK)
+  const payments = await db('purchase_payments')
+    .where({ purchase_id: purchaseId })
+    .orderBy('payment_date', 'asc')
+    .orderBy('created_at', 'asc')
+
   return {
     kind: 'product' as const,
     purchase: {
@@ -1201,6 +1387,7 @@ export async function getPurchaseDetail(companyId: string, purchaseId: string) {
       category: item.category_name ? { name: item.category_name } : null,
       color: item.color_name ? { name: item.color_name } : null
     })),
+    payments: rowsToCamel(payments),
     impact: {
       canVoid: sold.length === 0 && items.length > 0 && !purchase.deleted_at,
       blockers: sold.length
@@ -1260,6 +1447,12 @@ export async function getPartPurchaseDetail(companyId: string, purchaseId: strin
       partName: line.part_name,
       partSku: line.part_sku
     })),
+    payments: rowsToCamel(
+      await db('purchase_payments')
+        .where({ part_purchase_id: purchaseId })
+        .orderBy('payment_date', 'asc')
+        .orderBy('created_at', 'asc')
+    ),
     impact: {
       canVoid: blockers.length === 0 && lines.length > 0,
       blockers,

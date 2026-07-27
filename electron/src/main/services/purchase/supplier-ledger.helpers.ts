@@ -245,3 +245,60 @@ export async function adjustPurchaseApNetChange(
 }
 
 export { roundRs }
+
+/** Owner edit of a supplier payment — reverse AP credit then re-post if needed. */
+export async function reviseSupplierPaymentLedger(
+  transaction: Knex.Transaction,
+  opts: {
+    companyId: string
+    supplierId: string
+    oldAmount: number
+    newAmount: number
+    paymentId: string
+    referenceType: 'purchase' | 'part_purchase'
+    referenceId: string
+    ctx: AuditContext
+  }
+): Promise<void> {
+  const oldAmount = roundRs(opts.oldAmount)
+  const newAmount = roundRs(opts.newAmount)
+  if (oldAmount === newAmount) return
+
+  let balance = await computeSupplierBalance(opts.supplierId, transaction)
+  const now = new Date()
+
+  if (oldAmount > 0) {
+    // Undo prior payment credit → increase AP.
+    balance = roundRs(balance + oldAmount)
+    await getDb()('ledger_entries').transacting(transaction).insert({
+      id: generateId(),
+      company_id: opts.companyId,
+      customer_id: null,
+      supplier_id: opts.supplierId,
+      type: LedgerEntryType.PURCHASE_DEBIT,
+      amount: oldAmount,
+      reference_type: 'payment_edit',
+      reference_id: opts.paymentId,
+      running_balance: balance,
+      ...auditCreate(opts.ctx),
+      created_at: now
+    })
+  }
+
+  if (newAmount > 0) {
+    balance = roundRs(balance - newAmount)
+    await getDb()('ledger_entries').transacting(transaction).insert({
+      id: generateId(),
+      company_id: opts.companyId,
+      customer_id: null,
+      supplier_id: opts.supplierId,
+      type: LedgerEntryType.SUPPLIER_PAYMENT_CREDIT,
+      amount: newAmount,
+      reference_type: opts.referenceType,
+      reference_id: opts.referenceId,
+      running_balance: balance,
+      ...auditCreate(opts.ctx),
+      created_at: new Date(now.getTime() + 1)
+    })
+  }
+}
